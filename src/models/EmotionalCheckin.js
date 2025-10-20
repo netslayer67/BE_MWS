@@ -12,23 +12,28 @@ const emotionalCheckinSchema = new mongoose.Schema({
         required: true
     },
 
-    // Weather-based mood selection
+    // Weather-based mood selection - allow AI to generate any weather types for broader learning
     weatherType: {
         type: String,
-        enum: ['sunny', 'partly-cloudy', 'light-rain', 'thunderstorms', 'tornado', 'snowy', 'rainbow', 'foggy', 'heatwave', 'windy'],
         required: true
     },
 
-    // Selected mood categories
+    // Selected mood categories - allow AI to detect any emotions for broader learning
     selectedMoods: [{
-        type: String,
-        enum: ['happy', 'excited', 'calm', 'hopeful', 'sad', 'anxious', 'angry', 'fear', 'tired', 'hungry', 'lonely', 'bored', 'overwhelmed', 'scattered']
+        type: String
     }],
 
     // Detailed reflection
     details: {
         type: String,
         maxlength: 500,
+        trim: true
+    },
+
+    // User reflection on AI emotion scan results
+    userReflection: {
+        type: String,
+        maxlength: 1000,
         trim: true
     },
 
@@ -101,6 +106,68 @@ const emotionalCheckinSchema = new mongoose.Schema({
             max: 100
         },
         processingTime: Number
+    },
+
+    // AI Emotion Scan data from real-time facial analysis
+    aiEmotionScan: {
+        valence: { type: Number, min: -1, max: 1 }, // Emotional valence (-1 to +1)
+        arousal: { type: Number, min: -1, max: 1 }, // Emotional arousal (-1 to +1)
+        intensity: { type: Number, min: 0, max: 100 }, // Expression intensity
+        detectedEmotion: String, // Primary detected emotion
+        confidence: { type: Number, min: 0, max: 100 }, // AI confidence score
+        explanations: [String], // Human-readable explanations
+        temporalAnalysis: {
+            transitions: [{
+                from: String,
+                to: String,
+                timestamp: Date,
+                _id: false
+            }],
+            stability: { type: Number, min: 0, max: 1 },
+            dominantEmotion: String,
+            emotionVariability: { type: Number, min: 0, max: 1 }
+        },
+        // Advanced psychological analysis
+        emotionalAuthenticity: {
+            isAuthentic: Boolean,
+            authenticityScore: { type: Number, min: 0, max: 100 },
+            maskedEmotion: String,
+            reasoning: String
+        },
+        psychologicalDepth: {
+            emotionalSuppression: { type: Number, min: 0, max: 100 },
+            socialMasking: { type: Number, min: 0, max: 100 },
+            underlyingStress: { type: Number, min: 0, max: 100 },
+            resilienceIndicators: { type: Number, min: 0, max: 100 }
+        }
+    },
+
+    // User emotional patterns for AI learning
+    emotionalPatterns: {
+        // Historical emotional data for personalization
+        emotionHistory: [{
+            emotion: String,
+            valence: Number,
+            arousal: Number,
+            intensity: Number,
+            context: String, // User's reflection on what triggered the emotion
+            timestamp: { type: Date, default: Date.now },
+            _id: false
+        }],
+        // User's typical emotional responses
+        baselineEmotions: {
+            averageValence: { type: Number, min: -1, max: 1 },
+            averageArousal: { type: Number, min: -1, max: 1 },
+            commonTriggers: [String],
+            emotionalStability: { type: Number, min: 0, max: 1 }
+        },
+        // Personalized insights learned over time
+        learnedInsights: [{
+            insight: String,
+            confidence: { type: Number, min: 0, max: 100 },
+            learnedAt: { type: Date, default: Date.now },
+            _id: false
+        }]
     },
 
     // Metadata

@@ -3,19 +3,12 @@ const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const { sendSuccess, sendError } = require('../utils/response');
 
-// Generate JWT token with weekly expiry (Monday reset)
+// Generate JWT token with 24 hour expiry for testing
 const generateToken = (userId) => {
-    // Calculate expiry for next Monday
-    const now = new Date();
-    const daysUntilMonday = (8 - now.getDay()) % 7 || 7; // If today is Monday, wait 7 days
-    const expiryDate = new Date(now);
-    expiryDate.setDate(now.getDate() + daysUntilMonday);
-    expiryDate.setHours(0, 0, 0, 0); // Reset to start of Monday
-
     return jwt.sign(
         { userId },
         process.env.JWT_SECRET,
-        { expiresIn: Math.floor((expiryDate.getTime() - now.getTime()) / 1000) } // seconds
+        { expiresIn: '24h' } // 24 hours for easier testing
     );
 };
 
@@ -23,16 +16,22 @@ const generateToken = (userId) => {
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
+        console.log('Login attempt for:', email);
 
         // Find user by email
         const user = await User.findOne({ email: email.toLowerCase() });
+        console.log('User found:', !!user);
         if (!user) {
+            console.log('User not found');
             return sendError(res, 'Invalid email or password', 401);
         }
 
         // Check password
+        console.log('Checking password...');
         const isPasswordValid = await user.comparePassword(password);
+        console.log('Password valid:', isPasswordValid);
         if (!isPasswordValid) {
+            console.log('Invalid password');
             return sendError(res, 'Invalid email or password', 401);
         }
 

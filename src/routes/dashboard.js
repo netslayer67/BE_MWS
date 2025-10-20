@@ -3,22 +3,43 @@ const router = express.Router();
 const {
     getDashboardStats,
     getMoodDistribution,
-    getRecentCheckins
+    getRecentCheckins,
+    getUserTrends,
+    exportDashboardData
 } = require('../controllers/dashboardController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { validateQuery } = require('../middleware/validation');
 
-// All dashboard routes require authentication and admin access
+// All dashboard routes require authentication and appropriate access
 router.use(authenticate);
-router.use(requireAdmin);
+// Allow directorate, superadmin, and admin roles
+router.use((req, res, next) => {
+    const userRole = req.user.role;
+    const allowedRoles = ['directorate', 'superadmin', 'admin'];
 
-// Get dashboard statistics
+    if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({
+            success: false,
+            message: 'Access denied. Dashboard access requires directorate, superadmin, or admin privileges.'
+        });
+    }
+
+    next();
+});
+
+// Get dashboard statistics with period filtering
 router.get('/stats', getDashboardStats);
 
 // Get mood distribution data
 router.get('/moods', getMoodDistribution);
 
-// Get recent check-ins
+// Get recent check-ins with advanced filtering
 router.get('/checkins', getRecentCheckins);
+
+// Get user trend data
+router.get('/user-trends', getUserTrends);
+
+// Export dashboard data
+router.get('/export', exportDashboardData);
 
 module.exports = router;

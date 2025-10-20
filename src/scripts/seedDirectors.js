@@ -5,7 +5,7 @@ require('dotenv').config();
 const directors = [
     {
         name: 'Ms. Mahrukh',
-        email: 'mahrukh@millennia.edu',
+        email: 'mahrukh@millennia21.id',
         password: 'password123', // In production, use proper hashing
         role: 'directorate',
         department: 'Academic',
@@ -14,7 +14,7 @@ const directors = [
     },
     {
         name: 'Ms. Latifah',
-        email: 'latifah@millennia.edu',
+        email: 'latifah@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Student Affairs',
@@ -23,7 +23,7 @@ const directors = [
     },
     {
         name: 'Ms. Kholida',
-        email: 'kholida@millennia.edu',
+        email: 'kholida@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Counseling',
@@ -32,7 +32,7 @@ const directors = [
     },
     {
         name: 'Mr. Aria',
-        email: 'aria@millennia.edu',
+        email: 'aria@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Operations',
@@ -41,7 +41,7 @@ const directors = [
     },
     {
         name: 'Ms. Hana',
-        email: 'hana@millennia.edu',
+        email: 'hana@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Finance',
@@ -50,7 +50,7 @@ const directors = [
     },
     {
         name: 'Ms. Wina',
-        email: 'wina@millennia.edu',
+        email: 'wina@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'HR',
@@ -59,7 +59,7 @@ const directors = [
     },
     {
         name: 'Ms. Sarah',
-        email: 'sarah@millennia.edu',
+        email: 'sarah@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'IT',
@@ -68,7 +68,7 @@ const directors = [
     },
     {
         name: 'Ms. Hanny',
-        email: 'hanny@millennia.edu',
+        email: 'hanny@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Facilities',
@@ -77,7 +77,7 @@ const directors = [
     },
     {
         name: 'Pak Dodi',
-        email: 'dodi@millennia.edu',
+        email: 'dodi@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Security',
@@ -86,7 +86,7 @@ const directors = [
     },
     {
         name: 'Pak Faisal',
-        email: 'faisal@millennia.edu',
+        email: 'faisal@millennia21.id',
         password: 'password123',
         role: 'directorate',
         department: 'Maintenance',
@@ -102,24 +102,25 @@ async function seedDirectors() {
 
         console.log('🌱 Seeding directorate users...');
 
+        // Clear existing directorate users first to ensure clean state
+        await User.deleteMany({ role: 'directorate' });
+        console.log('🗑️  Cleared existing directorate users');
+
         for (const director of directors) {
-            // Check if user already exists
-            const existingUser = await User.findOne({ email: director.email });
-
-            if (existingUser) {
-                console.log(`⚠️  User ${director.name} already exists, skipping...`);
-                continue;
-            }
-
-            // Hash password (in production, use proper bcrypt)
+            // Hash password properly with consistent salt rounds
             const bcrypt = require('bcryptjs');
-            director.password = await bcrypt.hash(director.password, 10);
+            const hashedPassword = await bcrypt.hash(director.password, 12);
 
-            // Create user
-            const newUser = new User(director);
+            // Create user with hashed password
+            const userData = {
+                ...director,
+                password: hashedPassword
+            };
+
+            const newUser = new User(userData);
             await newUser.save();
 
-            console.log(`✅ Created director: ${director.name} (${director.department})`);
+            console.log(`✅ Created director: ${director.name} (${director.email}) - ${director.department}`);
         }
 
         console.log('🎉 Directorate seeding completed!');

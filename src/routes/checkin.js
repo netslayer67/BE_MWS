@@ -1,21 +1,62 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const {
     submitCheckin,
+    submitAICheckin,
     getTodayCheckin,
     getCheckinResults,
     getCheckinHistory,
-    getAvailableContacts
+    getAvailableContacts,
+    analyzeEmotion
 } = require('../controllers/checkinController');
 const { authenticate, requireStaffOrTeacher } = require('../middleware/auth');
 const { validate, validateQuery } = require('../middleware/validation');
 const { emotionalCheckinSchema, paginationSchema, dateRangeSchema } = require('../utils/validationSchemas');
 
+// Configure multer for image upload with destination
+const upload = multer({
+    dest: 'uploads/', // Specify destination directory
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
+
+// Configure multer for AI submit (handles both form data and JSON)
+const aiUpload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
+
+// Analyze emotion from image (before check-in) - no auth required for emotion analysis
+router.post('/emotion/analyze', upload.single('image'), analyzeEmotion);
+
 // All check-in routes require authentication
 router.use(authenticate);
 
 // Submit emotional check-in (staff/teacher only)
-router.post('/submit', requireStaffOrTeacher, validate(emotionalCheckinSchema), submitCheckin);
+router.post('/submit', requireStaffOrTeacher, submitCheckin);
+
+// Submit AI emotion scan check-in (staff/teacher only) - separate route with different validation
+router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), (req, res, next) => {
+    // Log incoming request for debugging
+    console.log('🤖 AI Submit Route - Incoming request body keys:', Object.keys(req.body || {}));
+    console.log('🤖 AI Submit Route - Files:', req.files || req.file ? 'Present' : 'None');
+    console.log('🤖 AI Submit Route - Raw body:', req.body);
+    next();
+}, submitAICheckin);
 
 // Get today's check-in
 router.get('/today', getTodayCheckin);

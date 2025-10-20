@@ -403,4 +403,52 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
     }
 }
 
-module.exports = new AIAnalysisService();
+// Generate personalized greeting based on emotional check-in data
+const generatePersonalizedGreeting = async (checkinData, aiAnalysis) => {
+    try {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+        const prompt = `
+You are an empathetic AI wellness coach. Based on this emotional check-in data, create a personalized, warm greeting (just 2-4 words) that acknowledges their current emotional state and makes them feel seen and supported.
+
+Emotional State: ${aiAnalysis.emotionalState}
+Weather Type: ${checkinData.weatherType}
+Selected Moods: ${checkinData.selectedMoods.join(', ')}
+Presence Level: ${checkinData.presenceLevel}/10
+Capacity Level: ${checkinData.capacityLevel}/10
+Details: ${checkinData.details || 'No additional details provided'}
+
+The greeting should be:
+- Personal and warm (use words like "beautiful", "brave", "wonderful", "gentle")
+- Acknowledge their emotional state without being clinical
+- Be encouraging and supportive
+- Maximum 4 words (very short and memorable)
+- End with appropriate emoji if it fits naturally
+
+Examples:
+- "Hello, beautiful soul 🌞"
+- "Welcome, brave heart 💪"
+- "Good to see you ✨"
+- "Hello, gentle spirit 💙"
+
+Create one short, personalized greeting:`;
+
+        const result = await model.generateContent(prompt);
+        const greeting = result.response.text().trim();
+
+        // Clean up the response (remove quotes, extra whitespace)
+        return greeting.replace(/^["']|["']$/g, '').trim();
+
+    } catch (error) {
+        console.error('Error generating personalized greeting:', error);
+        // Fallback to a generic but warm greeting
+        return "Welcome back, wonderful you! ✨";
+    }
+};
+
+module.exports = {
+    aiAnalysisService: new AIAnalysisService(),
+    generatePersonalizedGreeting
+};

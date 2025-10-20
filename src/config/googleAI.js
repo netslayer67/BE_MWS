@@ -1,12 +1,12 @@
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class GoogleAIService {
     constructor() {
-        // Use the modern Google Gen AI SDK
-        this.ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY });
+        // Use the correct Google Generative AI SDK
+        this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
         // Try different models in order of preference (modern models)
-        const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const models = ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'];
 
         for (const modelName of models) {
             try {
@@ -27,11 +27,9 @@ class GoogleAIService {
 
     async generateContent(prompt) {
         try {
-            const response = await this.ai.models.generateContent({
-                model: this.modelName,
-                contents: prompt
-                // Removed config to use free tier defaults
-            });
+            const model = this.ai.getGenerativeModel({ model: this.modelName });
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
             console.log('🔍 Full AI Response Object:', JSON.stringify(response, null, 2));
             return response;
         } catch (error) {

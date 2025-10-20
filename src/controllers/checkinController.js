@@ -1,9 +1,254 @@
+// Enhance AI analysis with user reflection context
+const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
+    try {
+        const userReflection = checkinData.userReflection?.toLowerCase() || '';
+        const detectedEmotion = checkinData.aiEmotionScan?.detectedEmotion?.toLowerCase() || 'neutral';
+
+        // Enhanced motivational messages based on user context
+        const getContextualMotivationalMessage = () => {
+            // Work/stress related triggers
+            if (userReflection.includes('meeting') || userReflection.includes('work') || userReflection.includes('stress') || userReflection.includes('deadline')) {
+                if (detectedEmotion.includes('anxious') || detectedEmotion.includes('stressed')) {
+                    return "Remember that your dedication to excellence is what makes you so valuable. Take a moment to breathe and know that you've handled challenging situations before - you have the strength to navigate this too.";
+                } else if (detectedEmotion.includes('tired') || detectedEmotion.includes('exhausted')) {
+                    return "Your commitment to your work is truly admirable. In moments like these, remember that rest isn't weakness - it's the wisdom that allows you to bring your best self to everything you do.";
+                }
+            }
+
+            // Relationship/family triggers
+            if (userReflection.includes('family') || userReflection.includes('friend') || userReflection.includes('relationship') || userReflection.includes('partner')) {
+                if (detectedEmotion.includes('sad') || detectedEmotion.includes('lonely')) {
+                    return "The depth of love and connection you feel for others is one of your greatest strengths. Even in difficult moments, this capacity for caring shows what a beautiful heart you have.";
+                } else if (detectedEmotion.includes('happy') || detectedEmotion.includes('grateful')) {
+                    return "The relationships that bring you joy are treasures worth celebrating. Your ability to connect deeply with others is a gift not just to them, but to your own soul as well.";
+                }
+            }
+
+            // Personal growth/health triggers
+            if (userReflection.includes('health') || userReflection.includes('tired') || userReflection.includes('sick') || userReflection.includes('rest')) {
+                if (detectedEmotion.includes('anxious') || detectedEmotion.includes('worried')) {
+                    return "Your awareness of your body's needs shows such self-compassion. Trust that you're capable of nurturing yourself through this. Your body and mind work together beautifully when given the care they deserve.";
+                } else if (detectedEmotion.includes('calm') || detectedEmotion.includes('peaceful')) {
+                    return "What a beautiful act of self-love it is to listen to your body's wisdom. This awareness and care you show yourself will serve you beautifully in all areas of your life.";
+                }
+            }
+
+            // Achievement/success triggers
+            if (userReflection.includes('success') || userReflection.includes('achievement') || userReflection.includes('proud') || userReflection.includes('accomplish')) {
+                if (detectedEmotion.includes('happy') || detectedEmotion.includes('excited')) {
+                    return "Your ability to recognize and celebrate your achievements shows such healthy self-awareness. This joy in your accomplishments is well-earned and beautifully deserved.";
+                } else if (detectedEmotion.includes('overwhelmed') || detectedEmotion.includes('anxious')) {
+                    return "Even in moments of pressure, your drive for excellence shines through. Remember that your worth isn't measured by perfection, but by the beautiful effort you bring to everything you do.";
+                }
+            }
+
+            // Default contextual motivation based on emotion
+            if (detectedEmotion.includes('happy') || detectedEmotion.includes('joy')) {
+                return "Whatever is bringing this light to your eyes, may it continue to nourish your spirit. Your capacity for joy is a beautiful gift to yourself and everyone around you.";
+            } else if (detectedEmotion.includes('sad') || detectedEmotion.includes('challenging')) {
+                return "Your willingness to feel deeply, even when it brings sadness, shows what a beautifully sensitive soul you are. This emotional depth is a strength, not a weakness.";
+            } else if (detectedEmotion.includes('anxious') || detectedEmotion.includes('worried')) {
+                return "Your awareness of uncertainty shows how deeply you care about navigating life thoughtfully. This mindfulness, even when it brings anxiety, is a sign of your wisdom and care.";
+            } else {
+                return "Whatever you're experiencing right now, know that your feelings are valid and important. Your emotional awareness is a beautiful strength that helps you live authentically.";
+            }
+        };
+
+        // Enhanced psychological insights with user context
+        const getEnhancedPsychologicalInsights = () => {
+            const baseInsight = aiAnalysis.psychologicalInsights || '';
+            const contextKeywords = userReflection.split(' ').filter(word => word.length > 3);
+
+            let enhancedInsight = baseInsight;
+
+            // Add contextual depth based on user reflection
+            if (contextKeywords.some(word => ['meeting', 'presentation', 'deadline', 'work'].includes(word))) {
+                enhancedInsight += " The professional demands you're navigating show your dedication and capability. Even when these responsibilities feel heavy, they also reflect the trust others place in your abilities.";
+            } else if (contextKeywords.some(word => ['family', 'children', 'partner', 'relationship'].includes(word))) {
+                enhancedInsight += " The connections that matter to you speak to your capacity for deep, meaningful relationships. This emotional investment, while sometimes challenging, is also what makes life rich and beautiful.";
+            } else if (contextKeywords.some(word => ['tired', 'exhausted', 'rest', 'sleep'].includes(word))) {
+                enhancedInsight += " Your body's signals for rest are wisdom speaking. In our achievement-oriented world, listening to these needs takes courage and shows true self-awareness.";
+            } else if (contextKeywords.some(word => ['grateful', 'thankful', 'blessed', 'appreciate'].includes(word))) {
+                enhancedInsight += " Your ability to recognize and appreciate life's blessings, even amidst challenges, is a beautiful emotional strength that nourishes both you and those around you.";
+            }
+
+            return enhancedInsight;
+        };
+
+        // Return enhanced analysis
+        return {
+            ...aiAnalysis,
+            motivationalMessage: getContextualMotivationalMessage(),
+            psychologicalInsights: getEnhancedPsychologicalInsights(),
+            enhancedWithUserContext: true,
+            userContextKeywords: userReflection.split(' ').filter(word => word.length > 3)
+        };
+
+    } catch (error) {
+        console.error('Error enhancing AI analysis with user context:', error);
+        return aiAnalysis; // Return original analysis if enhancement fails
+    }
+};
+
+// Update user's emotional patterns for AI learning
+const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection) => {
+    try {
+        const EmotionalCheckin = require('../models/EmotionalCheckin');
+
+        if (!aiEmotionScan) return;
+
+        // Get user's recent emotional history (last 30 check-ins)
+        const recentCheckins = await EmotionalCheckin.find({
+            userId,
+            aiEmotionScan: { $exists: true }
+        })
+            .sort({ submittedAt: -1 })
+            .limit(30)
+            .select('aiEmotionScan emotionalPatterns userReflection');
+
+        // Calculate baseline emotions
+        const emotionHistory = recentCheckins
+            .filter(checkin => checkin.aiEmotionScan)
+            .map(checkin => ({
+                emotion: checkin.aiEmotionScan.detectedEmotion,
+                valence: checkin.aiEmotionScan.valence,
+                arousal: checkin.aiEmotionScan.arousal,
+                intensity: checkin.aiEmotionScan.intensity,
+                context: checkin.userReflection || checkin.details || '',
+                timestamp: checkin.submittedAt
+            }));
+
+        // Add current emotion to history
+        emotionHistory.unshift({
+            emotion: aiEmotionScan.detectedEmotion,
+            valence: aiEmotionScan.valence,
+            arousal: aiEmotionScan.arousal,
+            intensity: aiEmotionScan.intensity,
+            context: userReflection || '',
+            timestamp: new Date()
+        });
+
+        // Calculate averages
+        const totalCheckins = emotionHistory.length;
+        const avgValence = emotionHistory.reduce((sum, e) => sum + e.valence, 0) / totalCheckins;
+        const avgArousal = emotionHistory.reduce((sum, e) => sum + e.arousal, 0) / totalCheckins;
+
+        // Identify common triggers from user reflections
+        const commonTriggers = [];
+        const triggerWords = emotionHistory
+            .filter(e => e.context)
+            .map(e => e.context.toLowerCase())
+            .join(' ')
+            .split(/\s+/)
+            .filter(word => word.length > 3);
+
+        // Count word frequency
+        const wordCount = {};
+        triggerWords.forEach(word => {
+            wordCount[word] = (wordCount[word] || 0) + 1;
+        });
+
+        // Get top triggers
+        commonTriggers.push(...Object.entries(wordCount)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 10)
+            .map(([word]) => word));
+
+        // Calculate emotional stability (lower variability = higher stability)
+        const valenceVariance = emotionHistory.reduce((sum, e) => sum + Math.pow(e.valence - avgValence, 2), 0) / totalCheckins;
+        const arousalVariance = emotionHistory.reduce((sum, e) => sum + Math.pow(e.arousal - avgArousal, 2), 0) / totalCheckins;
+        const emotionalStability = Math.max(0, 1 - (valenceVariance + arousalVariance) / 2);
+
+        // Generate learned insights based on patterns
+        const learnedInsights = [];
+
+        if (totalCheckins >= 5) {
+            // High arousal pattern
+            if (avgArousal > 0.3) {
+                learnedInsights.push({
+                    insight: "You tend to experience higher emotional activation. Consider incorporating more calming practices into your routine.",
+                    confidence: Math.min(90, totalCheckins * 3)
+                });
+            }
+
+            // Low valence pattern
+            if (avgValence < -0.2) {
+                learnedInsights.push({
+                    insight: "Your emotional valence patterns suggest you may benefit from activities that boost positive emotional experiences.",
+                    confidence: Math.min(85, totalCheckins * 3)
+                });
+            }
+
+            // High stability
+            if (emotionalStability > 0.7) {
+                learnedInsights.push({
+                    insight: "You demonstrate strong emotional stability. This resilience is a significant strength.",
+                    confidence: Math.min(95, totalCheckins * 2)
+                });
+            }
+
+            // Common triggers
+            if (commonTriggers.length > 0) {
+                learnedInsights.push({
+                    insight: `Common emotional triggers in your reflections include: ${commonTriggers.slice(0, 3).join(', ')}`,
+                    confidence: Math.min(80, totalCheckins * 4)
+                });
+            }
+        }
+
+        // Update the current check-in with emotional patterns
+        const currentCheckin = await EmotionalCheckin.findOne({
+            userId,
+            submittedAt: { $gte: new Date(Date.now() - 60000) } // Last minute
+        }).sort({ submittedAt: -1 });
+
+        if (currentCheckin) {
+            currentCheckin.emotionalPatterns = {
+                emotionHistory: emotionHistory.slice(0, 50), // Keep last 50 entries
+                baselineEmotions: {
+                    averageValence: avgValence,
+                    averageArousal: avgArousal,
+                    commonTriggers: commonTriggers.slice(0, 20),
+                    emotionalStability
+                },
+                learnedInsights
+            };
+            await currentCheckin.save();
+        }
+
+        console.log(`📊 Updated emotional patterns for user ${userId}: ${totalCheckins} check-ins analyzed`);
+
+    } catch (error) {
+        console.error('Error updating user emotional patterns:', error);
+        // Don't fail the check-in if pattern update fails
+    }
+};
+
 // Submit emotional check-in
 const submitCheckin = async (req, res) => {
     try {
         const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const aiAnalysisService = require('../services/aiAnalysisService');
+        const User = require('../models/User');
+        const cacheService = require('../services/cacheService');
+        const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const { sendSuccess, sendError } = require('../utils/response');
+
+        // Handle support contact - extract ObjectId if object is provided
+        let supportContactUserId = null;
+        if (req.body.supportContactUserId) {
+            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
+                supportContactUserId = req.body.supportContactUserId._id;
+            } else if (typeof req.body.supportContactUserId === 'string') {
+                // For AI scans, this should be the ObjectId string
+                supportContactUserId = req.body.supportContactUserId;
+            }
+        }
+
+        console.log('🔍 Processing support contact:', {
+            input: req.body.supportContactUserId,
+            type: typeof req.body.supportContactUserId,
+            processed: supportContactUserId
+        });
 
         const checkinData = {
             userId: req.user.id,
@@ -12,15 +257,48 @@ const submitCheckin = async (req, res) => {
             details: req.body.details,
             presenceLevel: req.body.presenceLevel,
             capacityLevel: req.body.capacityLevel,
-            supportContactUserId: req.body.supportContactUserId || null,
+            supportContactUserId,
             ipAddress: req.ip,
-            userAgent: req.get('User-Agent')
+            userAgent: req.get('User-Agent'),
+            // Add user reflection from AI emotion scan
+            userReflection: req.body.userReflection,
+            // Add AI emotion scan data if provided
+            aiEmotionScan: req.body.aiEmotionScan ? {
+                valence: req.body.aiEmotionScan.valence,
+                arousal: req.body.aiEmotionScan.arousal,
+                intensity: req.body.aiEmotionScan.intensity,
+                detectedEmotion: req.body.aiEmotionScan.detectedEmotion,
+                confidence: req.body.aiEmotionScan.confidence,
+                explanations: req.body.aiEmotionScan.explanations,
+                temporalAnalysis: req.body.aiEmotionScan.temporalAnalysis,
+                // Add advanced psychological analysis
+                emotionalAuthenticity: req.body.aiEmotionScan.emotionalAuthenticity,
+                psychologicalDepth: req.body.aiEmotionScan.psychologicalDepth
+            } : null
         };
 
         // Perform AI analysis
         console.log('🤖 Starting AI analysis...');
         const aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
         console.log('✅ AI analysis completed');
+
+        // Enhance AI analysis with user reflection if provided
+        if (checkinData.userReflection && checkinData.userReflection.trim()) {
+            console.log('🧠 Enhancing AI analysis with user reflection...');
+            aiAnalysis = await enhanceAIAnalysisWithUserContext(aiAnalysis, checkinData);
+            console.log('✅ AI analysis enhanced with user context');
+        }
+
+        // Generate personalized greeting based on enhanced AI analysis
+        console.log('🤖 Generating personalized greeting...');
+        const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
+        aiAnalysis.personalizedGreeting = personalizedGreeting;
+        console.log('✅ Personalized greeting generated');
+
+        // Update user's emotional patterns for AI learning
+        console.log('🧠 Updating user emotional patterns...');
+        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection);
+        console.log('✅ User emotional patterns updated');
 
         // Create check-in record with AI analysis
         const checkin = new EmotionalCheckin({
@@ -37,12 +315,21 @@ const submitCheckin = async (req, res) => {
                 .populate('supportContactUserId', 'name role department');
         }
 
-        // Emit real-time update for dashboard
+        // Emit real-time update for dashboard and invalidate cache
         const io = require('../config/socket').getIO();
+
+        // Invalidate dashboard cache to force fresh data
+        cacheService.invalidateDashboardCache();
+
         if (io) {
-            io.to('dashboard').emit('checkin:new', {
+            // Get user name for notification
+            const user = await User.findById(checkin.userId).select('name');
+
+            // Emit to all dashboard clients
+            io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
+                userName: user?.name || 'Unknown User',
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
@@ -62,9 +349,14 @@ const submitCheckin = async (req, res) => {
             };
         }
 
+        // Get user name for the response
+        const user = await User.findById(checkin.userId).select('name');
+
         sendSuccess(res, 'Emotional check-in submitted successfully', {
             checkin: {
-                id: checkin._id,
+                id: checkin._id.toString(),
+                _id: checkin._id.toString(),
+                name: user?.name || 'Staff Member',
                 date: checkin.date,
                 weatherType: checkin.weatherType,
                 selectedMoods: checkin.selectedMoods,
@@ -106,7 +398,17 @@ const getTodayCheckin = async (req, res) => {
             return sendSuccess(res, 'No check-in found for today', { checkin: null });
         }
 
-        sendSuccess(res, 'Today\'s check-in retrieved', { checkin });
+        // Populate user name for today's checkin
+        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            .populate('userId', 'name')
+            .populate('supportContactUserId', 'name role department');
+
+        const checkinWithName = {
+            ...populatedCheckin.toObject(),
+            name: populatedCheckin.userId?.name || 'Staff Member'
+        };
+
+        sendSuccess(res, 'Today\'s check-in retrieved', { checkin: checkinWithName });
     } catch (error) {
         console.error('Get today check-in error:', error);
         sendError(res, 'Failed to get today\'s check-in', 500);
@@ -128,7 +430,17 @@ const getCheckinResults = async (req, res) => {
             return sendError(res, 'Check-in not found', 404);
         }
 
-        sendSuccess(res, 'Check-in results retrieved', { checkin });
+        // Populate user name for check-in results
+        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            .populate('userId', 'name')
+            .populate('supportContactUserId', 'name role department');
+
+        const checkinWithName = {
+            ...populatedCheckin.toObject(),
+            name: populatedCheckin.userId?.name || 'Staff Member'
+        };
+
+        sendSuccess(res, 'Check-in results retrieved', { checkin: checkinWithName });
     } catch (error) {
         console.error('Get check-in results error:', error);
         sendError(res, 'Failed to get check-in results', 500);
@@ -237,10 +549,352 @@ const getAvailableContacts = async (req, res) => {
     }
 };
 
+// Analyze emotion from captured image
+const analyzeEmotion = async (req, res) => {
+    try {
+        const { sendSuccess } = require('../utils/response');
+        const fs = require('fs');
+        const googleAI = require('../config/googleAI');
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No image file provided' });
+        }
+
+        console.log('🖼️ Received image for emotion analysis, size:', req.file.size);
+
+        // Convert image to base64
+        if (!req.file || !req.file.path) {
+            return res.status(400).json({ success: false, message: 'No image file path provided' });
+        }
+
+        const fileImageData = fs.readFileSync(req.file.path);
+        const base64Image = fileImageData.toString('base64');
+
+        // Create advanced prompt for emotion analysis with psychological depth
+        const analysisPrompt = `You are a clinical psychologist and facial expression expert. Analyze this facial image with deep psychological insight, focusing on authentic vs. masked emotions, micro-expressions, and emotional incongruence. Return ONLY a valid JSON object with this exact structure:
+
+{
+  "primaryEmotion": "string (one of: happy, sad, angry, surprised, fearful, disgusted, neutral, anxious, calm)",
+  "secondaryEmotions": ["array of up to 2 strings from the same emotion list"],
+  "valence": number (between -1 and 1, where positive is pleasant, negative is unpleasant),
+  "arousal": number (between -1 and 1, where high arousal indicates excitement/energy, low indicates calm/relaxed),
+  "intensity": number (between 0 and 100, indicating strength of emotion),
+  "emotionScores": {
+    "happy": number,
+    "sad": number,
+    "angry": number,
+    "surprised": number,
+    "fearful": number,
+    "disgusted": number,
+    "neutral": number,
+    "anxious": number,
+    "calm": number
+  },
+  "confidence": number (between 0 and 100),
+  "explanations": ["array of 2-3 strings explaining the facial analysis"],
+  "temporalAnalysis": {
+    "transitions": [],
+    "stability": number (between 0 and 1),
+    "dominantEmotion": "string",
+    "emotionVariability": number (between 0 and 1)
+  },
+  "emotionalAuthenticity": {
+    "isAuthentic": boolean,
+    "authenticityScore": number (0-100),
+    "maskedEmotion": "string or null (if detected)",
+    "reasoning": "string explaining authenticity assessment"
+  },
+  "psychologicalDepth": {
+    "emotionalSuppression": number (0-100),
+    "socialMasking": number (0-100),
+    "underlyingStress": number (0-100),
+    "resilienceIndicators": number (0-100)
+  }
+}
+
+CRITICAL ANALYSIS REQUIREMENTS:
+1. **Authentic vs. Masked Emotions**: Detect if the smile is genuine (Duchenne smile with crow's feet) vs. social/polite smile
+2. **Micro-expressions**: Look for brief flashes of true emotion beneath the surface
+3. **Emotional Incongruence**: Identify when eyes don't match mouth expression
+4. **Suppression Indicators**: Note asymmetrical expressions, tight jaw, or forced smiles
+5. **Psychological State**: Assess if this person might be hiding sadness behind a smile, or masking anxiety with neutrality
+
+Be clinically precise and evidence-based in your analysis.`;
+
+        console.log('🤖 Sending image to Google AI for emotion analysis...');
+
+        // Generate content with image
+        const aiResponse = await googleAI.generateContent([
+            analysisPrompt,
+            {
+                inlineData: {
+                    mimeType: req.file.mimetype,
+                    data: base64Image
+                }
+            }
+        ]);
+
+        console.log('🔍 aiResponse type:', typeof aiResponse);
+        console.log('🔍 aiResponse keys:', Object.keys(aiResponse || {}));
+        console.log('🔍 Full AI Response Object:', JSON.stringify(aiResponse, null, 2));
+
+        // Extract text from AI response with multiple fallback paths
+        const candidate = aiResponse?.candidates?.[0] || aiResponse?.choices?.[0] || aiResponse?.output?.[0];
+        console.log('🔍 Candidate object:', JSON.stringify(candidate, null, 2));
+
+        const aiText =
+            candidate?.content?.parts?.[0]?.text ||
+            candidate?.text ||
+            candidate?.message?.content?.parts?.[0] ||
+            candidate?.message?.content ||
+            candidate?.output_text ||
+            null;
+
+        console.log('📝 Extracted aiText:', aiText);
+        console.log('📝 aiText type:', typeof aiText);
+        console.log('📝 aiText length:', aiText?.length);
+
+        if (!aiText) {
+            console.error('❌ No text payload found in AI response');
+            console.error('❌ aiResponse structure:', {
+                hasCandidates: !!aiResponse?.candidates,
+                candidatesLength: aiResponse?.candidates?.length,
+                hasChoices: !!aiResponse?.choices,
+                hasOutput: !!aiResponse?.output,
+                responseKeys: Object.keys(aiResponse || {})
+            });
+            return res.status(500).json({ success: false, message: 'AI response missing text payload' });
+        }
+
+        console.log('📝 Extracted AI text:', aiText);
+
+        // Parse the JSON response
+        let emotionResult;
+        try {
+            // Clean the response text (remove markdown code blocks if present)
+            let cleanText = String(aiText).trim();
+            cleanText = cleanText.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+            // Try to parse JSON directly
+            emotionResult = JSON.parse(cleanText);
+        } catch (parseError) {
+            console.error('❌ Failed to parse AI response as JSON:', parseError);
+            console.error('Raw AI text:', aiText);
+
+            // Try to extract JSON object from text
+            const jsonMatch = aiText.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+                try {
+                    emotionResult = JSON.parse(jsonMatch[1]);
+                    console.log('✅ Successfully extracted and parsed JSON from text');
+                } catch (extractError) {
+                    console.error('❌ Failed to parse extracted JSON:', extractError);
+                }
+            }
+
+            // If still no valid JSON, use fallback
+            if (!emotionResult) {
+                console.log('🔄 Using fallback emotion analysis');
+                emotionResult = {
+                    primaryEmotion: 'neutral',
+                    secondaryEmotions: ['calm'],
+                    valence: 0.0,
+                    arousal: 0.0,
+                    intensity: 30,
+                    emotionScores: {
+                        neutral: 0.5,
+                        calm: 0.3,
+                        happy: 0.1,
+                        sad: 0.1
+                    },
+                    confidence: 50,
+                    explanations: [
+                        'Unable to parse detailed analysis',
+                        'Basic neutral expression detected'
+                    ],
+                    temporalAnalysis: {
+                        transitions: [],
+                        stability: 0.7,
+                        dominantEmotion: 'neutral',
+                        emotionVariability: 0.3
+                    }
+                };
+            }
+        }
+
+        // Clean up uploaded file
+        fs.unlinkSync(req.file.path);
+
+        console.log('🎯 Real AI emotion analysis completed:', emotionResult.primaryEmotion);
+        sendSuccess(res, 'Emotion analysis completed', { emotionResult });
+
+    } catch (error) {
+        console.error('❌ Emotion analysis error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to analyze emotion',
+            detail: error.message
+        });
+    }
+};
+
+// Submit AI emotion scan check-in (separate from manual check-in)
+const submitAICheckin = async (req, res) => {
+    try {
+        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const User = require('../models/User');
+        const cacheService = require('../services/cacheService');
+        const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
+        const { sendSuccess, sendError } = require('../utils/response');
+
+        // Handle support contact for AI scans
+        let supportContactUserId = null;
+        if (req.body.supportContactUserId) {
+            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
+                supportContactUserId = req.body.supportContactUserId._id;
+            } else if (typeof req.body.supportContactUserId === 'string') {
+                supportContactUserId = req.body.supportContactUserId;
+            }
+        }
+
+        console.log('🤖 AI Check-in support contact processing:', {
+            input: req.body.supportContactUserId,
+            type: typeof req.body.supportContactUserId,
+            processed: supportContactUserId,
+            allBodyKeys: Object.keys(req.body)
+        });
+
+        // Since we're using multer, the form data is in req.body but may be strings
+        // Parse JSON strings if needed
+        let parsedBody = req.body;
+        if (req.body.checkInData) {
+            try {
+                parsedBody = JSON.parse(req.body.checkInData);
+                console.log('✅ Parsed checkInData from form:', parsedBody);
+            } catch (e) {
+                console.log('❌ Failed to parse checkInData, using raw body');
+                parsedBody = req.body;
+            }
+        }
+
+        console.log('📋 Final parsed body for AI check-in:', parsedBody);
+
+        const checkinData = {
+            userId: req.user.id,
+            weatherType: parsedBody.weatherType || 'partly-cloudy', // AI-detected weather - allow any value
+            selectedMoods: parsedBody.selectedMoods || [], // AI-detected moods - allow any values
+            details: parsedBody.details || '',
+            presenceLevel: parsedBody.presenceLevel || 7,
+            capacityLevel: parsedBody.capacityLevel || 7,
+            supportContactUserId,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            // Add AI emotion scan data
+            aiEmotionScan: parsedBody.aiEmotionScan ? {
+                valence: parsedBody.aiEmotionScan.valence,
+                arousal: parsedBody.aiEmotionScan.arousal,
+                intensity: parsedBody.aiEmotionScan.intensity,
+                detectedEmotion: parsedBody.aiEmotionScan.detectedEmotion,
+                confidence: parsedBody.aiEmotionScan.confidence,
+                explanations: parsedBody.aiEmotionScan.explanations,
+                temporalAnalysis: parsedBody.aiEmotionScan.temporalAnalysis
+            } : null
+        };
+
+        console.log('✅ Final checkinData for AI scan:', {
+            weatherType: checkinData.weatherType,
+            selectedMoods: checkinData.selectedMoods,
+            presenceLevel: checkinData.presenceLevel,
+            capacityLevel: checkinData.capacityLevel,
+            supportContactUserId: checkinData.supportContactUserId
+        });
+
+        // Use existing AI analysis service for consistency
+        console.log('🤖 Starting AI analysis for AI check-in...');
+        const aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+        console.log('✅ AI analysis completed for AI check-in');
+
+        // Generate personalized greeting
+        const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
+        aiAnalysis.personalizedGreeting = personalizedGreeting;
+
+        // Create check-in record with AI analysis
+        const checkin = new EmotionalCheckin({
+            ...checkinData,
+            aiAnalysis
+        });
+
+        await checkin.save();
+
+        // Populate support contact details if exists
+        let populatedCheckin = checkin;
+        if (checkin.supportContactUserId) {
+            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+                .populate('supportContactUserId', 'name role department');
+        }
+
+        // Emit real-time update for dashboard
+        const io = require('../config/socket').getIO();
+        cacheService.invalidateDashboardCache();
+
+        if (io) {
+            const user = await User.findById(checkin.userId).select('name');
+            io.emit('dashboard:new-checkin', {
+                id: checkin._id,
+                userId: checkin.userId,
+                userName: user?.name || 'Unknown User',
+                weatherType: checkin.weatherType,
+                presenceLevel: checkin.presenceLevel,
+                capacityLevel: checkin.capacityLevel,
+                needsSupport: checkin.aiAnalysis.needsSupport,
+                submittedAt: checkin.submittedAt
+            });
+        }
+
+        // Prepare support contact details for response
+        let supportContactDetails = null;
+        if (populatedCheckin.supportContactUserId) {
+            supportContactDetails = {
+                id: populatedCheckin.supportContactUserId._id,
+                name: populatedCheckin.supportContactUserId.name,
+                role: populatedCheckin.supportContactUserId.role,
+                department: populatedCheckin.supportContactUserId.department
+            };
+        }
+
+        const user = await User.findById(checkin.userId).select('name');
+
+        sendSuccess(res, 'AI emotion check-in submitted successfully', {
+            checkin: {
+                id: checkin._id.toString(),
+                _id: checkin._id.toString(),
+                name: user?.name || 'Staff Member',
+                date: checkin.date,
+                weatherType: checkin.weatherType,
+                selectedMoods: checkin.selectedMoods,
+                details: checkin.details,
+                presenceLevel: checkin.presenceLevel,
+                capacityLevel: checkin.capacityLevel,
+                supportContact: supportContactDetails,
+                aiAnalysis: checkin.aiAnalysis,
+                submittedAt: checkin.submittedAt
+            }
+        }, 201);
+
+    } catch (error) {
+        console.error('AI check-in submission error:', error);
+        const { sendError } = require('../utils/response');
+        sendError(res, 'Failed to submit AI emotion check-in', 500);
+    }
+};
+
 module.exports = {
     submitCheckin,
+    submitAICheckin,
     getTodayCheckin,
     getCheckinResults,
     getCheckinHistory,
-    getAvailableContacts
+    getAvailableContacts,
+    analyzeEmotion,
+    updateUserEmotionalPatterns
 };

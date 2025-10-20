@@ -36,7 +36,7 @@ const emotionalCheckinSchema = Joi.object({
             'happy', 'excited', 'calm', 'hopeful', 'sad', 'anxious', 'angry', 'fear',
             'tired', 'hungry', 'lonely', 'bored', 'overwhelmed', 'scattered'
         ))
-        .min(1)
+        .min(0) // Allow empty array for AI scans
         .max(10)
         .required()
         .messages({
@@ -75,14 +75,15 @@ const emotionalCheckinSchema = Joi.object({
             'any.required': 'Capacity level is required'
         }),
 
-    supportContactUserId: Joi.string()
-        .regex(/^[0-9a-fA-F]{24}$/) // MongoDB ObjectId format
-        .optional()
-        .allow('')
-        .messages({
-            'string.pattern.base': 'Invalid support contact ID format',
-            'any.required': 'Support contact ID is required'
+    supportContactUserId: Joi.alternatives().try(
+        Joi.string().regex(/^[0-9a-fA-F]{24}$/), // ObjectId string
+        Joi.object({
+            _id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
+            name: Joi.string().required(),
+            role: Joi.string().required(),
+            department: Joi.string().optional()
         })
+    ).optional().allow(null)
 });
 
 // Query parameter validation
