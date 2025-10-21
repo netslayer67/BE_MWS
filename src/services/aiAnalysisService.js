@@ -75,7 +75,7 @@ Please provide a comprehensive psychological analysis in VALID JSON format ONLY.
     }
   ],
   "psychologicalInsights": "Write a supportive, motivational message (1-3 sentences) that acknowledges their feelings, celebrates their strengths, and offers hope. Make it personal, warm, and empowering. Include specific encouragement based on their weather metaphor and mood selections. Add a simple mindfulness breathing tip like: 'Try the Belly Breathing technique: Place one hand on your belly and one on your chest. Breathe in slowly through your nose for 4 counts, feeling your belly rise. Hold for 4 counts, then exhale through your mouth for 4 counts, feeling your belly fall. Repeat 3-5 times.' or 'Try the 4-7-8 Breathing Exercise: Inhale quietly through your nose for 4 seconds, hold your breath for 7 seconds, then exhale completely through your mouth for 8 seconds. This helps calm your nervous system.' or 'Try Balloon Breathing: Imagine your belly is a balloon. Breathe in through your nose and imagine the balloon filling with air, then breathe out through your mouth and imagine the balloon deflating. Repeat 5 times.'",
-  "motivationalMessage": "Write a powerful, uplifting message (1-2 sentences) with positive affirmations, gratitude reminders, or inspirational words that can immediately boost their mood and energy.",
+  "motivationalMessage": "You are a resilient and capable individual, worthy of every success and happiness life offers. Embrace today with gratitude and confidence, knowing that your unique strengths illuminate the path to your brightest future.,Write a powerful, uplifting message (1-3 sentences) with positive affirmations, gratitude reminders, or inspirational words that can immediately boost their mood and energy.",
   "needsSupport": true|false,
   "confidence": 85
 }
@@ -371,6 +371,25 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
                 });
             }
 
+            // Add more recommendations to reach 4
+            if (moods.includes('anxious') || moods.includes('stressed')) {
+                recommendations.push({
+                    title: "Breathing Break",
+                    description: "Try the 4-7-8 breathing technique: Inhale for 4 seconds, hold for 7 seconds, exhale for 8 seconds. This helps calm your nervous system and reduce anxiety.",
+                    priority: "high",
+                    category: "mindfulness"
+                });
+            }
+
+            if (moods.includes('sad') || moods.includes('lonely')) {
+                recommendations.push({
+                    title: "Connection Practice",
+                    description: "Reach out to someone you trust, even for a brief conversation. Human connection is a powerful antidote to feelings of isolation.",
+                    priority: "medium",
+                    category: "social"
+                });
+            }
+
             if (recommendations.length === 0) {
                 recommendations.push({
                     title: "Celebrate Your Awareness",
@@ -380,7 +399,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
                 });
             }
 
-            return recommendations.slice(0, 3); // Limit to 3 recommendations
+            return recommendations.slice(0, 4); // Limit to 4 recommendations
         };
 
         return {

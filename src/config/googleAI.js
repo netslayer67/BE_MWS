@@ -5,7 +5,7 @@ class GoogleAIService {
         // Use the correct Google Generative AI SDK
         this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
-        // Try different models in order of preference (modern models)
+        // Use the new Gemini 2.0 Flash Experimental model as primary
         const models = ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'];
 
         for (const modelName of models) {

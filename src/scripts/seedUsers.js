@@ -20,7 +20,7 @@ const seedUsers = async () => {
                 password: 'password123',
                 name: 'Staff Member',
                 role: 'staff',
-                department: 'Academic',
+                department: 'Operational',
                 employeeId: 'EMP001'
             },
             {
@@ -28,7 +28,7 @@ const seedUsers = async () => {
                 password: 'password123',
                 name: 'Teacher',
                 role: 'teacher',
-                department: 'Mathematics',
+                department: 'Elementary',
                 employeeId: 'EMP002'
             },
             {
@@ -36,7 +36,7 @@ const seedUsers = async () => {
                 password: 'password123',
                 name: 'Administrator',
                 role: 'admin',
-                department: 'IT',
+                department: 'Operational',
                 employeeId: 'EMP003'
             },
             {
@@ -44,7 +44,7 @@ const seedUsers = async () => {
                 password: 'password123',
                 name: 'Super Administrator',
                 role: 'superadmin',
-                department: 'Management',
+                department: 'Directorate',
                 employeeId: 'EMP004'
             },
             {
@@ -52,7 +52,7 @@ const seedUsers = async () => {
                 password: 'password123',
                 name: 'Directorate Member',
                 role: 'directorate',
-                department: 'Leadership',
+                department: 'Directorate',
                 employeeId: 'EMP005'
             }
         ];

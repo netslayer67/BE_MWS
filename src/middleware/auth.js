@@ -27,7 +27,13 @@ const authenticate = async (req, res, next) => {
             id: user._id,
             email: user.email,
             name: user.name,
-            role: user.role
+            role: user.role,
+            username: user.username,
+            department: user.department,
+            jobLevel: user.jobLevel,
+            unit: user.unit,
+            jobPosition: user.jobPosition,
+            googleId: user.googleId
         };
 
         next();
@@ -64,8 +70,8 @@ const requireAdmin = authorize('admin', 'superadmin', 'directorate');
 // Super admin and directorate only
 const requireSuperAdmin = authorize('superadmin', 'directorate');
 
-// Staff and teacher access (for their own data)
-const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate');
+// Staff and teacher access (for their own data) - now includes student for Google OAuth users
+const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student');
 
 // Any authenticated user
 const requireAuthenticated = (req, res, next) => {

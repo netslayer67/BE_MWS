@@ -6,12 +6,17 @@ const authRoutes = require('./auth');
 const checkinRoutes = require('./checkin');
 const dashboardRoutes = require('./dashboard');
 const supportRoutes = require('./support');
+const userRoutes = require('./users');
 
 // Mount routes
 router.use('/auth', authRoutes);
 router.use('/checkin', checkinRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/support', supportRoutes);
+router.use('/users', userRoutes);
+
+// Direct OAuth routes (without /api prefix for Google OAuth)
+router.use('/auth', authRoutes);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

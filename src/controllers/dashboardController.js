@@ -76,7 +76,7 @@ const getDashboardStats = async (req, res) => {
                 .populate('supportContactUserId', 'name role department');
 
             // Get all users for role-based statistics
-            const allUsers = await User.find({}, 'role department');
+            const allUsers = await User.find({}, 'name role department');
             const totalUsersByRole = {
                 student: allUsers.filter(u => u.role === 'student').length,
                 staff: allUsers.filter(u => u.role === 'staff').length,
@@ -106,6 +106,7 @@ const getDashboardStats = async (req, res) => {
                 departmentBreakdown: {},
                 flaggedUsers: [],
                 recentActivity: [],
+                notSubmittedUsers: [],
                 trends: {},
                 insights: []
             };
@@ -131,11 +132,25 @@ const getDashboardStats = async (req, res) => {
                 avgCapacity: roleStats[role].count > 0 ? Math.round((roleStats[role].totalCapacity / roleStats[role].count) * 10) / 10 : 0
             }));
 
-            // Mood distribution with user lists
+            // Mood distribution with user lists (including AI-generated moods)
             const moodCount = {};
             const moodLists = {};
             periodCheckins.forEach(checkin => {
-                checkin.selectedMoods.forEach(mood => {
+                // Include both selected moods and AI-detected emotions
+                const allMoods = [...checkin.selectedMoods];
+
+                // Add AI-detected emotions if available
+                if (checkin.aiEmotionScan?.detectedEmotion) {
+                    allMoods.push(checkin.aiEmotionScan.detectedEmotion);
+                }
+                if (checkin.aiEmotionScan?.secondaryEmotions) {
+                    allMoods.push(...checkin.aiEmotionScan.secondaryEmotions);
+                }
+
+                // Remove duplicates
+                const uniqueMoods = [...new Set(allMoods)];
+
+                uniqueMoods.forEach(mood => {
                     moodCount[mood] = (moodCount[mood] || 0) + 1;
                     if (!moodLists[mood]) {
                         moodLists[mood] = [];
@@ -146,10 +161,23 @@ const getDashboardStats = async (req, res) => {
             stats.moodDistribution = moodCount;
             stats.moodLists = moodLists;
 
-            // Weather distribution
+            // Weather distribution (including AI-generated weather types)
             const weatherCount = {};
             periodCheckins.forEach(checkin => {
-                weatherCount[checkin.weatherType] = (weatherCount[checkin.weatherType] || 0) + 1;
+                // Include both selected weather and AI-detected weather patterns
+                const weatherTypes = [checkin.weatherType];
+
+                // Add AI-detected weather patterns if available
+                if (checkin.aiAnalysis?.weatherPattern) {
+                    weatherTypes.push(checkin.aiAnalysis.weatherPattern);
+                }
+
+                // Remove duplicates
+                const uniqueWeatherTypes = [...new Set(weatherTypes)];
+
+                uniqueWeatherTypes.forEach(weather => {
+                    weatherCount[weather] = (weatherCount[weather] || 0) + 1;
+                });
             });
             stats.weatherDistribution = weatherCount;
 
@@ -234,6 +262,13 @@ const getDashboardStats = async (req, res) => {
                 capacityLevel: checkin.capacityLevel,
                 submittedAt: checkin.submittedAt
             }));
+
+            // Calculate not submitted users
+            const submittedUserIds = new Set(periodCheckins.map(c => c.userId?._id?.toString()).filter(Boolean));
+            stats.notSubmittedUsers = allUsers
+                .filter(user => !submittedUserIds.has(user._id.toString()))
+                .map(user => user.name)
+                .sort();
 
             // Generate insights
             stats.insights = generateInsights(stats, period);
@@ -430,7 +465,7 @@ const getUserTrends = async (req, res) => {
             date: { $gte: startDate, $lt: endDate }
         })
             .sort({ date: 1 })
-            .select('presenceLevel capacityLevel selectedMoods weatherType aiAnalysis.needsSupport date submittedAt');
+            .select('presenceLevel capacityLevel selectedMoods weatherType aiAnalysis details date submittedAt');
 
         const trends = checkins.map(checkin => ({
             date: checkin.date,
@@ -439,10 +474,12 @@ const getUserTrends = async (req, res) => {
             selectedMoods: checkin.selectedMoods,
             weatherType: checkin.weatherType,
             needsSupport: checkin.aiAnalysis?.needsSupport || false,
+            aiAnalysis: checkin.aiAnalysis,
+            details: checkin.details,
             submittedAt: checkin.submittedAt
         }));
 
-        // Calculate averages and insights
+        // Calculate comprehensive statistics
         const avgPresence = trends.length > 0
             ? trends.reduce((sum, t) => sum + t.presenceLevel, 0) / trends.length
             : 0;
@@ -453,15 +490,84 @@ const getUserTrends = async (req, res) => {
 
         const supportNeededCount = trends.filter(t => t.needsSupport).length;
 
+        // Calculate mood patterns over time
+        const moodPatterns = {};
+        const weatherPatterns = {};
+        const weeklyAverages = [];
+
+        // Group by weeks for weekly analysis
+        const weeklyData = {};
+        trends.forEach(trend => {
+            const weekKey = new Date(trend.date).toISOString().split('T')[0].substring(0, 7); // YYYY-MM format
+            if (!weeklyData[weekKey]) {
+                weeklyData[weekKey] = { presence: [], capacity: [], moods: [], weather: [] };
+            }
+            weeklyData[weekKey].presence.push(trend.presenceLevel);
+            weeklyData[weekKey].capacity.push(trend.capacityLevel);
+            weeklyData[weekKey].moods.push(...trend.selectedMoods);
+            weeklyData[weekKey].weather.push(trend.weatherType);
+        });
+
+        // Calculate weekly averages
+        Object.keys(weeklyData).sort().forEach(week => {
+            const data = weeklyData[week];
+            weeklyAverages.push({
+                week,
+                avgPresence: data.presence.length > 0 ? Math.round((data.presence.reduce((a, b) => a + b, 0) / data.presence.length) * 10) / 10 : 0,
+                avgCapacity: data.capacity.length > 0 ? Math.round((data.capacity.reduce((a, b) => a + b, 0) / data.capacity.length) * 10) / 10 : 0,
+                dominantMoods: [...new Set(data.moods)].slice(0, 3),
+                dominantWeather: data.weather.length > 0 ? data.weather[Math.floor(data.weather.length / 2)] : null,
+                checkinCount: data.presence.length
+            });
+        });
+
+        // Calculate overall mood and weather patterns
+        trends.forEach(trend => {
+            trend.selectedMoods.forEach(mood => {
+                moodPatterns[mood] = (moodPatterns[mood] || 0) + 1;
+            });
+            weatherPatterns[trend.weatherType] = (weatherPatterns[trend.weatherType] || 0) + 1;
+        });
+
+        // Calculate emotional stability (variance in presence/capacity)
+        const presenceVariance = trends.length > 1 ?
+            trends.reduce((sum, t) => sum + Math.pow(t.presenceLevel - avgPresence, 2), 0) / trends.length : 0;
+        const capacityVariance = trends.length > 1 ?
+            trends.reduce((sum, t) => sum + Math.pow(t.capacityLevel - avgCapacity, 2), 0) / trends.length : 0;
+
+        const emotionalStability = Math.max(0, 1 - (presenceVariance + capacityVariance) / 20); // Normalize to 0-1
+
+        // Generate insights based on patterns
+        const insights = [];
+        if (emotionalStability > 0.8) {
+            insights.push("High emotional stability - consistent emotional patterns");
+        } else if (emotionalStability < 0.3) {
+            insights.push("Variable emotional patterns - may benefit from additional support");
+        }
+
+        const topMoods = Object.entries(moodPatterns).sort(([, a], [, b]) => b - a).slice(0, 3);
+        if (topMoods.length > 0) {
+            insights.push(`Most common moods: ${topMoods.map(([mood, count]) => `${mood} (${count}x)`).join(', ')}`);
+        }
+
+        if (supportNeededCount > trends.length * 0.3) {
+            insights.push("Frequent support requests - consider follow-up");
+        }
+
         sendSuccess(res, 'User trends retrieved', {
             userId,
             period,
             trends,
+            weeklyAverages,
             summary: {
                 totalCheckins: trends.length,
                 averagePresence: Math.round(avgPresence * 10) / 10,
                 averageCapacity: Math.round(avgCapacity * 10) / 10,
                 supportNeededCount,
+                emotionalStability: Math.round(emotionalStability * 100) / 100,
+                moodPatterns,
+                weatherPatterns,
+                insights,
                 dateRange: {
                     start: startDate.toISOString(),
                     end: endDate.toISOString()

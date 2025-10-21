@@ -11,7 +11,10 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-        required: true,
+        required: function () {
+            // Password is required only if not using Google OAuth
+            return !this.googleId;
+        },
         minlength: 6
     },
     name: {
@@ -21,11 +24,12 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate'],
+        enum: ['student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher'],
         default: 'staff'
     },
     department: {
         type: String,
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
         trim: true
     },
     employeeId: {
@@ -36,6 +40,65 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    emailVerified: {
+        type: Boolean,
+        default: false
+    },
+    googleId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    googleProfile: {
+        type: Object
+    },
+    username: {
+        type: String,
+        trim: true
+    },
+    jobLevel: {
+        type: String,
+        enum: ['Director', 'Head Unit', 'Staff', 'Teacher', 'SE Teacher', 'Support Staff'],
+        trim: true
+    },
+    unit: {
+        type: String,
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
+        trim: true
+    },
+    jobPosition: {
+        type: String,
+        trim: true
+    },
+    employmentStatus: {
+        type: String,
+        enum: ['Permanent', 'Contract', 'Probation'],
+        default: 'Permanent'
+    },
+    joinDate: {
+        type: Date
+    },
+    endDate: {
+        type: Date
+    },
+    workingPeriod: {
+        years: { type: Number, default: 0 },
+        months: { type: Number, default: 0 },
+        days: { type: Number, default: 0 }
+    },
+    reportsTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    subordinates: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    classes: [{
+        grade: String,
+        subject: String,
+        role: { type: String, enum: ['Homeroom Teacher', 'Subject Teacher', 'Special Education Teacher'] }
+    }],
     lastLogin: {
         type: Date
     }

@@ -62,7 +62,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
                 try {
                     const User = mongoose.model('User');
                     const user = await User.findById(v);
-                    return user && ['directorate', 'counselor', 'teacher', 'staff'].includes(user.role);
+                    return user && ['directorate', 'counselor', 'teacher', 'staff', 'support_staff', 'se_teacher', 'head_unit'].includes(user.role);
                 } catch (error) {
                     return false;
                 }
