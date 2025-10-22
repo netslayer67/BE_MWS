@@ -69,9 +69,6 @@ app.use((req, res, next) => {
 // API routes
 app.use('/api', routes);
 
-// Direct OAuth routes (without /api prefix for Google OAuth)
-app.use('/', routes);
-
 // Error handling middleware (must be last)
 app.use(errorHandler);
 

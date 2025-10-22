@@ -8,12 +8,12 @@ const dashboardRoutes = require('./dashboard');
 const supportRoutes = require('./support');
 const userRoutes = require('./users');
 
-// Mount routes
-router.use('/auth', authRoutes);
-router.use('/checkin', checkinRoutes);
-router.use('/dashboard', dashboardRoutes);
-router.use('/support', supportRoutes);
-router.use('/users', userRoutes);
+// Mount routes with /v1 prefix for API versioning
+router.use('/v1/auth', authRoutes);
+router.use('/v1/checkin', checkinRoutes);
+router.use('/v1/dashboard', dashboardRoutes);
+router.use('/v1/support', supportRoutes);
+router.use('/v1/users', userRoutes);
 
 // Direct OAuth routes (without /api prefix for Google OAuth)
 router.use('/auth', authRoutes);
