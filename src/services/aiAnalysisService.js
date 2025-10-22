@@ -75,7 +75,7 @@ Please provide a comprehensive psychological analysis in VALID JSON format ONLY.
     }
   ],
   "psychologicalInsights": "Write a supportive, motivational message (1-3 sentences) that acknowledges their feelings, celebrates their strengths, and offers hope. Make it personal, warm, and empowering. Include specific encouragement based on their weather metaphor and mood selections. Add a simple mindfulness breathing tip like: 'Try the Belly Breathing technique: Place one hand on your belly and one on your chest. Breathe in slowly through your nose for 4 counts, feeling your belly rise. Hold for 4 counts, then exhale through your mouth for 4 counts, feeling your belly fall. Repeat 3-5 times.' or 'Try the 4-7-8 Breathing Exercise: Inhale quietly through your nose for 4 seconds, hold your breath for 7 seconds, then exhale completely through your mouth for 8 seconds. This helps calm your nervous system.' or 'Try Balloon Breathing: Imagine your belly is a balloon. Breathe in through your nose and imagine the balloon filling with air, then breathe out through your mouth and imagine the balloon deflating. Repeat 5 times.'",
-  "motivationalMessage": "You are a resilient and capable individual, worthy of every success and happiness life offers. Embrace today with gratitude and confidence, knowing that your unique strengths illuminate the path to your brightest future.,Write a powerful, uplifting message (1-3 sentences) with positive affirmations, gratitude reminders, or inspirational words that can immediately boost their mood and energy.",
+  "motivationalMessage": "Write a powerful, uplifting message (1-3 sentences) with positive affirmations, gratitude reminders, or inspirational words that can immediately boost their mood and energy. Make it personal and specific to their weather metaphor, selected moods, and current emotional state. Include elements like gratitude, resilience recognition, hope, and gentle encouragement. Use warm, supportive language that feels like a conversation from a trusted friend.",
   "needsSupport": true|false,
   "confidence": 85
 }
@@ -89,6 +89,8 @@ IMPORTANT: Focus on being EXTREMELY supportive, motivational, and uplifting. Use
 - Self-compassion reminders
 
 Make the psychological insights and motivational message feel like a warm, supportive conversation from a trusted friend who believes in them.
+
+CRITICAL FOR MOTIVATIONAL MESSAGE: The motivational message MUST be unique and personalized for each user based on their specific data. Never use generic templates. Reference their weather type, selected moods, presence/capacity levels, and details to create something truly personal and meaningful. Make it feel like it's written specifically for them in this moment.
 
 CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional text. Just the JSON object.`;
     }
