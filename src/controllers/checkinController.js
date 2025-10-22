@@ -582,122 +582,20 @@ const analyzeEmotion = async (req, res) => {
         const fileImageData = fs.readFileSync(req.file.path);
         const base64Image = fileImageData.toString('base64');
 
-        // Create ultra-advanced prompt for emotion analysis with multi-layered psychological assessment
-        const analysisPrompt = `You are a world-renowned clinical psychologist and facial expression expert with 30+ years of experience in emotional intelligence research. You specialize in detecting masked emotions, emotional incongruence, and underlying psychological states in professional settings. Your analysis must be 100% evidence-based and clinically precise.
-
-ANALYZE THIS FACIAL IMAGE WITH MAXIMUM PSYCHOLOGICAL DEPTH. Focus on detecting when surface expressions mask deeper emotional realities - this is CRITICAL for accurate emotional wellness assessment.
-
-Return ONLY a valid JSON object with this exact structure:
+        // Simplified prompt for emotion analysis to avoid model overload
+        const analysisPrompt = `Analyze this facial image and return ONLY a valid JSON object with emotion analysis:
 
 {
-  "primaryEmotion": "string (one of: happy, sad, angry, surprised, fearful, disgusted, neutral, anxious, calm)",
-  "secondaryEmotions": ["array of up to 2 strings from the same emotion list"],
-  "valence": number (between -1 and 1, where positive is pleasant, negative is unpleasant),
-  "arousal": number (between -1 and 1, where high arousal indicates excitement/energy, low indicates calm/relaxed),
-  "intensity": number (between 0 and 100, indicating strength of emotion),
-  "emotionScores": {
-    "happy": number,
-    "sad": number,
-    "angry": number,
-    "surprised": number,
-    "fearful": number,
-    "disgusted": number,
-    "neutral": number,
-    "anxious": number,
-    "calm": number
-  },
-  "confidence": number (between 0 and 100),
-  "explanations": ["array of 3-4 strings explaining the facial analysis with specific anatomical observations"],
-  "temporalAnalysis": {
-    "transitions": [],
-    "stability": number (between 0 and 1),
-    "dominantEmotion": "string",
-    "emotionVariability": number (between 0 and 1)
-  },
-  "emotionalAuthenticity": {
-    "isAuthentic": boolean,
-    "authenticityScore": number (0-100),
-    "maskedEmotion": "string or null (if detected - e.g., 'sad', 'anxious', 'angry', 'fearful')",
-    "reasoning": "string explaining authenticity assessment with specific facial markers",
-    "deceptionIndicators": ["array of specific signs of emotional masking"]
-  },
-  "psychologicalDepth": {
-    "emotionalSuppression": number (0-100),
-    "socialMasking": number (0-100),
-    "underlyingStress": number (0-100),
-    "resilienceIndicators": number (0-100),
-    "emotionalExhaustion": number (0-100),
-    "copingMechanisms": ["array of detected coping strategies"]
-  },
-  "emotionalIncongruence": {
-    "detected": boolean,
-    "confidence": number (0-100),
-    "surfaceEmotion": "string (what the face shows)",
-    "underlyingEmotion": "string (what might be hidden)",
-    "evidence": ["array of 4-6 specific anatomical observations supporting incongruence"],
-    "interpretation": "string explaining the psychological meaning and potential causes",
-    "severity": "low|moderate|high|critical",
-    "recommendations": ["array of 2-3 specific suggestions for support"]
-  },
-  "advancedAnalysis": {
-    "facialRegionAnalysis": {
-      "eyes": "detailed analysis of eye expression, gaze, and micro-movements",
-      "brows": "detailed analysis of brow positioning and tension",
-      "mouth": "detailed analysis of lip positioning, symmetry, and tension",
-      "jaw": "detailed analysis of jaw tension and clenching",
-      "overallSymmetry": "assessment of facial symmetry and muscle activation"
-    },
-    "microExpressionDetection": {
-      "detected": boolean,
-      "locations": ["array of facial regions where micro-expressions occurred"],
-      "trueEmotions": ["array of emotions revealed by micro-expressions"],
-      "duration": "estimated duration in milliseconds"
-    },
-    "contextualFactors": {
-      "professionalMasking": boolean,
-      "socialAppropriateness": boolean,
-      "emotionalLabor": boolean,
-      "stressIndicators": ["array of stress-related facial markers"]
-    }
-  }
+  "primaryEmotion": "happy|sad|angry|surprised|fearful|disgusted|neutral|anxious|calm",
+  "secondaryEmotions": ["array of up to 2 emotions"],
+  "valence": number (-1 to 1),
+  "arousal": number (-1 to 1),
+  "intensity": number (0-100),
+  "confidence": number (0-100),
+  "explanations": ["array of 2-3 strings explaining the analysis"]
 }
 
-ULTRA-ADVANCED ANALYSIS REQUIREMENTS (100% AI-Powered MVP Standard):
-
-1. **MULTI-LAYERED EMOTIONAL DETECTION**:
-   - Surface emotion (what's displayed)
-   - Underlying emotion (what's being masked)
-   - Micro-expressions (1/15-1/25 second flashes of truth)
-   - Emotional leakage (uncontrolled emotional expression)
-
-2. **CLINICAL PRECISION ANALYSIS**:
-   - Duchenne vs. Social Smile Detection (crow's feet, zygomatic major activation)
-   - Asymmetrical Expression Analysis (left vs. right brain emotional processing)
-   - Muscle Tension Assessment (corrugator, frontalis, masseter activation)
-   - Eye-Mouth Congruence Evaluation (do eyes match the smile?)
-
-3. **PROFESSIONAL CONTEXT AWARENESS**:
-   - Workplace masking detection (polite smiles, composed neutrality)
-   - Emotional labor recognition (suppressed frustration, forced positivity)
-   - Leadership presence assessment (confident vs. anxious posturing)
-
-4. **PSYCHOLOGICAL STATE ASSESSMENT**:
-   - Burnout indicators (facial fatigue, emotional flatness)
-   - Anxiety masking (darting eyes behind calm exterior)
-   - Grief concealment (forced smiles over sadness)
-   - Anger suppression (tight jaw, controlled expressions)
-
-5. **EVIDENCE-BASED CONFIDENCE SCORING**:
-   - Base confidence on multiple anatomical markers
-   - Weight micro-expressions higher than surface expressions
-   - Consider contextual factors in final assessment
-
-6. **THERAPEUTIC RECOMMENDATIONS**:
-   - Specific support suggestions based on detected incongruence
-   - Professional intervention recommendations
-   - Self-care strategies for emotional incongruence
-
-CRITICAL: This is an MVP feature - analysis MUST be 100% AI-powered with maximum accuracy. Focus on detecting masked sadness behind smiles, hidden anxiety behind neutrality, and suppressed emotions in professional settings.`;
+Keep the analysis simple and focused on basic facial emotion recognition.`;
 
         console.log('🤖 Sending image to Google AI for emotion analysis...');
 
