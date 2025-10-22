@@ -279,7 +279,7 @@ const submitCheckin = async (req, res) => {
 
         // Perform AI analysis
         console.log('🤖 Starting AI analysis...');
-        const aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+        let aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
         console.log('✅ AI analysis completed');
 
         // Enhance AI analysis with user reflection if provided
