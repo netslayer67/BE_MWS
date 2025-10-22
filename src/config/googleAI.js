@@ -40,18 +40,21 @@ class GoogleAIService {
 
     async testConnection() {
         try {
-            // Skip AI test in development to avoid API calls
-            if (process.env.NODE_ENV === 'development') {
-                console.log('Skipping AI connection test in development mode');
-                return true;
-            }
-
             const testPrompt = 'Hello, respond with "AI connection successful"';
             const response = await this.generateContent(testPrompt);
-            return response.includes('successful');
+            const responseText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const isSuccessful = responseText.includes('successful');
+
+            if (isSuccessful) {
+                console.log('✅ AI connection test successful');
+                return true;
+            } else {
+                console.log('❌ AI connection test failed - response does not contain expected text');
+                return false;
+            }
         } catch (error) {
-            console.log('AI connection test failed, using fallback analysis');
-            return false;
+            console.error('❌ AI connection test failed with error:', error.message);
+            throw new Error('AI connection test failed - no fallback allowed');
         }
     }
 }

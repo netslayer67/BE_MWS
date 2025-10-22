@@ -78,12 +78,17 @@ const initializeApp = async () => {
         // Connect to MongoDB
         await connectDB();
 
-        // Test Google AI connection
-        const aiConnected = await googleAI.testConnection();
-        if (aiConnected) {
-            winston.info('Google AI connection successful');
-        } else {
-            winston.warn('Google AI connection failed - using fallback analysis');
+        // Test Google AI connection (required - no fallback)
+        try {
+            const aiConnected = await googleAI.testConnection();
+            if (aiConnected) {
+                winston.info('Google AI connection successful');
+            } else {
+                throw new Error('AI connection test returned false');
+            }
+        } catch (error) {
+            winston.error('Google AI connection failed - application cannot start without AI');
+            process.exit(1);
         }
 
         winston.info('Application initialized successfully');

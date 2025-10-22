@@ -4432,3 +4432,91 @@
 {"level":"info","message":"User connected: zll1SxtBJgtZVSNyAAAC","service":"integra-learn-backend","timestamp":"2025-10-22T03:22:42.527Z"}
 {"level":"info","message":"User connected: 2OyQgT1SJ7Z_G3B7AAAD","service":"integra-learn-backend","timestamp":"2025-10-22T03:22:42.531Z"}
 {"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2025-10-22T03:24:02.225Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:47.692Z"}
+{"level":"warn","message":"Google AI connection failed - using fallback analysis","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.493Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.495Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.500Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.500Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.501Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:46:48.501Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:03.006Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-01.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:07.407Z"}
+{"level":"warn","message":"Google AI connection failed - using fallback analysis","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.385Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.386Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.390Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.390Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.391Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:47:08.391Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:53.251Z"}
+{"level":"warn","message":"Google AI connection failed - using fallback analysis","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.153Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.154Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.159Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.160Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.160Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:56:54.161Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:08.176Z"}
+{"level":"warn","message":"Google AI connection failed - using fallback analysis","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.039Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.040Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.044Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.044Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.045Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:09.045Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:17.466Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.267Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.268Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.272Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.272Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.273Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:18.273Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-02.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:56.821Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.682Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.683Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.687Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.687Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.688Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T06:59:57.696Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:33.879Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.396Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.397Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.402Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.402Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.403Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:09:35.403Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:39.121Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.664Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.664Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.668Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.668Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.669Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:40.670Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:56.669Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.489Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.489Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.492Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.493Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.493Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:10:58.493Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:19.975Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-02.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:25.085Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.516Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.516Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.519Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.519Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.520Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:11:27.521Z"}
+{"level":"info","message":"MongoDB Connected: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:14.898Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.467Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.468Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.529Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.530Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.530Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:13:16.531Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:20.566Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-02.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:23.859Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.887Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.888Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.893Z"}
+{"level":"info","message":"📊 Environment: production","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.894Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.894Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-10-22T07:25:26.894Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2025-10-22T07:29:54.827Z"}
