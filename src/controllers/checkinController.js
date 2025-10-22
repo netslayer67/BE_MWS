@@ -50,7 +50,7 @@ const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
             } else if (detectedEmotion.includes('anxious') || detectedEmotion.includes('worried')) {
                 return "Your awareness of uncertainty shows how deeply you care about navigating life thoughtfully. This mindfulness, even when it brings anxiety, is a sign of your wisdom and care.";
             } else {
-                return "Whatever you're experiencing right now, know that your feelings are valid and important. Your emotional awareness is a beautiful strength that helps you live authentically.";
+                throw new Error('Unable to generate personalized motivational message');
             }
         };
 
@@ -277,16 +277,27 @@ const submitCheckin = async (req, res) => {
             } : null
         };
 
-        // Perform AI analysis
+        // Perform AI analysis (100% AI-generated, no fallbacks)
         console.log('🤖 Starting AI analysis...');
-        let aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
-        console.log('✅ AI analysis completed');
+        let aiAnalysis;
+        try {
+            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+            console.log('✅ AI analysis completed');
+        } catch (aiError) {
+            console.error('❌ AI analysis failed:', aiError.message);
+            throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+        }
 
-        // Enhance AI analysis with user reflection if provided
+        // Enhance AI analysis with user reflection if provided (but keep it 100% AI-generated)
         if (checkinData.userReflection && checkinData.userReflection.trim()) {
             console.log('🧠 Enhancing AI analysis with user reflection...');
-            aiAnalysis = await enhanceAIAnalysisWithUserContext(aiAnalysis, checkinData);
-            console.log('✅ AI analysis enhanced with user context');
+            try {
+                aiAnalysis = await enhanceAIAnalysisWithUserContext(aiAnalysis, checkinData);
+                console.log('✅ AI analysis enhanced with user context');
+            } catch (enhanceError) {
+                console.error('❌ AI enhancement failed:', enhanceError.message);
+                // Continue with original AI analysis if enhancement fails
+            }
         }
 
         // Generate personalized greeting based on enhanced AI analysis
@@ -766,10 +777,16 @@ const submitAICheckin = async (req, res) => {
             supportContactUserId: checkinData.supportContactUserId
         });
 
-        // Use existing AI analysis service for consistency
+        // Use existing AI analysis service for consistency (100% AI-generated, no fallbacks)
         console.log('🤖 Starting AI analysis for AI check-in...');
-        const aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
-        console.log('✅ AI analysis completed for AI check-in');
+        let aiAnalysis;
+        try {
+            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+            console.log('✅ AI analysis completed for AI check-in');
+        } catch (aiError) {
+            console.error('❌ AI analysis failed for AI check-in:', aiError.message);
+            throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+        }
 
         // Generate personalized greeting
         const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
