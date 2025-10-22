@@ -15,8 +15,8 @@ router.use('/v1/dashboard', dashboardRoutes);
 router.use('/v1/support', supportRoutes);
 router.use('/v1/users', userRoutes);
 
-// Direct OAuth routes (without /api prefix for Google OAuth)
-router.use('/auth', authRoutes);
+// OAuth routes are now mounted directly in app.js
+// router.use('/auth', authRoutes);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

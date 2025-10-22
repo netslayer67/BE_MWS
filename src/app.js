@@ -64,6 +64,10 @@ app.use((req, res, next) => {
     next();
 });
 
+// OAuth routes (direct, without /api prefix for Google OAuth)
+const authRoutes = require('./routes/auth');
+app.use('/auth', authRoutes);
+
 // API routes
 app.use('/api', routes);
 
