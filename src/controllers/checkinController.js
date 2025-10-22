@@ -233,6 +233,25 @@ const submitCheckin = async (req, res) => {
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const { sendSuccess, sendError } = require('../utils/response');
 
+        // Check if user already did manual check-in today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const existingManualCheckin = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            date: {
+                $gte: today,
+                $lt: tomorrow
+            },
+            aiEmotionScan: { $exists: false } // Manual check-in doesn't have aiEmotionScan
+        });
+
+        if (existingManualCheckin) {
+            return sendError(res, 'You have already completed a manual check-in today. You can only do AI analysis or wait until tomorrow.', 409);
+        }
+
         // Handle support contact - extract ObjectId if object is provided
         let supportContactUserId = null;
         if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
@@ -424,6 +443,53 @@ const getTodayCheckin = async (req, res) => {
     } catch (error) {
         console.error('Get today check-in error:', error);
         sendError(res, 'Failed to get today\'s check-in', 500);
+    }
+};
+
+// Get today's check-in status (for UI to show available options)
+const getTodayCheckinStatus = async (req, res) => {
+    try {
+        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const { sendSuccess, sendError } = require('../utils/response');
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // Check for manual check-in (no aiEmotionScan)
+        const manualCheckin = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            date: {
+                $gte: today,
+                $lt: tomorrow
+            },
+            aiEmotionScan: { $exists: false }
+        });
+
+        // Check for AI check-in (has aiEmotionScan)
+        const aiCheckin = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            date: {
+                $gte: today,
+                $lt: tomorrow
+            },
+            aiEmotionScan: { $exists: true }
+        });
+
+        const status = {
+            hasManualCheckin: !!manualCheckin,
+            hasAICheckin: !!aiCheckin,
+            canDoManual: !manualCheckin,
+            canDoAI: !aiCheckin,
+            manualCheckinTime: manualCheckin?.submittedAt,
+            aiCheckinTime: aiCheckin?.submittedAt
+        };
+
+        sendSuccess(res, 'Today\'s check-in status retrieved', { status });
+    } catch (error) {
+        console.error('Get today check-in status error:', error);
+        sendError(res, 'Failed to get today\'s check-in status', 500);
     }
 };
 
@@ -712,6 +778,25 @@ const submitAICheckin = async (req, res) => {
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const { sendSuccess, sendError } = require('../utils/response');
 
+        // Check if user already did AI check-in today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const existingAICheckin = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            date: {
+                $gte: today,
+                $lt: tomorrow
+            },
+            aiEmotionScan: { $exists: true } // AI check-in has aiEmotionScan
+        });
+
+        if (existingAICheckin) {
+            return sendError(res, 'You have already completed an AI analysis check-in today. You can only do manual check-in or wait until tomorrow.', 409);
+        }
+
         // Handle support contact for AI scans
         let supportContactUserId = null;
         if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
@@ -866,6 +951,7 @@ module.exports = {
     submitCheckin,
     submitAICheckin,
     getTodayCheckin,
+    getTodayCheckinStatus,
     getCheckinResults,
     getCheckinHistory,
     getAvailableContacts,

@@ -5,6 +5,7 @@ const {
     submitCheckin,
     submitAICheckin,
     getTodayCheckin,
+    getTodayCheckinStatus,
     getCheckinResults,
     getCheckinHistory,
     getAvailableContacts,
@@ -60,6 +61,9 @@ router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), (req,
 
 // Get today's check-in
 router.get('/today', getTodayCheckin);
+
+// Get today's check-in status (for UI to show available options)
+router.get('/today/status', getTodayCheckinStatus);
 
 // Get check-in results with AI analysis
 router.get('/results/:id', getCheckinResults);
