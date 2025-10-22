@@ -668,80 +668,14 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
                 }
             }
 
-            // If still no valid JSON, use ultra-advanced fallback with comprehensive emotional incongruence detection
+            // No fallback analysis - must be 100% AI-powered
             if (!emotionResult) {
-                console.log('🔄 Using ultra-advanced fallback emotion analysis with comprehensive psychological assessment');
-                emotionResult = {
-                    primaryEmotion: 'neutral',
-                    secondaryEmotions: ['calm'],
-                    valence: 0.0,
-                    arousal: 0.0,
-                    intensity: 30,
-                    emotionScores: {
-                        neutral: 0.5,
-                        calm: 0.3,
-                        happy: 0.1,
-                        sad: 0.1
-                    },
-                    confidence: 50,
-                    explanations: [
-                        'Unable to parse detailed analysis',
-                        'Basic neutral expression detected',
-                        'Limited facial data available for comprehensive assessment'
-                    ],
-                    temporalAnalysis: {
-                        transitions: [],
-                        stability: 0.7,
-                        dominantEmotion: 'neutral',
-                        emotionVariability: 0.3
-                    },
-                    emotionalAuthenticity: {
-                        isAuthentic: true,
-                        authenticityScore: 60,
-                        maskedEmotion: null,
-                        reasoning: 'Unable to determine authenticity from basic analysis - requires full AI processing',
-                        deceptionIndicators: ['Analysis incomplete - full AI processing required']
-                    },
-                    psychologicalDepth: {
-                        emotionalSuppression: 40,
-                        socialMasking: 30,
-                        underlyingStress: 35,
-                        resilienceIndicators: 50,
-                        emotionalExhaustion: 25,
-                        copingMechanisms: ['Unable to assess without full AI analysis']
-                    },
-                    emotionalIncongruence: {
-                        detected: false,
-                        confidence: 30,
-                        surfaceEmotion: 'neutral',
-                        underlyingEmotion: 'neutral',
-                        evidence: ['Unable to detect incongruence from basic analysis', 'Full AI processing required for incongruence assessment'],
-                        interpretation: 'Basic analysis insufficient for incongruence detection - requires advanced AI facial analysis',
-                        severity: 'unknown',
-                        recommendations: ['Complete full AI emotion analysis for accurate assessment']
-                    },
-                    advancedAnalysis: {
-                        facialRegionAnalysis: {
-                            eyes: 'Unable to analyze - requires full AI processing',
-                            brows: 'Unable to analyze - requires full AI processing',
-                            mouth: 'Unable to analyze - requires full AI processing',
-                            jaw: 'Unable to analyze - requires full AI processing',
-                            overallSymmetry: 'Unable to assess - requires full AI processing'
-                        },
-                        microExpressionDetection: {
-                            detected: false,
-                            locations: [],
-                            trueEmotions: [],
-                            duration: 'N/A'
-                        },
-                        contextualFactors: {
-                            professionalMasking: false,
-                            socialAppropriateness: false,
-                            emotionalLabor: false,
-                            stressIndicators: ['Analysis incomplete']
-                        }
-                    }
-                };
+                console.error('❌ AI emotion analysis completely failed - no fallback available');
+                return res.status(503).json({
+                    success: false,
+                    message: 'AI emotion analysis service is temporarily unavailable. Please try again later.',
+                    error: 'AI_SERVICE_UNAVAILABLE'
+                });
             }
         }
 
