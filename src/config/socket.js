@@ -6,9 +6,7 @@ let io;
 const initSocket = (server) => {
     io = socketIo(server, {
         cors: {
-            origin: process.env.NODE_ENV === 'production'
-                ? ['https://mws-app-nine.vercel.app']
-                : ['http://localhost:3000', 'http://localhost:5173'],
+            origin: true, // Allow all origins temporarily
             methods: ['GET', 'POST'],
             credentials: true
         }

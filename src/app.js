@@ -26,14 +26,12 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS configuration
+// CORS configuration - Allow all origins for now to debug
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? ['https://mws-app-nine.vercel.app']
-        : ['http://localhost:5173'],
+    origin: true, // Allow all origins temporarily
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 }));
 
 // Rate limiting
