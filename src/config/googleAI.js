@@ -5,8 +5,8 @@ class GoogleAIService {
         // Use the correct Google Generative AI SDK
         this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
-        // Use stable models instead of experimental ones
-        const models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro'];
+        // Use the experimental model as requested
+        const models = ['gemini-2.0-flash-exp'];
 
         for (const modelName of models) {
             try {
