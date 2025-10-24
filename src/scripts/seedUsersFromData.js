@@ -16,7 +16,8 @@ const userData = [
         jobPosition: 'Office Boy',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-10-09'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'abdullah@millennia21.id',
@@ -29,7 +30,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Staff Resources',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2005-01-31')
+        joinDate: new Date('2005-01-31'),
+        gender: 'M'
     },
     {
         email: 'abu@millennia21.id',
@@ -42,7 +44,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2002-06-03')
+        joinDate: new Date('2002-06-03'),
+        gender: 'M'
     },
     {
         email: 'adibah.hana@millennia21.id',
@@ -56,7 +59,8 @@ const userData = [
         jobPosition: 'Librarian',
         employmentStatus: 'Contract',
         joinDate: new Date('2025-02-07'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'adiya.herisa@millennia21.id',
@@ -69,7 +73,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Perawat',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-09-04')
+        joinDate: new Date('2023-09-04'),
+        gender: 'F'
     },
     {
         email: 'afiyanti.hardiansari@millennia21.id',
@@ -83,7 +88,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2025-04-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'dodi@millennia21.id',
@@ -96,7 +102,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Head of Operational',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2017-11-14')
+        joinDate: new Date('2017-11-14'),
+        gender: 'M'
     },
     {
         email: 'dhaffa@millennia21.id',
@@ -110,7 +117,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2023-12-23'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'almia@millennia21.id',
@@ -123,7 +131,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2021-06-28')
+        joinDate: new Date('2021-06-28'),
+        gender: 'F'
     },
     {
         email: 'anggie@millennia21.id',
@@ -136,7 +145,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-07-17')
+        joinDate: new Date('2023-07-17'),
+        gender: 'F'
     },
     {
         email: 'annisa.fitri@millennia21.id',
@@ -150,7 +160,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ardiansyah@millennia21.id',
@@ -163,7 +174,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'PLH',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2018-03-01')
+        joinDate: new Date('2018-03-01'),
+        gender: 'M'
     },
     {
         email: 'aria@millennia21.id',
@@ -176,7 +188,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Principal of Junior High',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2006-03-27')
+        joinDate: new Date('2006-03-27'),
+        gender: 'M'
     },
     {
         email: 'alinsuwisto@millennia21.id',
@@ -189,7 +202,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-10-24')
+        joinDate: new Date('2022-10-24'),
+        gender: 'F'
     },
     {
         email: 'aprimaputri@millennia21.id',
@@ -203,7 +217,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'wina@millennia21.id',
@@ -214,10 +229,11 @@ const userData = [
         department: 'Directorate',
         jobLevel: 'Staff',
         unit: 'Directorate',
-        jobPosition: 'School\'s Psychologist',
+        jobPosition: "School's Psychologist",
         employmentStatus: 'Contract',
         joinDate: new Date('2025-02-03'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'belakartika@millennia21.id',
@@ -231,7 +247,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'nana@millennia21.id',
@@ -245,7 +262,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2025-04-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'derry@millennia21.id',
@@ -258,7 +276,8 @@ const userData = [
         unit: 'Directorate',
         jobPosition: 'Staff Admin',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2018-11-15')
+        joinDate: new Date('2018-11-15'),
+        gender: 'M'
     },
     {
         email: 'devi.agriani@millennia21.id',
@@ -272,7 +291,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'devilarasati@millennia21.id',
@@ -286,7 +306,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'dien@millennia21.id',
@@ -300,7 +321,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'dina@millennia21.id',
@@ -313,7 +335,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Office Girl',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-05-25')
+        joinDate: new Date('2022-05-25'),
+        gender: 'F'
     },
     {
         email: 'dinimeilani@millennia21.id',
@@ -327,7 +350,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'diya@millennia21.id',
@@ -340,7 +364,8 @@ const userData = [
         unit: 'Kindergarten',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2021-04-01')
+        joinDate: new Date('2021-04-01'),
+        gender: 'F'
     },
     {
         email: 'dona@millennia21.id',
@@ -354,7 +379,8 @@ const userData = [
         jobPosition: 'Office Girl',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-07-26'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'akbarfadholi98@millennia21.id',
@@ -368,7 +394,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'faisal@millennia21.id',
@@ -382,7 +409,8 @@ const userData = [
         jobPosition: 'Head of IT',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-07-15'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'fasa@millennia21.id',
@@ -396,7 +424,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2025-04-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'aya@millennia21.id',
@@ -410,7 +439,8 @@ const userData = [
         jobPosition: 'Secretary',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-18'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'jo@millennia21.id',
@@ -424,7 +454,8 @@ const userData = [
         jobPosition: 'Admin Pelangi / Secretary',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-15'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ferlyna.balqis@millennia21.id',
@@ -438,7 +469,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2025-04-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'fransiskaeva@millennia21.id',
@@ -451,7 +483,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2021-06-28')
+        joinDate: new Date('2021-06-28'),
+        gender: 'F'
     },
     {
         email: 'galen@millennia21.id',
@@ -465,7 +498,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-28'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'gundah@millennia21.id',
@@ -478,7 +512,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-07-17')
+        joinDate: new Date('2023-07-17'),
+        gender: 'F'
     },
     {
         email: 'hadi@millennia21.id',
@@ -492,7 +527,8 @@ const userData = [
         jobPosition: 'Performing Art Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'hana.fajria@millennia21.id',
@@ -505,7 +541,8 @@ const userData = [
         unit: 'Pelangi',
         jobPosition: 'Head of Pelangi',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2019-09-02')
+        joinDate: new Date('2019-09-02'),
+        gender: 'F'
     },
     {
         email: 'himawan@millennia21.id',
@@ -519,7 +556,8 @@ const userData = [
         jobPosition: 'Coding Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'iis@millennia21.id',
@@ -533,7 +571,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ikarahayu@millennia21.id',
@@ -547,7 +586,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'irawan@millennia21.id',
@@ -560,7 +600,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Driver',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2017-03-02')
+        joinDate: new Date('2017-03-02'),
+        gender: 'M'
     },
     {
         email: 'khairul@millennia21.id',
@@ -573,7 +614,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Office Boy',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2019-06-17')
+        joinDate: new Date('2019-06-17'),
+        gender: 'M'
     },
     {
         email: 'kholida@millennia21.id',
@@ -586,7 +628,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Principal of Elementary',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2019-02-25')
+        joinDate: new Date('2019-02-25'),
+        gender: 'F'
     },
     {
         email: 'alys@millennia21.id',
@@ -600,7 +643,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2023-07-17'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'sandi@millennia21.id',
@@ -613,7 +657,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Office Boy',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2018-09-24')
+        joinDate: new Date('2018-09-24'),
+        gender: 'M'
     },
     {
         email: 'latifah@millennia21.id',
@@ -626,7 +671,8 @@ const userData = [
         unit: 'Kindergarten',
         jobPosition: 'Principal of Kindergarten',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-07-18')
+        joinDate: new Date('2022-07-18'),
+        gender: 'F'
     },
     {
         email: 'mahrukh@millennia21.id',
@@ -639,7 +685,8 @@ const userData = [
         unit: 'Directorate',
         jobPosition: 'Academic Director',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2009-10-01')
+        joinDate: new Date('2009-10-01'),
+        gender: 'F'
     },
     {
         email: 'maria@millennia21.id',
@@ -652,7 +699,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-07-18')
+        joinDate: new Date('2022-07-18'),
+        gender: 'F'
     },
     {
         email: 'maulida.yunita@millennia21.id',
@@ -666,7 +714,8 @@ const userData = [
         jobPosition: 'Librarian',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-25'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'muhammad.farhan@millennia21.id',
@@ -680,7 +729,8 @@ const userData = [
         jobPosition: 'Design & Social Media',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-25'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'fathan.qalbi@millennia21.id',
@@ -694,7 +744,8 @@ const userData = [
         jobPosition: 'Office Boy',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-02-23'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'awal@millennia21.id',
@@ -708,7 +759,8 @@ const userData = [
         jobPosition: 'PLH',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-18'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'ananta@millennia21.id',
@@ -722,7 +774,8 @@ const userData = [
         jobPosition: 'IT Support',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'mukron@millennia21.id',
@@ -735,7 +788,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'PLH',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-08-28')
+        joinDate: new Date('2023-08-28'),
+        gender: 'M'
     },
     {
         email: 'nadiamws@millennia21.id',
@@ -749,7 +803,8 @@ const userData = [
         jobPosition: 'English Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-11-18'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'nanda@millennia21.id',
@@ -762,7 +817,8 @@ const userData = [
         unit: 'Kindergarten',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2019-04-01')
+        joinDate: new Date('2019-04-01'),
+        gender: 'F'
     },
     {
         email: 'nathasya@millennia21.id',
@@ -776,7 +832,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2023-07-17'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'kusumawantari@millennia21.id',
@@ -790,7 +847,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-11-06'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'made@millennia21.id',
@@ -804,7 +862,8 @@ const userData = [
         jobPosition: 'Secretary',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-07-29'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'nopi@millennia21.id',
@@ -818,7 +877,8 @@ const userData = [
         jobPosition: 'Office Girl',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-10-30'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'novan@millennia21.id',
@@ -832,7 +892,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'novi@millennia21.id',
@@ -846,7 +907,8 @@ const userData = [
         jobPosition: 'Staff Research & Development',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-15'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'novia@millennia21.id',
@@ -860,7 +922,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-11'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ismail@millennia21.id',
@@ -874,7 +937,8 @@ const userData = [
         jobPosition: 'Staff HCM',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'widya@millennia21.id',
@@ -888,7 +952,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-09-03'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'pipiet@millennia21.id',
@@ -901,7 +966,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-07-17')
+        joinDate: new Date('2023-07-17'),
+        gender: 'F'
     },
     {
         email: 'cecil@millennia21.id',
@@ -914,7 +980,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-08-21')
+        joinDate: new Date('2023-08-21'),
+        gender: 'F'
     },
     {
         email: 'prisy@millennia21.id',
@@ -928,7 +995,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'putri.fitriyani@millennia21.id',
@@ -941,7 +1009,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-07-18')
+        joinDate: new Date('2022-07-18'),
+        gender: 'F'
     },
     {
         email: 'raisa@millennia21.id',
@@ -955,7 +1024,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-14'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ratna@millennia21.id',
@@ -968,7 +1038,8 @@ const userData = [
         unit: 'Directorate',
         jobPosition: 'Director Secretary',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-03-06')
+        joinDate: new Date('2023-03-06'),
+        gender: 'F'
     },
     {
         email: 'restia.widiasari@millennia21.id',
@@ -982,7 +1053,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-09-02'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'rezarizky@millennia21.id',
@@ -996,7 +1068,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-07-15'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'rifqi.satria@millennia21.id',
@@ -1010,7 +1083,8 @@ const userData = [
         jobPosition: 'Physical Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-10-07'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'rike@millennia21.id',
@@ -1024,7 +1098,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-01-23'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'risma.angelita@millennia21.id',
@@ -1038,7 +1113,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'risma.galuh@millennia21.id',
@@ -1052,7 +1128,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-08-11'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'rizkinurul@millennia21.id',
@@ -1065,7 +1142,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Science Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-09-04')
+        joinDate: new Date('2023-09-04'),
+        gender: 'F'
     },
     {
         email: 'robby@millennia21.id',
@@ -1079,7 +1157,8 @@ const userData = [
         jobPosition: 'Office Boy',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-19'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'robby.noer@millennia21.id',
@@ -1093,7 +1172,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'robiatul@millennia21.id',
@@ -1106,7 +1186,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Office Girl',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-07-10')
+        joinDate: new Date('2023-07-10'),
+        gender: 'F'
     },
     {
         email: 'rohmatulloh@millennia21.id',
@@ -1119,7 +1200,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Office Boy',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-04-03')
+        joinDate: new Date('2023-04-03'),
+        gender: 'M'
     },
     {
         email: 'roma@millennia21.id',
@@ -1132,7 +1214,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-07-18')
+        joinDate: new Date('2022-07-18'),
+        gender: 'F'
     },
     {
         email: 'salsabiladhiyaussyifa@millennia21.id',
@@ -1146,7 +1229,8 @@ const userData = [
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'sarahyuliana@millennia21.id',
@@ -1159,7 +1243,8 @@ const userData = [
         unit: 'Finance',
         jobPosition: 'Head of Finance',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2020-06-24')
+        joinDate: new Date('2020-06-24'),
+        gender: 'F'
     },
     {
         email: 'rain@millennia21.id',
@@ -1173,7 +1258,8 @@ const userData = [
         jobPosition: 'Staff HCM',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-09-02'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'susantika@millennia21.id',
@@ -1187,7 +1273,8 @@ const userData = [
         jobPosition: 'Staff CRM',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-11-01'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'tiastiningrum@millennia21.id',
@@ -1200,7 +1287,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-08-21')
+        joinDate: new Date('2023-08-21'),
+        gender: 'F'
     },
     {
         email: 'hanny@millennia21.id',
@@ -1213,7 +1301,8 @@ const userData = [
         unit: 'Directorate',
         jobPosition: 'Staff CRM',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2015-07-27')
+        joinDate: new Date('2015-07-27'),
+        gender: 'F'
     },
     {
         email: 'triayulestari@millennia21.id',
@@ -1227,7 +1316,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-07-15'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'triafadilla@millennia21.id',
@@ -1241,7 +1331,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-06-24'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'udom@millennia21.id',
@@ -1254,7 +1345,8 @@ const userData = [
         unit: 'Operational',
         jobPosition: 'Driver',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2017-09-06')
+        joinDate: new Date('2017-09-06'),
+        gender: 'M'
     },
     {
         email: 'usep@millennia21.id',
@@ -1268,7 +1360,8 @@ const userData = [
         jobPosition: 'Driver',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-07-17'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'vickiaprinando@millennia21.id',
@@ -1282,7 +1375,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-08-02'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'vinka@millennia21.id',
@@ -1295,7 +1389,8 @@ const userData = [
         unit: 'Kindergarten',
         jobPosition: 'Special Education Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2019-07-09')
+        joinDate: new Date('2019-07-09'),
+        gender: 'F'
     },
     {
         email: 'yohana@millennia21.id',
@@ -1309,7 +1404,8 @@ const userData = [
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2023-02-20'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'yosafat@millennia21.id',
@@ -1323,7 +1419,8 @@ const userData = [
         jobPosition: 'Music Teacher',
         employmentStatus: 'Contract',
         joinDate: new Date('2024-01-23'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'oudy@millennia21.id',
@@ -1336,7 +1433,8 @@ const userData = [
         unit: 'Elementary',
         jobPosition: 'Homeroom Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2022-10-17')
+        joinDate: new Date('2022-10-17'),
+        gender: 'F'
     },
     {
         email: 'zolla@millennia21.id',
@@ -1349,7 +1447,8 @@ const userData = [
         unit: 'Junior High',
         jobPosition: 'Art Teacher',
         employmentStatus: 'Permanent',
-        joinDate: new Date('2023-05-02')
+        joinDate: new Date('2023-05-02'),
+        gender: 'F'
     },
     {
         email: 'yeti@millennia21.id',
@@ -1363,7 +1462,8 @@ const userData = [
         jobPosition: 'Office Girl',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-18'),
-        endDate: new Date('2025-12-22')
+        endDate: new Date('2025-12-22'),
+        gender: 'F'
     },
     {
         email: 'danu@millennia21.id',
@@ -1377,7 +1477,8 @@ const userData = [
         jobPosition: 'Driver',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-22'),
-        endDate: new Date('2025-12-22')
+        endDate: new Date('2025-12-22'),
+        gender: 'M'
     },
     {
         email: 'ari.wibowo@millennia21.id',
@@ -1391,7 +1492,8 @@ const userData = [
         jobPosition: 'Junior Full Stack Web Developer',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-25'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'sayed.jilliyan@millennia21.id',
@@ -1405,7 +1507,8 @@ const userData = [
         jobPosition: 'Junior Full Stack Web Developer',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-25'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'kiki@millennia21.id',
@@ -1419,7 +1522,8 @@ const userData = [
         jobPosition: 'Training Development',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'ian.ahmad@millennia21.id',
@@ -1433,7 +1537,8 @@ const userData = [
         jobPosition: 'Staff Finance',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-10-08'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'andre@millennia21.id',
@@ -1447,7 +1552,8 @@ const userData = [
         jobPosition: 'Secretary',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-10-01'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
     },
     {
         email: 'chaca@millennia21.id',
@@ -1461,7 +1567,8 @@ const userData = [
         jobPosition: 'Integral & Math Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-09-29'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'sisil@millennia21.id',
@@ -1475,7 +1582,8 @@ const userData = [
         jobPosition: 'Math Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-10-20'),
-        endDate: new Date('2026-06-22')
+        endDate: new Date('2026-06-22'),
+        gender: 'F'
     },
     {
         email: 'nayandra@millennia21.id',
@@ -1489,9 +1597,57 @@ const userData = [
         jobPosition: 'Makerspace Teacher',
         employmentStatus: 'Probation',
         joinDate: new Date('2025-10-01'),
-        endDate: new Date('2026-06-22')
-    }
-];
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
+    },
+
+    // Tambahan 6 user paling akhir dari tabel (yang tidak ada di array awal):
+    {
+        email: 'radit@millennia21.id',
+        password: 'password123',
+        name: 'Raditya Saputra',
+        username: 'Radit',
+        role: 'support_staff',
+        department: 'Operational',
+        jobLevel: 'Support Staff',
+        unit: 'Operational',
+        jobPosition: 'Office Boy',
+        employmentStatus: 'Probation',
+        joinDate: new Date('2025-10-20'),
+        endDate: new Date('2026-01-20'),
+        gender: 'M'
+    },
+    {
+        email: 'wahyu@millennia21.id',
+        password: 'password123',
+        name: 'Wahyu Ramadhan',
+        username: 'Wahyu',
+        role: 'support_staff',
+        department: 'Operational',
+        jobLevel: 'Support Staff',
+        unit: 'Operational',
+        jobPosition: 'PLH',
+        employmentStatus: 'Probation',
+        joinDate: new Date('2025-10-20'),
+        endDate: new Date('2026-01-20'),
+        gender: 'M'
+    },
+    {
+        email: 'denis@millennia21.id',
+        password: 'password123',
+        name: 'Denis Septian',
+        username: 'Denis',
+        role: 'support_staff',
+        department: 'Operational',
+        jobLevel: 'Support Staff',
+        unit: 'Operational',
+        jobPosition: 'Office Boy',
+        employmentStatus: 'Probation',
+        joinDate: new Date('2025-10-24'),
+        endDate: new Date('2026-03-22'),
+        gender: 'M'
+    },
+]
 
 const seedUsersFromData = async () => {
     try {
