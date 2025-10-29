@@ -231,7 +231,19 @@ const submitCheckin = async (req, res) => {
         const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
+        const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+
+        // Rate limiting: Check for recent submissions (within last 30 seconds)
+        const thirtySecondsAgo = new Date(Date.now() - 30000);
+        const recentSubmission = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            submittedAt: { $gte: thirtySecondsAgo }
+        });
+
+        if (recentSubmission) {
+            return sendError(res, 'Please wait 30 seconds between submissions to prevent spam.', 429);
+        }
 
         // Check if user already did manual check-in today
         const today = new Date();
@@ -366,6 +378,110 @@ const submitCheckin = async (req, res) => {
                 needsSupport: checkin.aiAnalysis.needsSupport,
                 submittedAt: checkin.submittedAt
             });
+
+            // Emit to personal room for real-time personal updates
+            io.to(`personal-${checkin.userId}`).emit('personal:new-checkin', {
+                id: checkin._id,
+                weatherType: checkin.weatherType,
+                selectedMoods: checkin.selectedMoods,
+                details: checkin.details,
+                presenceLevel: checkin.presenceLevel,
+                capacityLevel: checkin.capacityLevel,
+                aiAnalysis: checkin.aiAnalysis,
+                submittedAt: checkin.submittedAt
+            });
+        }
+
+        // Send notifications if user has selected a support contact (regardless of AI analysis)
+        if (checkin.supportContactUserId) {
+            try {
+                console.log('🔔 Sending support notifications for user:', checkin.userId);
+                console.log('📧 Support contact ID:', checkin.supportContactUserId);
+                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
+
+                // Get user details
+                const user = await User.findById(checkin.userId).select('name role department');
+                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
+
+                console.log('👤 User details:', { name: user?.name, role: user?.role, department: user?.department });
+                console.log('🎯 Support contact details:', { name: supportContact?.name, email: supportContact?.email, role: supportContact?.role });
+
+                if (user && supportContact) {
+                    console.log('✅ Both user and support contact found, proceeding with notifications');
+
+                    // Create notification for support request
+                    try {
+                        await notificationService.createSupportRequestNotification(checkin.userId, {
+                            supportContactName: supportContact.name,
+                            supportContactEmail: supportContact.email,
+                            weatherType: checkin.weatherType,
+                            presenceLevel: checkin.presenceLevel,
+                            capacityLevel: checkin.capacityLevel,
+                            checkinId: checkin._id.toString()
+                        });
+                        console.log('✅ Support request notification created');
+                    } catch (notificationError) {
+                        console.error('❌ Failed to create support request notification:', notificationError);
+                        // Don't fail the check-in if notification creation fails
+                    }
+
+                    // Send Slack notification
+                    try {
+                        console.log('📱 Attempting to send Slack notification...');
+                        await notificationService.sendSlackNotification({
+                            userName: user.name,
+                            userRole: user.role,
+                            userDepartment: user.department,
+                            supportContactName: supportContact.name,
+                            supportContactEmail: supportContact.email,
+                            weatherType: checkin.weatherType,
+                            presenceLevel: checkin.presenceLevel,
+                            capacityLevel: checkin.capacityLevel,
+                            selectedMoods: checkin.selectedMoods,
+                            details: checkin.details,
+                            aiAnalysis: checkin.aiAnalysis,
+                            checkinId: checkin._id.toString()
+                        });
+                        console.log('✅ Slack notification sent successfully');
+                    } catch (slackError) {
+                        console.error('❌ Slack notification failed:', slackError.message);
+                    }
+
+                    // Send email notification
+                    try {
+                        console.log('📧 Attempting to send email notification...');
+                        await notificationService.sendEmailNotification({
+                            userName: user.name,
+                            userRole: user.role,
+                            userDepartment: user.department,
+                            supportContactName: supportContact.name,
+                            supportContactEmail: supportContact.email,
+                            weatherType: checkin.weatherType,
+                            presenceLevel: checkin.presenceLevel,
+                            capacityLevel: checkin.capacityLevel,
+                            selectedMoods: checkin.selectedMoods,
+                            details: checkin.details,
+                            aiAnalysis: checkin.aiAnalysis,
+                            checkinId: checkin._id.toString()
+                        });
+                        console.log('✅ Email notification sent successfully');
+                    } catch (emailError) {
+                        console.error('❌ Email notification failed:', emailError.message);
+                    }
+
+                    console.log('✅ Support notifications process completed');
+                } else {
+                    console.log('❌ Missing user or support contact data:', {
+                        hasUser: !!user,
+                        hasSupportContact: !!supportContact
+                    });
+                }
+            } catch (notificationError) {
+                console.error('❌ Failed to send support notifications:', notificationError);
+                // Don't fail the check-in if notifications fail
+            }
+        } else {
+            console.log('ℹ️ Skipping notifications - no support contact selected');
         }
 
         // Prepare support contact details for response
@@ -778,6 +894,17 @@ const submitAICheckin = async (req, res) => {
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const { sendSuccess, sendError } = require('../utils/response');
 
+        // Rate limiting: Check for recent submissions (within last 30 seconds)
+        const thirtySecondsAgo = new Date(Date.now() - 30000);
+        const recentSubmission = await EmotionalCheckin.findOne({
+            userId: req.user.id,
+            submittedAt: { $gte: thirtySecondsAgo }
+        });
+
+        if (recentSubmission) {
+            return sendError(res, 'Please wait 30 seconds between submissions to prevent spam.', 429);
+        }
+
         // Check if user already did AI check-in today
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -854,6 +981,14 @@ const submitAICheckin = async (req, res) => {
             } : null
         };
 
+        // Store AI-generated weather and moods in database for future reference
+        if (checkinData.weatherType && checkinData.weatherType !== 'partly-cloudy') {
+            console.log('📊 Storing AI-generated weather type:', checkinData.weatherType);
+        }
+        if (checkinData.selectedMoods && checkinData.selectedMoods.length > 0) {
+            console.log('📊 Storing AI-generated moods:', checkinData.selectedMoods);
+        }
+
         console.log('✅ Final checkinData for AI scan:', {
             weatherType: checkinData.weatherType,
             selectedMoods: checkinData.selectedMoods,
@@ -908,6 +1043,59 @@ const submitAICheckin = async (req, res) => {
                 needsSupport: checkin.aiAnalysis.needsSupport,
                 submittedAt: checkin.submittedAt
             });
+        }
+
+        // Send notifications if user has selected a support contact (regardless of AI analysis)
+        if (checkin.supportContactUserId) {
+            try {
+                console.log('🔔 Sending support notifications for AI check-in user:', checkin.userId);
+                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
+
+                // Get user details
+                const user = await User.findById(checkin.userId).select('name role department');
+                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
+
+                if (user && supportContact) {
+                    // Send Slack notification
+                    await notificationService.sendSlackNotification({
+                        userName: user.name,
+                        userRole: user.role,
+                        userDepartment: user.department,
+                        supportContactName: supportContact.name,
+                        supportContactEmail: supportContact.email,
+                        weatherType: checkin.weatherType,
+                        presenceLevel: checkin.presenceLevel,
+                        capacityLevel: checkin.capacityLevel,
+                        selectedMoods: checkin.selectedMoods,
+                        details: checkin.details,
+                        aiAnalysis: checkin.aiAnalysis,
+                        checkinId: checkin._id.toString()
+                    });
+
+                    // Send email notification
+                    await notificationService.sendEmailNotification({
+                        userName: user.name,
+                        userRole: user.role,
+                        userDepartment: user.department,
+                        supportContactName: supportContact.name,
+                        supportContactEmail: supportContact.email,
+                        weatherType: checkin.weatherType,
+                        presenceLevel: checkin.presenceLevel,
+                        capacityLevel: checkin.capacityLevel,
+                        selectedMoods: checkin.selectedMoods,
+                        details: checkin.details,
+                        aiAnalysis: checkin.aiAnalysis,
+                        checkinId: checkin._id.toString()
+                    });
+
+                    console.log('✅ Support notifications sent successfully for AI check-in');
+                }
+            } catch (notificationError) {
+                console.error('❌ Failed to send support notifications for AI check-in:', notificationError);
+                // Don't fail the check-in if notifications fail
+            }
+        } else {
+            console.log('ℹ️ Skipping notifications - no support contact selected for AI check-in');
         }
 
         // Prepare support contact details for response

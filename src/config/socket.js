@@ -27,6 +27,18 @@ const initSocket = (server) => {
             winston.info(`User ${userId} left dashboard room`);
         });
 
+        // Join personal room for real-time personal updates
+        socket.on('join-personal', (userId) => {
+            socket.join(`personal-${userId}`);
+            winston.info(`User ${userId} joined personal room`);
+        });
+
+        // Leave personal room
+        socket.on('leave-personal', (userId) => {
+            socket.leave(`personal-${userId}`);
+            winston.info(`User ${userId} left personal room`);
+        });
+
         socket.on('disconnect', () => {
             winston.info(`User disconnected: ${socket.id}`);
         });

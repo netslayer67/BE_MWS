@@ -47,11 +47,11 @@ router.post('/emotion/analyze', upload.single('image'), analyzeEmotion);
 // All check-in routes require authentication
 router.use(authenticate);
 
-// Submit emotional check-in (staff/teacher only)
-router.post('/submit', requireStaffOrTeacher, submitCheckin);
+// Submit emotional check-in (staff/teacher only) with enhanced validation
+router.post('/submit', requireStaffOrTeacher, validate(emotionalCheckinSchema), submitCheckin);
 
 // Submit AI emotion scan check-in (staff/teacher only) - separate route with different validation
-router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), (req, res, next) => {
+router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), validate(emotionalCheckinSchema), (req, res, next) => {
     // Log incoming request for debugging
     console.log('🤖 AI Submit Route - Incoming request body keys:', Object.keys(req.body || {}));
     console.log('🤖 AI Submit Route - Files:', req.files || req.file ? 'Present' : 'None');

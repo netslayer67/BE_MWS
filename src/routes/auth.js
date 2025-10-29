@@ -123,8 +123,13 @@ router.post('/login', require('../middleware/validation').validate(require('../u
 
 // Logout
 router.post('/logout', (req, res) => {
-    req.logout();
-    sendSuccess(res, 'Logged out successfully');
+    req.logout((err) => {
+        if (err) {
+            console.error('Logout error:', err);
+            return sendError(res, 'Logout failed', 500);
+        }
+        sendSuccess(res, 'Logged out successfully');
+    });
 });
 
 // Get current user info

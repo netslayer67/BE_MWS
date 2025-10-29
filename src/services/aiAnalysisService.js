@@ -18,22 +18,90 @@ class AIAnalysisService {
             };
         } catch (error) {
             console.error('❌ AI Analysis failed:', error.message);
+
+            // Check for quota/rate limit errors
+            if (error.message.includes('429') || error.message.includes('Too Many Requests') ||
+                error.message.includes('quota') || error.message.includes('exceeded')) {
+                console.log('🚫 AI quota exceeded - rejecting request without fallback');
+                throw new Error('AI service quota exceeded. Please try again later or contact administrator.');
+            }
+
+            // For other AI errors, reject without fallback
             throw new Error(`AI analysis service unavailable: ${error.message}`);
         }
     }
 
     buildPsychologyPrompt(data) {
-        const moodText = data.selectedMoods.length > 0
-            ? data.selectedMoods.join(', ')
-            : 'No specific moods selected';
+        // Enhanced support detection with historical context
+        const hasHistoricalContext = data.historicalPatterns ? true : false;
+        const recentDeviations = data.historicalPatterns?.recentDeviations || [];
+        const baselineStability = data.historicalPatterns?.baselineStability || 0.5;
 
-        // Resolve support contact details if user ID is provided
-        let supportContactText = 'None specified';
-        if (data.supportContactUserId) {
-            // This would be resolved asynchronously in the controller
-            // For now, we'll use a placeholder that AI can understand
-            supportContactText = 'A specific staff member has been selected for support';
-        }
+        const moodText = data.selectedMoods?.join(', ') || 'not specified';
+        const weatherText = data.weatherType || 'not specified';
+        const presenceText = `${data.presenceLevel}/10`;
+        const capacityText = `${data.capacityLevel}/10`;
+
+        // Enhanced prompt with historical analysis
+        const prompt = `You are an expert psychologist analyzing emotional check-in data for workplace wellness. Analyze this employee's emotional state and determine if they need support.
+
+EMPLOYEE DATA:
+- Weather/Mood: ${weatherText}
+- Selected Moods: ${moodText}
+- Presence Level: ${presenceText}
+- Capacity Level: ${capacityText}
+- Details: ${data.details || 'None provided'}
+
+${hasHistoricalContext ? `
+HISTORICAL CONTEXT:
+- Baseline Emotional Stability: ${Math.round(baselineStability * 100)}%
+- Recent Deviations: ${recentDeviations.length > 0 ? recentDeviations.join(', ') : 'None significant'}
+- Pattern Analysis: ${data.historicalPatterns?.patternAnalysis || 'Insufficient data'}
+` : ''}
+
+ANALYSIS REQUIREMENTS:
+1. Assess current emotional state (positive/challenging/balanced/depleted)
+2. Evaluate presence and capacity levels
+3. Consider weather/mood indicators
+4. ${hasHistoricalContext ? 'Factor in historical patterns and deviations' : 'Note: Limited historical context available'}
+5. Determine if support is needed based on:
+   - Current state severity (presence/capacit y ≤4 = concerning)
+   - Negative emotional indicators
+   - ${hasHistoricalContext ? 'Significant deviations from baseline' : 'Available indicators'}
+
+SUPPORT DETECTION CRITERIA:
+- IMMEDIATE SUPPORT: presence/capacit y ≤3, severe negative moods, critical deviations
+- MONITOR: presence/capacit y 4-5, moderate concerns, some deviations
+- NORMAL: presence/capacit y ≥6, positive indicators, stable patterns
+
+RESPONSE FORMAT (JSON only):
+{
+  "emotionalState": "positive|challenging|balanced|depleted",
+  "presenceState": "high|moderate|low",
+  "capacityState": "high|moderate|low",
+  "recommendations": [
+    {
+      "title": "Brief title",
+      "description": "Specific actionable advice",
+      "priority": "high|medium|low",
+      "category": "immediate|monitoring|preventive"
+    }
+  ],
+  "psychologicalInsights": "Professional psychological analysis",
+  "motivationalMessage": "Empathetic, encouraging message",
+  "needsSupport": true/false,
+  "confidence": 0-100,
+  "supportReasoning": "Why support is/isn't needed",
+  "historicalContextUsed": true/false
+}
+
+IMPORTANT:
+- needsSupport should be true if presence/capacit y ≤4 OR significant negative indicators OR ${hasHistoricalContext ? 'concerning historical patterns' : 'multiple risk factors'}
+- Be conservative but thorough in support recommendations
+- Consider both immediate needs and preventive care
+- Use historical context when available to improve accuracy`;
+
+        return prompt;
 
         return `You are a seasoned psychologist and certified life coach specializing in emotional well-being within educational settings. Your expertise is sought to analyze an emotional check-in submitted by an educational staff member, aiming to provide nuanced, supportive, and empowering feedback.
 
@@ -432,7 +500,7 @@ const generatePersonalizedGreeting = async (checkinData, aiAnalysis) => {
     try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
         const prompt = `
 You are an empathetic AI wellness coach. Based on this emotional check-in data, create a personalized, warm greeting (just 2-4 words) that acknowledges their current emotional state and makes them feel seen and supported.

@@ -397,21 +397,21 @@ const userData = [
         endDate: new Date('2026-06-22'),
         gender: 'M'
     },
-    {
-        email: 'faisal@millennia21.id',
-        password: 'password123',
-        name: 'Faisal Nur Hidayat',
-        username: 'Faisal',
-        role: 'head_unit',
-        department: 'MAD Lab',
-        jobLevel: 'Head Unit',
-        unit: 'MAD Lab',
-        jobPosition: 'Head of IT',
-        employmentStatus: 'Contract',
-        joinDate: new Date('2024-07-15'),
-        endDate: new Date('2026-06-22'),
-        gender: 'M'
-    },
+    // {
+    //     email: 'faisal@millennia21.id',
+    //     password: 'password123',
+    //     name: 'Faisal Nur Hidayat',
+    //     username: 'Faisal',
+    //     role: 'head_unit',
+    //     department: 'MAD Lab',
+    //     jobLevel: 'Head Unit',
+    //     unit: 'MAD Lab',
+    //     jobPosition: 'Head of IT',
+    //     employmentStatus: 'Contract',
+    //     joinDate: new Date('2024-07-15'),
+    //     endDate: new Date('2026-06-22'),
+    //     gender: 'M'
+    // },
     {
         email: 'fasa@millennia21.id',
         password: 'password123',
@@ -1496,21 +1496,6 @@ const userData = [
         gender: 'M'
     },
     {
-        email: 'sayed.jilliyan@millennia21.id',
-        password: 'password123',
-        name: 'Sayed Jilliyan',
-        username: 'Jilliyan',
-        role: 'staff',
-        department: 'MAD Lab',
-        jobLevel: 'Staff',
-        unit: 'MAD Lab',
-        jobPosition: 'Junior Full Stack Web Developer',
-        employmentStatus: 'Probation',
-        joinDate: new Date('2025-09-25'),
-        endDate: new Date('2026-06-22'),
-        gender: 'M'
-    },
-    {
         email: 'kiki@millennia21.id',
         password: 'password123',
         name: 'Rizki Amalia Fatikhah',
@@ -1647,6 +1632,21 @@ const userData = [
         endDate: new Date('2026-03-22'),
         gender: 'M'
     },
+    {
+        email: 'sayed.jilliyan@millennia21.id',
+        password: 'password123',
+        name: 'SAYED JILLIYAN',
+        username: 'IYAN',
+        role: 'head_unit',
+        department: 'MAD Lab',
+        jobLevel: 'Head Unit',
+        unit: 'MAD Lab',
+        jobPosition: 'Head of IT',
+        employmentStatus: 'Contract',
+        joinDate: new Date('2024-07-15'),
+        endDate: new Date('2026-06-22'),
+        gender: 'M'
+    },
 ]
 
 const seedUsersFromData = async () => {
@@ -1676,6 +1676,11 @@ const seedUsersFromData = async () => {
                 };
             }
 
+            // Map gender values
+            let gender = 'other';
+            if (userDataItem.gender === 'M') gender = 'male';
+            else if (userDataItem.gender === 'F') gender = 'female';
+
             // Ensure all required fields are present
             const userToCreate = {
                 name: userDataItem.name,
@@ -1691,6 +1696,7 @@ const seedUsersFromData = async () => {
                 joinDate: userDataItem.joinDate,
                 endDate: userDataItem.endDate,
                 workingPeriod: userDataItem.workingPeriod,
+                gender: gender,
                 isActive: true,
                 emailVerified: true
             };

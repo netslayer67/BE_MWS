@@ -5,7 +5,9 @@ const {
     getMoodDistribution,
     getRecentCheckins,
     getUserTrends,
-    exportDashboardData
+    getUserCheckinHistory,
+    exportDashboardData,
+    confirmSupportRequest
 } = require('../controllers/dashboardController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { validateQuery } = require('../middleware/validation');
@@ -39,7 +41,13 @@ router.get('/checkins', getRecentCheckins);
 // Get user trend data
 router.get('/user-trends', getUserTrends);
 
+// Get complete user check-in history
+router.get('/user-history', getUserCheckinHistory);
+
 // Export dashboard data
 router.get('/export', exportDashboardData);
+
+// Confirm support request
+router.post('/support-request/:requestId/confirm', confirmSupportRequest);
 
 module.exports = router;

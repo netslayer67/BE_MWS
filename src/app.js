@@ -8,6 +8,7 @@ const winston = require('winston');
 const connectDB = require('./config/database');
 const googleAI = require('./config/googleAI');
 const { initSocket } = require('./config/socket');
+const slackSocketService = require('./services/slackSocketService');
 
 // Import routes
 const routes = require('./routes');
@@ -45,7 +46,7 @@ const limiter = expressRateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path === '/health' // Skip rate limiting for health checks
+    skip: (req) => req.path === '/health' || req.path.startsWith('/v1/auth') // Skip rate limiting for health checks and auth
 });
 
 app.use('/api/', limiter);
@@ -80,17 +81,44 @@ const initializeApp = async () => {
         // Connect to MongoDB
         await connectDB();
 
-        // Test Google AI connection (required - no fallback)
+        // Test Google AI connection (with graceful fallback for overload and quota)
         try {
             const aiConnected = await googleAI.testConnection();
             if (aiConnected) {
                 winston.info('Google AI connection successful');
             } else {
-                throw new Error('AI connection test returned false');
+                winston.warn('Google AI connection test returned false - proceeding with limited functionality');
             }
         } catch (error) {
-            winston.error('Google AI connection failed - application cannot start without AI');
-            process.exit(1);
+            if (error.message.includes('overloaded') || error.message.includes('503') ||
+                error.message.includes('429') || error.message.includes('Too Many Requests') ||
+                error.message.includes('quota') || error.message.includes('exceeded') ||
+                error.message.includes('rate limited')) {
+                winston.warn('⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️');
+                winston.warn('AI features will be limited until quota resets (typically daily)');
+                winston.warn('Manual check-ins will work, but AI analysis will be unavailable');
+                winston.warn('Application will continue running with reduced functionality');
+                winston.warn('To restore AI features, wait for quota reset or upgrade your Google AI plan');
+                winston.warn('🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀');
+                // Don't exit - continue with fallback mode
+                winston.info('✅ Application initialized successfully with fallback AI mode');
+                return;
+            } else {
+                winston.error('Google AI connection failed - application cannot start without AI');
+                process.exit(1);
+            }
+        }
+
+        // Initialize Slack Socket Mode (non-blocking)
+        try {
+            const slackStatus = slackSocketService.getStatus();
+            if (slackStatus.hasWebClient && slackStatus.hasSocketClient) {
+                winston.info('Slack Socket Mode service initialized');
+            } else {
+                winston.warn('Slack Socket Mode service not fully initialized - some features may be unavailable');
+            }
+        } catch (slackError) {
+            winston.warn('Slack Socket Mode initialization failed:', slackError.message);
         }
 
         winston.info('Application initialized successfully');

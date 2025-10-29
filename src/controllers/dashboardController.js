@@ -1,6 +1,7 @@
 const EmotionalCheckin = require('../models/EmotionalCheckin');
 const User = require('../models/User');
 const cacheService = require('../services/cacheService');
+const notificationService = require('../services/notificationService');
 const { sendSuccess, sendError } = require('../utils/response');
 
 // Cache TTL configurations (in seconds)
@@ -113,6 +114,7 @@ const getDashboardStats = async (req, res) => {
 
             // Role-based breakdown
             const roleStats = {};
+            const roleLists = {};
             periodCheckins.forEach(checkin => {
                 const role = checkin.userId?.role || 'unknown';
                 if (!roleStats[role]) {
@@ -121,6 +123,11 @@ const getDashboardStats = async (req, res) => {
                 roleStats[role].count++;
                 roleStats[role].totalPresence += checkin.presenceLevel;
                 roleStats[role].totalCapacity += checkin.capacityLevel;
+
+                if (!roleLists[role]) {
+                    roleLists[role] = [];
+                }
+                roleLists[role].push(checkin.userId?.name || 'Unknown User');
             });
 
             stats.roleBreakdown = Object.keys(roleStats).map(role => ({
@@ -131,6 +138,7 @@ const getDashboardStats = async (req, res) => {
                 avgPresence: roleStats[role].count > 0 ? Math.round((roleStats[role].totalPresence / roleStats[role].count) * 10) / 10 : 0,
                 avgCapacity: roleStats[role].count > 0 ? Math.round((roleStats[role].totalCapacity / roleStats[role].count) * 10) / 10 : 0
             }));
+            stats.roleLists = roleLists;
 
             // Mood distribution with user lists (including AI-generated moods)
             const moodCount = {};
@@ -163,6 +171,7 @@ const getDashboardStats = async (req, res) => {
 
             // Weather distribution (including AI-generated weather types)
             const weatherCount = {};
+            const weatherLists = {};
             periodCheckins.forEach(checkin => {
                 // Include both selected weather and AI-detected weather patterns
                 const weatherTypes = [checkin.weatherType];
@@ -177,9 +186,14 @@ const getDashboardStats = async (req, res) => {
 
                 uniqueWeatherTypes.forEach(weather => {
                     weatherCount[weather] = (weatherCount[weather] || 0) + 1;
+                    if (!weatherLists[weather]) {
+                        weatherLists[weather] = [];
+                    }
+                    weatherLists[weather].push(checkin.userId?.name || 'Unknown User');
                 });
             });
             stats.weatherDistribution = weatherCount;
+            stats.weatherLists = weatherLists;
 
             // Department breakdown
             const deptStats = {};
@@ -199,11 +213,19 @@ const getDashboardStats = async (req, res) => {
                 avgCapacity: deptStats[dept].count > 0 ? Math.round((deptStats[dept].totalCapacity / deptStats[dept].count) * 10) / 10 : 0
             }));
 
-            // Flagged users (needs support) with support contact requests
-            const flaggedCheckins = periodCheckins.filter(c =>
-                c.aiAnalysis && c.aiAnalysis.needsSupport
-            );
+            // Flagged users (needs support) - simplified: only show if AI detected need AND not yet handled
+            const flaggedCheckins = periodCheckins.filter(c => {
+                // Must have AI analysis indicating need for support
+                const aiNeedsSupport = c.aiAnalysis && c.aiAnalysis.needsSupport;
 
+                // Must not have been handled yet
+                const notHandled = !c.supportContactResponse ||
+                    c.supportContactResponse.status !== 'handled';
+
+                return aiNeedsSupport && notHandled;
+            });
+
+            // Map to flagged users format
             stats.flaggedUsers = flaggedCheckins.map(checkin => ({
                 id: checkin._id,
                 userId: checkin.userId?._id,
@@ -234,14 +256,39 @@ const getDashboardStats = async (req, res) => {
             stats.checkinRequests = checkinRequests.map(checkin => ({
                 id: checkin._id,
                 contact: checkin.supportContactUserId?.name || 'Unknown',
+                contactEmail: checkin.supportContactUserId?.email || null,
                 requestedBy: checkin.userId?.name || 'Unknown',
                 userId: checkin.userId?._id,
                 contactId: checkin.supportContactUserId?._id,
                 submittedAt: checkin.submittedAt,
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
-                capacityLevel: checkin.capacityLevel
+                capacityLevel: checkin.capacityLevel,
+                status: checkin.supportContactResponse?.status || 'pending',
+                responseDetails: checkin.supportContactResponse?.details || null,
+                respondedAt: checkin.supportContactResponse?.respondedAt || null
             }));
+
+            // Send notifications for new support requests (only if not already responded to)
+            const newRequests = checkinRequests.filter(c => !c.supportContactResponse?.status);
+            for (const request of newRequests) {
+                try {
+                    await notificationService.sendSupportRequestNotification({
+                        id: request._id,
+                        contactEmail: request.supportContactUserId?.email,
+                        contactName: request.supportContactUserId?.name,
+                        requestedBy: request.userId?.name,
+                        userId: request.userId?._id,
+                        weatherType: request.weatherType,
+                        presenceLevel: request.presenceLevel,
+                        capacityLevel: request.capacityLevel,
+                        submittedAt: request.submittedAt
+                    });
+                } catch (notificationError) {
+                    console.error('Failed to send notification for request:', request._id, notificationError);
+                    // Don't fail the entire request if notification fails
+                }
+            }
 
             // Recent activity (last 20 check-ins in period)
             const recentCheckins = await EmotionalCheckin.find({
@@ -249,7 +296,8 @@ const getDashboardStats = async (req, res) => {
             })
                 .sort({ submittedAt: -1 })
                 .limit(20)
-                .populate('userId', 'name role department');
+                .populate('userId', 'name role department')
+                .populate('supportContactUserId', 'name role department');
 
             stats.recentActivity = recentCheckins.map(checkin => ({
                 id: checkin._id,
@@ -260,7 +308,16 @@ const getDashboardStats = async (req, res) => {
                 selectedMoods: checkin.selectedMoods,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
-                submittedAt: checkin.submittedAt
+                submittedAt: checkin.submittedAt,
+                status: checkin.supportContactResponse?.status || 'pending',
+                supportContact: checkin.supportContactUserId ? {
+                    id: checkin.supportContactUserId._id,
+                    name: checkin.supportContactUserId.name,
+                    role: checkin.supportContactUserId.role,
+                    department: checkin.supportContactUserId.department
+                } : null,
+                responseDetails: checkin.supportContactResponse?.details || null,
+                respondedAt: checkin.supportContactResponse?.respondedAt || null
             }));
 
             // Calculate not submitted users
@@ -703,10 +760,160 @@ const generateInsights = (stats, period) => {
     return insights;
 };
 
+// Get complete user check-in history for individual dashboard
+const getUserCheckinHistory = async (req, res) => {
+    try {
+        const { userId, limit = 50, offset = 0 } = req.query;
+
+        if (!userId) {
+            return sendError(res, 'User ID is required', 400);
+        }
+
+        const checkins = await EmotionalCheckin.find({ userId })
+            .sort({ date: -1 })
+            .limit(parseInt(limit))
+            .skip(parseInt(offset))
+            .populate('userId', 'name email role department')
+            .populate('supportContactUserId', 'name role department')
+            .select('weatherType selectedMoods presenceLevel capacityLevel aiAnalysis details date submittedAt supportContactUserId');
+
+        const totalCount = await EmotionalCheckin.countDocuments({ userId });
+
+        const formattedCheckins = checkins.map(checkin => ({
+            id: checkin._id,
+            date: checkin.date,
+            submittedAt: checkin.submittedAt,
+            weatherType: checkin.weatherType,
+            selectedMoods: checkin.selectedMoods,
+            presenceLevel: checkin.presenceLevel,
+            capacityLevel: checkin.capacityLevel,
+            details: checkin.details,
+            aiAnalysis: checkin.aiAnalysis,
+            supportContact: checkin.supportContactUserId ? {
+                id: checkin.supportContactUserId._id,
+                name: checkin.supportContactUserId.name,
+                role: checkin.supportContactUserId.role,
+                department: checkin.supportContactUserId.department
+            } : null
+        }));
+
+        sendSuccess(res, 'User check-in history retrieved', {
+            checkins: formattedCheckins,
+            pagination: {
+                total: totalCount,
+                limit: parseInt(limit),
+                offset: parseInt(offset),
+                hasMore: (parseInt(offset) + parseInt(limit)) < totalCount
+            }
+        });
+    } catch (error) {
+        console.error('Get user check-in history error:', error);
+        sendError(res, 'Failed to get user check-in history', 500);
+    }
+};
+
+// Confirm support request with enhanced details and follow-up actions
+const confirmSupportRequest = async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const { action, details, followUpActions } = req.body;
+        const contactId = req.user.id;
+
+        if (!['handled', 'acknowledged'].includes(action)) {
+            return sendError(res, 'Invalid action. Must be "handled" or "acknowledged"', 400);
+        }
+
+        // Validate required details for handled action
+        if (action === 'handled' && (!details || details.trim().length < 10)) {
+            return sendError(res, 'Details are required for handled requests (minimum 10 characters)', 400);
+        }
+
+        const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions);
+
+        if (result.success) {
+            // Emit real-time update to dashboard clients
+            const io = require('../config/socket').getIO();
+            if (io) {
+                io.emit('dashboard:support-request-updated', {
+                    requestId,
+                    action,
+                    contactId,
+                    contactName: req.user.name,
+                    contactRole: req.user.role,
+                    details,
+                    followUpActions,
+                    updatedAt: new Date()
+                });
+            }
+
+            // Send notification to original user about the response
+            try {
+                const checkin = await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
+                if (checkin && checkin.userId?.email) {
+                    const subject = action === 'handled'
+                        ? `Your Support Request Has Been Handled - ${req.user.name}`
+                        : `Your Support Request Has Been Acknowledged - ${req.user.name}`;
+
+                    const actionText = action === 'handled' ? 'handled' : 'acknowledged';
+                    const htmlContent = `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                                <h1 style="margin: 0; font-size: 24px;">✅ Support Request ${actionText.charAt(0).toUpperCase() + actionText.slice(1)}</h1>
+                            </div>
+                            <div style="background: white; padding: 30px; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px;">
+                                <p style="font-size: 16px; color: #333; margin-bottom: 20px;">
+                                    Your support request from ${new Date(checkin.submittedAt).toLocaleDateString()} has been <strong>${actionText}</strong> by ${req.user.name} (${req.user.role}).
+                                </p>
+                                ${details ? `
+                                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                                    <h3 style="margin-top: 0; color: #495057;">Follow-up Details:</h3>
+                                    <p style="margin: 0; color: #6c757d;">${details}</p>
+                                </div>
+                                ` : ''}
+                                <div style="text-align: center; margin: 30px 0;">
+                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-wellness"
+                                       style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                                        View My Dashboard
+                                    </a>
+                                </div>
+                                <p style="color: #6c757d; font-size: 14px; text-align: center; margin: 20px 0 0 0;">
+                                    If you need further assistance, please don't hesitate to reach out.
+                                </p>
+                            </div>
+                        </div>
+                    `;
+
+                    await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
+                    console.log(`✅ Notification email sent to ${checkin.userId.name} about ${action} request`);
+                }
+            } catch (emailError) {
+                console.error('❌ Failed to send confirmation email:', emailError);
+                // Don't fail the main request if email fails
+            }
+
+            sendSuccess(res, `Support request ${action} successfully`, {
+                requestId,
+                action,
+                details,
+                followUpActions,
+                contactName: req.user.name,
+                contactRole: req.user.role
+            });
+        } else {
+            sendError(res, 'Failed to confirm support request', 500);
+        }
+    } catch (error) {
+        console.error('Confirm support request error:', error);
+        sendError(res, 'Failed to confirm support request', 500);
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getMoodDistribution,
     getRecentCheckins,
     getUserTrends,
-    exportDashboardData
+    getUserCheckinHistory,
+    exportDashboardData,
+    confirmSupportRequest
 };

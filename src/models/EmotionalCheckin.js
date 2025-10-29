@@ -170,6 +170,27 @@ const emotionalCheckinSchema = new mongoose.Schema({
         }]
     },
 
+    // Support contact response tracking
+    supportContactResponse: {
+        status: {
+            type: String,
+            enum: ['pending', 'acknowledged', 'handled'],
+            default: 'pending'
+        },
+        contactId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        respondedAt: {
+            type: Date
+        },
+        details: {
+            type: String,
+            maxlength: 1000,
+            trim: true
+        }
+    },
+
     // Metadata
     ipAddress: String,
     userAgent: String,

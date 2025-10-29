@@ -101,6 +101,11 @@ const userSchema = new mongoose.Schema({
     }],
     lastLogin: {
         type: Date
+    },
+    gender: {
+        type: String,
+        enum: ['male', 'female', 'other'],
+        trim: true
     }
 }, {
     timestamps: true

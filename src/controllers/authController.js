@@ -62,6 +62,9 @@ const login = async (req, res) => {
             name: user.name,
             role: user.role,
             department: user.department,
+            unit: user.unit,
+            jobLevel: user.jobLevel,
+            jobPosition: user.jobPosition,
             employeeId: user.employeeId,
             lastLogin: user.lastLogin
         };

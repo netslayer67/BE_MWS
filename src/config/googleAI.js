@@ -5,36 +5,64 @@ class GoogleAIService {
         // Use the correct Google Generative AI SDK
         this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
-        // Use the experimental model as requested
-        const models = ['gemini-2.0-flash-exp'];
+        // Always use gemini-2.0-flash-lite as requested, with rate limiting
+        this.modelName = 'gemini-2.0-flash-lite';
+        this.requestQueue = [];
+        this.isProcessing = false;
+        this.minDelay = 1000; // 1 second minimum delay between requests
+        this.lastRequestTime = 0;
 
-        for (const modelName of models) {
-            try {
-                // Test model availability by attempting to get model info
-                this.modelName = modelName;
-                console.log(`Using Google AI model: ${modelName}`);
-                break;
-            } catch (error) {
-                console.log(`Model ${modelName} not available, trying next...`);
-                continue;
-            }
-        }
-
-        if (!this.modelName) {
-            throw new Error('No available Google AI models found');
-        }
+        console.log(`Using Google AI model: ${this.modelName} with rate limiting`);
     }
 
     async generateContent(prompt) {
+        // Implement rate limiting to prevent quota exhaustion
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+
+        if (timeSinceLastRequest < this.minDelay) {
+            const waitTime = this.minDelay - timeSinceLastRequest;
+            console.log(`⏳ Rate limiting: waiting ${waitTime}ms before next AI request`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
         try {
+            console.log(`🤖 Making AI request to ${this.modelName}...`);
             const model = this.ai.getGenerativeModel({ model: this.modelName });
             const result = await model.generateContent(prompt);
             const response = await result.response;
-            console.log('🔍 Full AI Response Object:', JSON.stringify(response, null, 2));
+            this.lastRequestTime = Date.now();
+            console.log('✅ AI request successful');
             return response;
         } catch (error) {
-            console.error('Google AI Error:', error);
-            throw new Error('AI analysis failed');
+            // Handle rate limiting and quota errors
+            if (error.message.includes('429') || error.message.includes('Too Many Requests') ||
+                error.message.includes('quota') || error.message.includes('exceeded')) {
+
+                console.log(`🚫 Rate limit/quota exceeded for ${this.modelName}`);
+
+                // Implement exponential backoff
+                const backoffTime = Math.min(this.minDelay * 2, 30000); // Max 30 seconds
+                console.log(`⏳ Implementing backoff: waiting ${backoffTime}ms`);
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
+
+                // Retry once with backoff
+                try {
+                    console.log(`🔄 Retrying AI request after backoff...`);
+                    const model = this.ai.getGenerativeModel({ model: this.modelName });
+                    const result = await model.generateContent(prompt);
+                    const response = await result.response;
+                    this.lastRequestTime = Date.now();
+                    console.log('✅ AI retry successful');
+                    return response;
+                } catch (retryError) {
+                    console.error('❌ AI retry also failed:', retryError.message);
+                    throw new Error(`AI service rate limited - please wait before retrying`);
+                }
+            } else {
+                console.error('❌ AI Error:', error.message);
+                throw new Error(`AI analysis failed: ${error.message}`);
+            }
         }
     }
 

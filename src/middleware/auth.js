@@ -71,7 +71,7 @@ const requireAdmin = authorize('admin', 'superadmin', 'directorate');
 const requireSuperAdmin = authorize('superadmin', 'directorate');
 
 // Staff and teacher access (for their own data) - now includes student for Google OAuth users
-const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student');
+const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit');
 
 // Any authenticated user
 const requireAuthenticated = (req, res, next) => {
