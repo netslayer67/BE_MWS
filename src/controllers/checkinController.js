@@ -312,7 +312,12 @@ const submitCheckin = async (req, res) => {
         console.log('🤖 Starting AI analysis...');
         let aiAnalysis;
         try {
-            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+            // Add user role to checkinData for context-aware AI analysis
+            const enhancedCheckinData = {
+                ...checkinData,
+                userRole: req.user.role
+            };
+            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
             console.log('✅ AI analysis completed');
         } catch (aiError) {
             console.error('❌ AI analysis failed:', aiError.message);
@@ -641,7 +646,7 @@ const getCheckinResults = async (req, res) => {
     }
 };
 
-// Get check-in history with pagination
+// Get check-in history with pagination and optional user filtering for dashboard
 const getCheckinHistory = async (req, res) => {
     try {
         const EmotionalCheckin = require('../models/EmotionalCheckin');
@@ -651,8 +656,14 @@ const getCheckinHistory = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        // Build query
-        const query = { userId: req.user.id };
+        // Build query - allow filtering by userId for dashboard use
+        const query = {};
+        if (req.query.userId) {
+            query.userId = req.query.userId;
+        } else {
+            // Default to current user's history if no userId specified
+            query.userId = req.user.id;
+        }
 
         // Add date filtering if provided
         if (req.query.startDate || req.query.endDate) {
@@ -673,6 +684,7 @@ const getCheckinHistory = async (req, res) => {
             .sort({ date: -1, submittedAt: -1 })
             .skip(skip)
             .limit(limit)
+            .populate('userId', 'name email role department unit')
             .populate('supportContactUserId', 'name role department');
 
         const pagination = getPaginationInfo(page, limit, total);
@@ -1001,7 +1013,12 @@ const submitAICheckin = async (req, res) => {
         console.log('🤖 Starting AI analysis for AI check-in...');
         let aiAnalysis;
         try {
-            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(checkinData);
+            // Add user role to checkinData for context-aware AI analysis
+            const enhancedCheckinData = {
+                ...checkinData,
+                userRole: req.user.role
+            };
+            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
             console.log('✅ AI analysis completed for AI check-in');
         } catch (aiError) {
             console.error('❌ AI analysis failed for AI check-in:', aiError.message);

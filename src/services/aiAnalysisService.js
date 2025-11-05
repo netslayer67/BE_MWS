@@ -1,37 +1,129 @@
 const googleAI = require('../config/googleAI');
+const cacheService = require('../services/cacheService');
 
 class AIAnalysisService {
-    async analyzeEmotionalCheckin(checkinData) {
-        const startTime = Date.now();
-
-        try {
-            const prompt = this.buildPsychologyPrompt(checkinData);
-            console.log('🤖 Sending to AI:', prompt.substring(0, 200) + '...');
-            const aiResponse = await googleAI.generateContent(prompt);
-            console.log('🤖 AI Response received');
-            const analysis = this.parseAIResponse(aiResponse, checkinData);
-
-            console.log('✅ AI Analysis successful');
-            return {
-                ...analysis,
-                processingTime: Date.now() - startTime
-            };
-        } catch (error) {
-            console.error('❌ AI Analysis failed:', error.message);
-
-            // Check for quota/rate limit errors
-            if (error.message.includes('429') || error.message.includes('Too Many Requests') ||
-                error.message.includes('quota') || error.message.includes('exceeded')) {
-                console.log('🚫 AI quota exceeded - rejecting request without fallback');
-                throw new Error('AI service quota exceeded. Please try again later or contact administrator.');
-            }
-
-            // For other AI errors, reject without fallback
-            throw new Error(`AI analysis service unavailable: ${error.message}`);
-        }
+    constructor() {
+        this.requestQueue = [];
+        this.isProcessing = false;
+        this.minDelay = 1000; // 1 second minimum delay between requests
+        this.lastRequestTime = 0;
     }
 
-    buildPsychologyPrompt(data) {
+    async analyzeEmotionalCheckin(checkinData) {
+        const startTime = Date.now();
+        const cacheKey = this.generateCacheKey(checkinData);
+
+        // Check cache first
+        const cachedResult = cacheService.getCheckinAnalysis(cacheKey);
+        if (cachedResult) {
+            console.log('✅ Using cached AI analysis');
+            return {
+                ...cachedResult,
+                cached: true,
+                processingTime: Date.now() - startTime
+            };
+        }
+
+        // Add to queue for batch processing
+        return new Promise((resolve, reject) => {
+            this.requestQueue.push({
+                checkinData,
+                cacheKey,
+                startTime,
+                resolve,
+                reject
+            });
+
+            // Start processing if not already running
+            if (!this.isProcessing) {
+                this.processQueue();
+            }
+        });
+    }
+
+    generateCacheKey(checkinData) {
+        // Create a unique key based on check-in content
+        const content = `${checkinData.weatherType}-${checkinData.selectedMoods?.join(',')}-${checkinData.presenceLevel}-${checkinData.capacityLevel}-${checkinData.details || ''}`;
+        return `ai_analysis_${Buffer.from(content).toString('base64').substring(0, 32)}`;
+    }
+
+    async processQueue() {
+        if (this.isProcessing || this.requestQueue.length === 0) return;
+
+        this.isProcessing = true;
+
+        while (this.requestQueue.length > 0) {
+            const { checkinData, cacheKey, startTime, resolve, reject } = this.requestQueue.shift();
+
+            try {
+                // Implement rate limiting
+                const now = Date.now();
+                const timeSinceLastRequest = now - this.lastRequestTime;
+                if (timeSinceLastRequest < this.minDelay) {
+                    await new Promise(resolve => setTimeout(resolve, this.minDelay - timeSinceLastRequest));
+                }
+
+                // Determine context based on user role (if available)
+                const context = checkinData.userRole === 'head_unit' || checkinData.userRole === 'directorate' ||
+                    checkinData.userRole === 'admin' || checkinData.userRole === 'superadmin'
+                    ? 'manager' : 'employee';
+
+                const prompt = this.buildPsychologyPrompt(checkinData, context);
+                console.log(`🤖 Sending to AI (${context} context):`, prompt.substring(0, 200) + '...');
+
+                const aiResponse = await googleAI.generateContent(prompt);
+                console.log('🤖 AI Response received');
+
+                const analysis = this.parseAIResponse(aiResponse, checkinData);
+                this.lastRequestTime = Date.now();
+
+                // Cache the result
+                cacheService.setCheckinAnalysis(cacheKey, analysis); // Cache for 1 week (default)
+
+                console.log('✅ AI Analysis successful and cached');
+
+                resolve({
+                    ...analysis,
+                    processingTime: Date.now() - startTime
+                });
+
+            } catch (error) {
+                console.error('❌ AI Analysis failed:', error.message);
+
+                // Check for quota/rate limit errors
+                if (error.message.includes('429') || error.message.includes('Too Many Requests') ||
+                    error.message.includes('quota') || error.message.includes('exceeded')) {
+                    console.log('🚫 AI quota exceeded - using fallback analysis');
+
+                    // Use fallback analysis for quota exceeded
+                    const fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
+                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
+
+                    resolve({
+                        ...fallbackResult,
+                        fallback: true,
+                        quotaExceeded: true
+                    });
+                    continue;
+                }
+
+                // For other AI errors, use fallback
+                console.log('⚠️ AI service error - using fallback analysis');
+                const fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
+                cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
+
+                resolve({
+                    ...fallbackResult,
+                    fallback: true,
+                    error: error.message
+                });
+            }
+        }
+
+        this.isProcessing = false;
+    }
+
+    buildPsychologyPrompt(data, context = 'employee') {
         // Enhanced support detection with historical context
         const hasHistoricalContext = data.historicalPatterns ? true : false;
         const recentDeviations = data.historicalPatterns?.recentDeviations || [];
@@ -42,37 +134,39 @@ class AIAnalysisService {
         const presenceText = `${data.presenceLevel}/10`;
         const capacityText = `${data.capacityLevel}/10`;
 
-        // Enhanced prompt with historical analysis
-        const prompt = `You are an expert psychologist analyzing emotional check-in data for workplace wellness. Analyze this employee's emotional state and determine if they need support.
+        // Different prompts based on context (employee self-assessment vs manager/supervisor view)
+        if (context === 'manager') {
+            // Manager/Supervisor perspective - more analytical, focused on team management
+            const prompt = `You are a workplace wellness consultant analyzing an employee's emotional check-in data from a management perspective. Provide insights for supervisors and HR professionals to support their team members effectively.
 
 EMPLOYEE DATA:
-- Weather/Mood: ${weatherText}
+- Weather/Mood Metaphor: ${weatherText}
 - Selected Moods: ${moodText}
 - Presence Level: ${presenceText}
 - Capacity Level: ${capacityText}
-- Details: ${data.details || 'None provided'}
+- Additional Details: ${data.details || 'None provided'}
 
 ${hasHistoricalContext ? `
-HISTORICAL CONTEXT:
-- Baseline Emotional Stability: ${Math.round(baselineStability * 100)}%
-- Recent Deviations: ${recentDeviations.length > 0 ? recentDeviations.join(', ') : 'None significant'}
-- Pattern Analysis: ${data.historicalPatterns?.patternAnalysis || 'Insufficient data'}
+HISTORICAL PATTERNS:
+- Baseline Stability: ${Math.round(baselineStability * 100)}%
+- Recent Changes: ${recentDeviations.length > 0 ? recentDeviations.join(', ') : 'Stable patterns'}
+- Trend Analysis: ${data.historicalPatterns?.patternAnalysis || 'Limited data available'}
 ` : ''}
 
-ANALYSIS REQUIREMENTS:
-1. Assess current emotional state (positive/challenging/balanced/depleted)
-2. Evaluate presence and capacity levels
-3. Consider weather/mood indicators
-4. ${hasHistoricalContext ? 'Factor in historical patterns and deviations' : 'Note: Limited historical context available'}
-5. Determine if support is needed based on:
-   - Current state severity (presence/capacit y ≤4 = concerning)
-   - Negative emotional indicators
-   - ${hasHistoricalContext ? 'Significant deviations from baseline' : 'Available indicators'}
+MANAGEMENT ANALYSIS FRAMEWORK:
+1. Assess employee's current workplace readiness and engagement
+2. Evaluate potential impact on team performance and collaboration
+3. Identify patterns that may require managerial intervention
+4. Consider organizational support needs and resource allocation
+5. Determine appropriate supervisory response based on:
+   - Performance readiness indicators (presence/capacit y levels)
+   - Team impact potential (low engagement may affect others)
+   - Escalation triggers (severe indicators requiring immediate action)
 
-SUPPORT DETECTION CRITERIA:
-- IMMEDIATE SUPPORT: presence/capacit y ≤3, severe negative moods, critical deviations
-- MONITOR: presence/capacit y 4-5, moderate concerns, some deviations
-- NORMAL: presence/capacit y ≥6, positive indicators, stable patterns
+SUPERVISORY RESPONSE GUIDELINES:
+- IMMEDIATE INTERVENTION: presence/capacit y ≤3, concerning patterns, potential team impact
+- MONITOR CLOSELY: presence/capacit y 4-5, inconsistent patterns, gradual changes
+- BUSINESS AS USUAL: presence/capacit y ≥6, stable positive indicators, no concerns
 
 RESPONSE FORMAT (JSON only):
 {
@@ -81,95 +175,89 @@ RESPONSE FORMAT (JSON only):
   "capacityState": "high|moderate|low",
   "recommendations": [
     {
-      "title": "Brief title",
-      "description": "Specific actionable advice",
+      "title": "Management Action",
+      "description": "Specific supervisory steps or interventions",
       "priority": "high|medium|low",
       "category": "immediate|monitoring|preventive"
     }
   ],
-  "psychologicalInsights": "Professional psychological analysis",
-  "motivationalMessage": "Empathetic, encouraging message",
+  "psychologicalInsights": "Management-focused analysis of employee's workplace emotional state, team impact, and recommended supervisory approach",
+  "motivationalMessage": "Professional guidance for managers on how to support this employee effectively",
   "needsSupport": true/false,
   "confidence": 0-100,
-  "supportReasoning": "Why support is/isn't needed",
+  "supportReasoning": "Management rationale for support needs and intervention level",
   "historicalContextUsed": true/false
 }
 
-IMPORTANT:
-- needsSupport should be true if presence/capacit y ≤4 OR significant negative indicators OR ${hasHistoricalContext ? 'concerning historical patterns' : 'multiple risk factors'}
-- Be conservative but thorough in support recommendations
-- Consider both immediate needs and preventive care
-- Use historical context when available to improve accuracy`;
+IMPORTANT FOR MANAGEMENT:
+- Focus on workplace impact and team dynamics
+- Provide actionable management strategies
+- Consider both employee well-being and organizational productivity
+- Be specific about intervention triggers and response levels
+- needsSupport should be true if presence/capacit y ≤4 OR concerning patterns OR potential team impact`;
+        } else {
+            // Employee self-assessment perspective - more personal, supportive
+            const prompt = `You are an empathetic psychologist providing personal emotional wellness guidance. Help this individual understand their emotional state and support their personal growth journey.
 
-        return prompt;
+PERSONAL EMOTIONAL CHECK-IN DATA:
+- Weather/Mood Metaphor: ${weatherText}
+- Current Feelings: ${moodText}
+- Presence Level: ${presenceText}
+- Capacity Level: ${capacityText}
+- Personal Reflections: ${data.details || 'No additional reflections shared'}
 
-        return `You are a seasoned psychologist and certified life coach specializing in emotional well-being within educational settings. Your expertise is sought to analyze an emotional check-in submitted by an educational staff member, aiming to provide nuanced, supportive, and empowering feedback.
+${hasHistoricalContext ? `
+YOUR EMOTIONAL JOURNEY:
+- Your Baseline Patterns: ${Math.round(baselineStability * 100)}% consistency
+- Recent Changes: ${recentDeviations.length > 0 ? recentDeviations.join(', ') : 'Your patterns have been quite stable'}
+- Personal Growth Insights: ${data.historicalPatterns?.patternAnalysis || 'Building your emotional awareness journey'}
+` : ''}
 
-Please structure your response to include the following elements:
+PERSONAL WELLNESS ANALYSIS:
+1. Reflect on your current emotional weather and how it feels
+2. Consider how your presence and capacity align with your daily life
+3. Explore what your mood selections and weather metaphor tell you about yourself
+4. ${hasHistoricalContext ? 'Notice patterns in your emotional journey and personal growth' : 'Begin building awareness of your emotional patterns'}
+5. Identify personal support needs based on:
+   - Your current emotional comfort (presence/capacit y levels)
+   - How you're feeling in this moment
+   - ${hasHistoricalContext ? 'Your personal growth patterns and changes' : 'Your authentic emotional experience'}
 
-- Emotional Assessment: Identify and interpret key emotional themes, stressors, and strengths evident in the check-in.
+SELF-CARE GUIDANCE:
+- GENTLE SUPPORT: presence/capacit y ≤4, feeling challenged, ready for self-compassion
+- SELF-AWARENESS: presence/capacit y 5-7, exploring feelings, building emotional intelligence
+- PERSONAL GROWTH: presence/capacit y ≥8, feeling strong, celebrating your journey
 
-- Empathetic Validation: Offer compassionate acknowledgment of their feelings and experiences, fostering a sense of understanding and psychological safety.
-
-- Motivational Guidance: Suggest practical strategies and mindset shifts that promote resilience, self-efficacy, and sustained motivation in their professional role.
-
-- Actionable Recommendations: Propose specific, achievable steps or resources that support emotional regulation, work-life balance, and personal growth.
-
-- Encouragement of Reflection: Invite the staff member to engage in ongoing self-reflection and self-care practices to maintain emotional well-being.
-
-Leverage your extensive clinical experience and coaching acumen to craft insights that not only validate but also empower the individual, facilitating their emotional growth and professional fulfillment within the educational environment.
-
-EMOTIONAL CHECK-IN DATA:
-- Weather/Mood Metaphor: ${data.weatherType}
-- Selected Moods: ${moodText}
-- Detailed Thoughts: ${data.details || 'No additional details provided'}
-- Presence Level (1-10): ${data.presenceLevel}
-- Capacity Level (1-10): ${data.capacityLevel}
-- Support Contact: ${supportContactText}
-
-Please provide a comprehensive psychological analysis in VALID JSON format ONLY. Do not include any text before or after the JSON. The response must be parseable JSON:
-
+RESPONSE FORMAT (JSON only):
 {
   "emotionalState": "positive|challenging|balanced|depleted",
   "presenceState": "high|moderate|low",
   "capacityState": "high|moderate|low",
   "recommendations": [
     {
-      "title": "Brief title",
-      "description": "Detailed recommendation",
+      "title": "Self-Care Step",
+      "description": "Personal, actionable self-care or reflection activity",
       "priority": "high|medium|low",
-      "category": "mindfulness|social|professional|self-care"
+      "category": "immediate|monitoring|preventive"
     }
   ],
-  "psychologicalInsights": "You are an experienced professional in psychological well-being and motivational communication, tasked with crafting a succinct, empathetic message that resonates deeply with an individual's emotional state, as expressed through their chosen weather metaphor, mood indicators, and Detailed Thoughts.
-
-Please develop the message to include the following elements:
-
-- A warm and personal tone that validates the individual's current feelings without judgment.
-- Recognition of their inherent strengths and resilience, fostering a sense of empowerment and hope.
-- Integration of a clear, accessible mindfulness breathing exercise (such as Belly Breathing, 4-7-8 Breathing, Balloon Breathing, or anything else related) that aligns with the emotional atmosphere of the message, providing practical tools for immediate stress relief.
-- Concise and impactful phrasing that balances emotional support with actionable guidance.
-- A structure that facilitates connection, emotional validation, and encourages self-compassion.
-
-Leverage your advanced expertise in psychology and motivational techniques to tailor this communication precisely to the individual's experience, ensuring it offers both comfort and constructive coping strategies.Write a supportive, motivational message (1-3 sentences) that acknowledges their feelings, celebrates their strengths, and offers hope. Make it personal, warm, and empowering. Include specific encouragement based on their weather metaphor and mood selections. Add a simple mindfulness breathing tip like: 'Try the Belly Breathing technique: Place one hand on your belly and one on your chest. Breathe in slowly through your nose for 4 counts, feeling your belly rise. Hold for 4 counts, then exhale through your mouth for 4 counts, feeling your belly fall. Repeat 3-5 times.' or 'Try the 4-7-8 Breathing Exercise: Inhale quietly through your nose for 4 seconds, hold your breath for 7 seconds, then exhale completely through your mouth for 8 seconds. This helps calm your nervous system.' or 'Try Balloon Breathing: Imagine your belly is a balloon. Breathe in through your nose and imagine the balloon filling with air, then breathe out through your mouth and imagine the balloon deflating. Repeat 5 times.'",
-  "motivationalMessage": "Create a unique, personalized motivational message (2-4 sentences) that directly references their specific weather type, selected moods, and details. Make it feel like a warm, personal conversation from a trusted friend who knows them well. Include specific positive affirmations based on their data, gratitude elements, and genuine encouragement. Avoid generic phrases like 'whatever you're experiencing' or 'your feelings are valid'. Make it truly unique for this exact check-in.",
-  "needsSupport": true|false,
-  "confidence": 85
+  "psychologicalInsights": "Personal reflection on emotional state, self-awareness insights, and gentle guidance for emotional wellness",
+  "motivationalMessage": "Warm, personal encouragement celebrating your emotional awareness and personal growth",
+  "needsSupport": true/false,
+  "confidence": 0-100,
+  "supportReasoning": "Personal rationale for self-care needs and next steps",
+  "historicalContextUsed": true/false
 }
 
-IMPORTANT: Focus on being EXTREMELY supportive, motivational, and uplifting. Use positive psychology principles. Include elements like:
-- Gratitude and appreciation
-- Recognition of their efforts and resilience
-- Hope and possibility
-- Gentle encouragement
-- Positive reframing
-- Self-compassion reminders
+IMPORTANT FOR PERSONAL GROWTH:
+- Focus on self-compassion and personal understanding
+- Celebrate emotional awareness as a strength
+- Provide gentle, non-judgmental guidance
+- Encourage authentic self-expression
+- needsSupport should be true if presence/capacit y ≤4 OR feeling challenged OR seeking personal growth support`;
+        }
 
-Make the psychological insights and motivational message feel like a warm, supportive conversation from a trusted friend who believes in them.
-
-CRITICAL FOR MOTIVATIONAL MESSAGE: ABSOLUTELY FORBIDDEN to use phrases like "Whatever you're experiencing right now, know that your feelings are valid and important. Your emotional awareness is a beautiful strength that helps you live authentically." This is a generic template that makes the message feel impersonal. Instead, create something completely unique that directly references their specific weather type, moods, and details. Make it feel like a personal letter written just for them.
-
-CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional text. Just the JSON object.`;
+        return prompt;
     }
 
     parseAIResponse(aiResponse, checkinData) {
@@ -196,7 +284,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
             console.log('📝 AI Text Content:', aiText);
 
             // Remove markdown code blocks if present
-            const cleanText = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const cleanText = aiText.replace(/```json\n ? /g, '').replace(/```\n?/g, '').trim();
             console.log('🧹 Cleaned Text:', cleanText);
 
             // Try to parse the cleaned JSON
@@ -212,7 +300,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
 
         } catch (error) {
             console.error('❌ Failed to parse AI response:', error.message);
-            throw new Error(`AI response parsing failed: ${error.message}`);
+            throw new Error(`AI response parsing failed: ${error.message} `);
         }
     }
 
@@ -222,7 +310,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
 
         for (const field of requiredFields) {
             if (!(field in analysis)) {
-                throw new Error(`Missing required field: ${field}`);
+                throw new Error(`Missing required field: ${field} `);
             }
         }
 
@@ -355,28 +443,28 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations, no additional te
             }
 
             const personalMessage = personalElements.length > 0
-                ? ` ${personalElements[userSpecificElement % personalElements.length]}`
+                ? ` ${personalElements[userSpecificElement % personalElements.length]} `
                 : '';
 
             // Ultra-motivational messages with gratitude and empowerment - NOW WITH VARIATIONS
             const messageVariations = {
                 sunny_positive: [
-                    `🌞 WOW! Your radiant energy is absolutely contagious!${personalMessage} Right now, take a moment to feel grateful for this beautiful state of being. You're not just happy - you're a walking blessing who makes the world brighter just by being yourself. Keep shining, superstar! ✨`,
-                    `🌞 Your sunny disposition is like a beacon of pure joy!${personalMessage} Feel the gratitude for this incredible energy you bring to every moment. You're not just feeling good - you're SPREADING goodness everywhere you go! What a beautiful gift you are! ☀️`,
-                    `🌞 BRILLIANT! Your positive energy is absolutely magnetic!${personalMessage} Take a deep breath and feel grateful for this wonderful state. You're not just happy - you're a source of light and warmth for everyone around you! Keep radiating that beautiful energy! 🌟`
+                    `🌞 WOW! Your radiant energy is absolutely contagious!${personalMessage} Right now, take a moment to feel grateful for this beautiful state of being.You're not just happy - you're a walking blessing who makes the world brighter just by being yourself.Keep shining, superstar! ✨`,
+                    `🌞 Your sunny disposition is like a beacon of pure joy!${personalMessage} Feel the gratitude for this incredible energy you bring to every moment.You're not just feeling good - you're SPREADING goodness everywhere you go! What a beautiful gift you are! ☀️`,
+                    `🌞 BRILLIANT! Your positive energy is absolutely magnetic!${personalMessage} Take a deep breath and feel grateful for this wonderful state.You're not just happy - you're a source of light and warmth for everyone around you! Keep radiating that beautiful energy! 🌟`
                 ],
                 rainbow_positive: [
                     `🌈 Oh my goodness, what a spectacular rainbow of joy you're radiating!${personalMessage} Each color in your emotional spectrum is a testament to your incredible resilience and depth. Feel the gratitude for this moment of beauty - YOU created this! You're absolutely magnificent! 💖`,
                     `🌈 What a stunning display of emotional beauty you're showing!${personalMessage} Your rainbow of feelings represents such depth and wisdom. Feel grateful for this colorful journey - you're painting the world with your unique light! What a masterpiece you are! 🎨`,
-                    `🌈 INCREDIBLE! Your emotional rainbow is absolutely breathtaking!${personalMessage} Each hue tells a story of your strength and growth. Feel the gratitude for this beautiful spectrum - you're not just experiencing emotions, you're creating art with them! 🌈✨`
+                    `🌈 INCREDIBLE! Your emotional rainbow is absolutely breathtaking!${personalMessage} Each hue tells a story of your strength and growth.Feel the gratitude for this beautiful spectrum - you're not just experiencing emotions, you're creating art with them! 🌈✨`
                 ],
                 challenging: [
-                    `💪 Listen to me: You are STRONGER than any storm that rages around you!${personalMessage} This tough moment? It's just weather passing through. Feel deep gratitude for your courage in facing it head-on. You're building unbreakable strength, and I am so incredibly proud of you! You've overcome harder things before, and you'll triumph again! 🌟`,
-                    `💪 You possess an inner strength that's absolutely remarkable!${personalMessage} These challenging feelings? They're temporary clouds in your sky. Feel grateful for your resilience - you're not just surviving, you're growing stronger with every breath! What a warrior you are! ⚔️`,
+                    `💪 Listen to me: You are STRONGER than any storm that rages around you!${personalMessage} This tough moment ? It's just weather passing through. Feel deep gratitude for your courage in facing it head-on. You're building unbreakable strength, and I am so incredibly proud of you! You've overcome harder things before, and you'll triumph again! 🌟`,
+                    `💪 You possess an inner strength that's absolutely remarkable!${personalMessage} These challenging feelings? They're temporary clouds in your sky.Feel grateful for your resilience - you're not just surviving, you're growing stronger with every breath! What a warrior you are! ⚔️`,
                     `💪 Your courage in facing these emotions is truly heroic!${personalMessage} Remember that every storm eventually passes, and you're building character that will serve you beautifully. Feel the gratitude for your bravery - you're stronger than you know! 💪🌟`
                 ],
                 tired_overwhelmed: [
-                    `😴 Sweet friend, your body and spirit are whispering 'rest' - and that's wisdom speaking!${personalMessage} Feel immense gratitude for all you've accomplished today. You're not weak for needing rest; you're wise for honoring your limits. Tomorrow brings fresh strength, and you're absolutely capable of amazing things! 💤✨`,
+                    `😴 Sweet friend, your body and spirit are whispering 'rest' - and that's wisdom speaking!${personalMessage} Feel immense gratitude for all you've accomplished today.You're not weak for needing rest; you're wise for honoring your limits.Tomorrow brings fresh strength, and you're absolutely capable of amazing things! 💤✨`,
                     `😴 Your wisdom in recognizing when to rest is absolutely beautiful!${personalMessage} Feel grateful for everything you've achieved - it's okay to pause and recharge. You're not stopping, you're strategically refueling for even greater accomplishments! What smart self-care! 🛌`,
                     `😴 How wise you are to listen to your body's signals!${personalMessage} Feel deep gratitude for your accomplishments today. Rest isn't weakness - it's your superpower for sustainable strength. You're absolutely capable of amazing things tomorrow! 💤🌙`
                 ],

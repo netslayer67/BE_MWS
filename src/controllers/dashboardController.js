@@ -13,6 +13,8 @@ const CACHE_CONFIG = {
 const getDashboardStats = async (req, res) => {
     try {
         const { period = 'today', date } = req.query;
+        const userRole = req.user.role;
+        const userUnit = req.user.unit || req.user.department;
 
         // Calculate date range based on period
         let startDate, endDate;
@@ -66,25 +68,70 @@ const getDashboardStats = async (req, res) => {
 
         // Check cache first (skip if force refresh requested)
         const forceRefresh = req.query.force === 'true';
-        const cacheKey = `dashboard:stats:${period}:${date || startDate.toISOString().split('T')[0]}`;
+        const cacheKey = `dashboard:stats:${period}:${date || startDate.toISOString().split('T')[0]}:${userRole}:${userUnit || 'all'}`;
         let stats = forceRefresh ? null : cacheService.getDashboardStats(cacheKey);
 
         if (!stats) {
-            // Get all checkins in the period with support contact populated
-            const periodCheckins = await EmotionalCheckin.find({
+            // Build query based on user role
+            let checkinQuery = {
                 date: { $gte: startDate, $lt: endDate }
-            }).populate('userId', 'name email role department')
-                .populate('supportContactUserId', 'name role department');
+            };
 
-            // Get all users for role-based statistics
-            const allUsers = await User.find({}, 'name role department');
+            // For head_unit, temporarily allow access to all data (like directorate)
+            // TODO: Revert to unit-specific filtering when more data is available
+            // if (userRole === 'head_unit' && userUnit) {
+            //     console.log('🔍 Head Unit filtering:', { userRole, userUnit, userId: req.user.id });
+            //
+            //     const unitMembers = await User.find({
+            //         $or: [
+            //             { unit: userUnit },
+            //             { department: userUnit }
+            //         ]
+            //     }).select('_id name email unit department');
+            //
+            //     console.log('👥 Unit members found:', unitMembers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
+            //
+            //     if (unitMembers.length > 0) {
+            //         checkinQuery['userId'] = {
+            //             $in: unitMembers.map(u => u._id)
+            //         };
+            //         console.log('✅ Applied unit filtering for', unitMembers.length, 'members');
+            //     } else {
+            //         console.log('⚠️ No unit members found for unit:', userUnit);
+            //     }
+            // }
+
+            // Get checkins in the period with support contact populated
+            const periodCheckins = await EmotionalCheckin.find(checkinQuery)
+                .populate('userId', 'name email role department unit')
+                .populate('supportContactUserId', 'name role department unit');
+
+            // Get all users for role-based statistics (filtered for head_unit)
+            let userQuery = {};
+            // For head_unit, temporarily allow access to all users (like directorate)
+            // TODO: Revert to unit-specific filtering when more data is available
+            // if (userRole === 'head_unit' && userUnit) {
+            //     console.log('🔍 Getting users for Head Unit statistics:', { userUnit });
+            //     userQuery = {
+            //         $or: [
+            //             { unit: userUnit },
+            //             { department: userUnit }
+            //         ]
+            //     };
+            //
+            //     const unitUsers = await User.find(userQuery, 'name role department unit');
+            //     console.log('👥 Unit users for statistics:', unitUsers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
+            // }
+
+            const allUsers = await User.find(userQuery, 'name role department unit');
             const totalUsersByRole = {
                 student: allUsers.filter(u => u.role === 'student').length,
                 staff: allUsers.filter(u => u.role === 'staff').length,
                 teacher: allUsers.filter(u => u.role === 'teacher').length,
                 admin: allUsers.filter(u => u.role === 'admin').length,
                 directorate: allUsers.filter(u => u.role === 'directorate').length,
-                superadmin: allUsers.filter(u => u.role === 'superadmin').length
+                superadmin: allUsers.filter(u => u.role === 'superadmin').length,
+                head_unit: allUsers.filter(u => u.role === 'head_unit').length
             };
 
             // Basic stats
@@ -143,16 +190,20 @@ const getDashboardStats = async (req, res) => {
             // Mood distribution with user lists (including AI-generated moods)
             const moodCount = {};
             const moodLists = {};
+            const aiMoodIndicators = {}; // Track which moods are AI-generated
             periodCheckins.forEach(checkin => {
                 // Include both selected moods and AI-detected emotions
                 const allMoods = [...checkin.selectedMoods];
+                const aiGeneratedMoods = [];
 
                 // Add AI-detected emotions if available
                 if (checkin.aiEmotionScan?.detectedEmotion) {
                     allMoods.push(checkin.aiEmotionScan.detectedEmotion);
+                    aiGeneratedMoods.push(checkin.aiEmotionScan.detectedEmotion);
                 }
                 if (checkin.aiEmotionScan?.secondaryEmotions) {
                     allMoods.push(...checkin.aiEmotionScan.secondaryEmotions);
+                    aiGeneratedMoods.push(...checkin.aiEmotionScan.secondaryEmotions);
                 }
 
                 // Remove duplicates
@@ -164,21 +215,34 @@ const getDashboardStats = async (req, res) => {
                         moodLists[mood] = [];
                     }
                     moodLists[mood].push(checkin.userId?.name || 'Unknown User');
+
+                    // Mark if this mood was AI-generated for this user
+                    if (aiGeneratedMoods.includes(mood)) {
+                        if (!aiMoodIndicators[mood]) {
+                            aiMoodIndicators[mood] = true;
+                        }
+                    }
                 });
             });
+
+            // Add AI indicators to mood distribution
+            stats.aiMoodIndicators = aiMoodIndicators;
             stats.moodDistribution = moodCount;
             stats.moodLists = moodLists;
 
-            // Weather distribution (including AI-generated weather types)
+            // Weather distribution (including AI-analyzed weather patterns)
             const weatherCount = {};
             const weatherLists = {};
+            const aiWeatherIndicators = {}; // Track which weather types are AI-analyzed
             periodCheckins.forEach(checkin => {
                 // Include both selected weather and AI-detected weather patterns
                 const weatherTypes = [checkin.weatherType];
+                const aiGeneratedWeather = [];
 
                 // Add AI-detected weather patterns if available
                 if (checkin.aiAnalysis?.weatherPattern) {
                     weatherTypes.push(checkin.aiAnalysis.weatherPattern);
+                    aiGeneratedWeather.push(checkin.aiAnalysis.weatherPattern);
                 }
 
                 // Remove duplicates
@@ -190,68 +254,185 @@ const getDashboardStats = async (req, res) => {
                         weatherLists[weather] = [];
                     }
                     weatherLists[weather].push(checkin.userId?.name || 'Unknown User');
+
+                    // Mark if this weather was AI-analyzed for this user
+                    if (aiGeneratedWeather.includes(weather)) {
+                        if (!aiWeatherIndicators[weather]) {
+                            aiWeatherIndicators[weather] = true;
+                        }
+                    }
                 });
             });
+
+            // Add AI indicators to weather distribution
+            stats.aiWeatherIndicators = aiWeatherIndicators;
             stats.weatherDistribution = weatherCount;
             stats.weatherLists = weatherLists;
 
-            // Department breakdown
-            const deptStats = {};
-            periodCheckins.forEach(checkin => {
-                const dept = checkin.userId?.department || 'Unknown';
-                if (!deptStats[dept]) {
-                    deptStats[dept] = { count: 0, totalPresence: 0, totalCapacity: 0 };
-                }
-                deptStats[dept].count++;
-                deptStats[dept].totalPresence += checkin.presenceLevel;
-                deptStats[dept].totalCapacity += checkin.capacityLevel;
+            // Unit breakdown - calculate submission rates per unit
+            const unitStats = {};
+            const totalUsersByUnit = {};
+            const unitLists = {};
+
+            // First, count total users by unit
+            allUsers.forEach(user => {
+                const unit = user.unit || user.department || 'Unknown';
+                totalUsersByUnit[unit] = (totalUsersByUnit[unit] || 0) + 1;
             });
-            stats.departmentBreakdown = Object.keys(deptStats).map(dept => ({
-                department: dept,
-                submitted: deptStats[dept].count,
-                avgPresence: deptStats[dept].count > 0 ? Math.round((deptStats[dept].totalPresence / deptStats[dept].count) * 10) / 10 : 0,
-                avgCapacity: deptStats[dept].count > 0 ? Math.round((deptStats[dept].totalCapacity / deptStats[dept].count) * 10) / 10 : 0
-            }));
 
-            // Flagged users (needs support) - simplified: only show if AI detected need AND not yet handled
+            // Then count submissions by unit and build user lists
+            periodCheckins.forEach(checkin => {
+                const unit = checkin.userId?.unit || checkin.userId?.department || 'Unknown';
+                if (!unitStats[unit]) {
+                    unitStats[unit] = { count: 0, totalPresence: 0, totalCapacity: 0 };
+                }
+                unitStats[unit].count++;
+                unitStats[unit].totalPresence += checkin.presenceLevel;
+                unitStats[unit].totalCapacity += checkin.capacityLevel;
+
+                // Build user lists for each unit
+                if (!unitLists[unit]) {
+                    unitLists[unit] = [];
+                }
+                unitLists[unit].push(checkin.userId?.name || 'Unknown User');
+            });
+
+            stats.unitBreakdown = Object.keys(totalUsersByUnit).map(unit => {
+                const submitted = unitStats[unit]?.count || 0;
+                const total = totalUsersByUnit[unit];
+                const submissionRate = total > 0 ? Math.round((submitted / total) * 100) : 0;
+
+                return {
+                    unit: unit,
+                    submitted: submitted,
+                    total: total,
+                    submissionRate: submissionRate,
+                    avgPresence: submitted > 0 ? Math.round((unitStats[unit].totalPresence / submitted) * 10) / 10 : 0,
+                    avgCapacity: submitted > 0 ? Math.round((unitStats[unit].totalCapacity / submitted) * 10) / 10 : 0
+                };
+            }).sort((a, b) => b.submissionRate - a.submissionRate); // Sort by submission rate descending
+
+            // Add unit lists for modal functionality
+            stats.unitLists = unitLists;
+
+            // Keep department breakdown for backward compatibility
+            stats.departmentBreakdown = stats.unitBreakdown;
+
+            // Flagged users (needs support) - enhanced AI analysis with historical data
+            // For head_unit, only show flagged users from their unit who selected them as support contact
             const flaggedCheckins = periodCheckins.filter(c => {
-                // Must have AI analysis indicating need for support
-                const aiNeedsSupport = c.aiAnalysis && c.aiAnalysis.needsSupport;
-
                 // Must not have been handled yet
                 const notHandled = !c.supportContactResponse ||
                     c.supportContactResponse.status !== 'handled';
 
-                return aiNeedsSupport && notHandled;
+                if (!notHandled) return false;
+
+                // For head_unit, only show users who selected them as support contact
+                if (userRole === 'head_unit') {
+                    const selectedHeadUnit = c.supportContactUserId &&
+                        c.supportContactUserId._id.toString() === req.user.id;
+                    if (!selectedHeadUnit) return false;
+                }
+
+                // Enhanced AI analysis with multiple criteria
+                const aiAnalysis = c.aiAnalysis || {};
+                let shouldFlag = false;
+                const reasons = [];
+
+                // Primary AI detection
+                if (aiAnalysis.needsSupport) {
+                    shouldFlag = true;
+                    reasons.push('AI detected support need');
+                }
+
+                // Low presence/capacity levels
+                if (c.presenceLevel < 4) {
+                    shouldFlag = true;
+                    reasons.push('Low presence level');
+                }
+                if (c.capacityLevel < 4) {
+                    shouldFlag = true;
+                    reasons.push('Low capacity level');
+                }
+
+                // Emotional instability indicators
+                if (aiAnalysis.emotionalInstability) {
+                    shouldFlag = true;
+                    reasons.push('Emotional instability detected');
+                }
+
+                // Historical pattern analysis (if we can access user history)
+                // For now, we'll use AI analysis flags, but this could be enhanced
+                if (aiAnalysis.trendDecline) {
+                    shouldFlag = true;
+                    reasons.push('Declining emotional trend');
+                }
+
+                // Store reasons for frontend display
+                if (shouldFlag) {
+                    c.flaggingReasons = reasons;
+                }
+
+                return shouldFlag;
             });
 
-            // Map to flagged users format
-            stats.flaggedUsers = flaggedCheckins.map(checkin => ({
-                id: checkin._id,
-                userId: checkin.userId?._id,
-                name: checkin.userId?.name || 'Unknown',
-                email: checkin.userId?.email || 'Unknown',
-                role: checkin.userId?.role || 'Unknown',
-                department: checkin.userId?.department || 'Unknown',
-                presenceLevel: checkin.presenceLevel,
-                capacityLevel: checkin.capacityLevel,
-                selectedMoods: checkin.selectedMoods,
-                weatherType: checkin.weatherType,
-                needsSupport: checkin.aiAnalysis.needsSupport,
-                aiAnalysis: checkin.aiAnalysis,
-                submittedAt: checkin.submittedAt,
-                supportContact: checkin.supportContactUserId ? {
-                    id: checkin.supportContactUserId._id,
-                    name: checkin.supportContactUserId.name,
-                    role: checkin.supportContactUserId.role,
-                    department: checkin.supportContactUserId.department
-                } : null
-            }));
+            // Map to flagged users format with enhanced AI analysis
+            stats.flaggedUsers = flaggedCheckins.map(checkin => {
+                // Enhanced AI analysis for flagging reasons
+                const aiAnalysis = checkin.aiAnalysis || {};
+                const reasons = checkin.flaggingReasons || [];
+
+                // Add historical pattern analysis if available
+                let historicalPatterns = {};
+                if (aiAnalysis.historicalData) {
+                    historicalPatterns = {
+                        consistentLowPresence: aiAnalysis.historicalData.avgPresence < 5,
+                        increasingSupportNeeds: aiAnalysis.historicalData.supportRequestsTrend === 'increasing',
+                        moodVolatility: aiAnalysis.historicalData.moodVariance > 2
+                    };
+                }
+
+                return {
+                    id: checkin._id,
+                    userId: checkin.userId?._id,
+                    name: checkin.userId?.name || 'Unknown',
+                    email: checkin.userId?.email || 'Unknown',
+                    role: checkin.userId?.role || 'Unknown',
+                    department: checkin.userId?.department || 'Unknown',
+                    unit: checkin.userId?.unit || checkin.userId?.department || 'Unknown',
+                    presenceLevel: checkin.presenceLevel,
+                    capacityLevel: checkin.capacityLevel,
+                    selectedMoods: checkin.selectedMoods,
+                    weatherType: checkin.weatherType,
+                    needsSupport: checkin.aiAnalysis?.needsSupport || false,
+                    aiAnalysis: {
+                        ...aiAnalysis,
+                        flaggingReasons: reasons,
+                        historicalPatterns: historicalPatterns,
+                        emotionalInstability: aiAnalysis.emotionalInstability || false,
+                        trendDecline: aiAnalysis.trendDecline || false
+                    },
+                    submittedAt: checkin.submittedAt,
+                    supportContact: checkin.supportContactUserId ? {
+                        id: checkin.supportContactUserId._id,
+                        name: checkin.supportContactUserId.name,
+                        role: checkin.supportContactUserId.role,
+                        department: checkin.supportContactUserId.department
+                    } : null
+                };
+            });
 
             // Check-in requests (users who selected a support contact)
-            const checkinRequests = periodCheckins.filter(c =>
-                c.supportContactUserId && c.supportContactUserId._id
-            );
+            // For head_unit, only show requests directed to them
+            const checkinRequests = periodCheckins.filter(c => {
+                if (!c.supportContactUserId || !c.supportContactUserId._id) return false;
+
+                if (userRole === 'head_unit') {
+                    return c.supportContactUserId._id.toString() === req.user.id;
+                }
+
+                return true; // Directorate sees all requests
+            });
 
             stats.checkinRequests = checkinRequests.map(checkin => ({
                 id: checkin._id,
@@ -291,13 +472,33 @@ const getDashboardStats = async (req, res) => {
             }
 
             // Recent activity (last 20 check-ins in period)
-            const recentCheckins = await EmotionalCheckin.find({
+            let recentActivityQuery = {
                 date: { $gte: startDate, $lt: endDate }
-            })
+            };
+
+            // For head_unit, temporarily show all activity (like directorate)
+            // TODO: Revert to unit-specific filtering when more data is available
+            // if (userRole === 'head_unit' && userUnit) {
+            //     console.log('🔍 Filtering recent activity for Head Unit:', { userUnit });
+            //     const unitMembersForActivity = await User.find({
+            //         $or: [
+            //             { unit: userUnit },
+            //             { department: userUnit }
+            //         ]
+            //     }).select('_id name');
+            //
+            //     console.log('📊 Recent activity unit members:', unitMembersForActivity.map(u => u.name));
+            //
+            //     recentActivityQuery['userId'] = {
+            //         $in: unitMembersForActivity.map(u => u._id)
+            //     };
+            // }
+
+            const recentCheckins = await EmotionalCheckin.find(recentActivityQuery)
                 .sort({ submittedAt: -1 })
                 .limit(20)
-                .populate('userId', 'name role department')
-                .populate('supportContactUserId', 'name role department');
+                .populate('userId', 'name role department unit')
+                .populate('supportContactUserId', 'name role department unit');
 
             stats.recentActivity = recentCheckins.map(checkin => ({
                 id: checkin._id,
@@ -320,12 +521,24 @@ const getDashboardStats = async (req, res) => {
                 respondedAt: checkin.supportContactResponse?.respondedAt || null
             }));
 
-            // Calculate not submitted users
+            // Calculate not submitted users with enhanced data
             const submittedUserIds = new Set(periodCheckins.map(c => c.userId?._id?.toString()).filter(Boolean));
             stats.notSubmittedUsers = allUsers
                 .filter(user => !submittedUserIds.has(user._id.toString()))
-                .map(user => user.name)
-                .sort();
+                .map(user => ({
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    department: user.department || user.unit || 'Unknown',
+                    lastCheckin: null, // No check-in yet
+                    status: 'not-submitted'
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            // Add user role info to stats for frontend display
+            stats.userRole = userRole;
+            stats.userUnit = userUnit;
 
             // Generate insights
             stats.insights = generateInsights(stats, period);
@@ -760,7 +973,188 @@ const generateInsights = (stats, period) => {
     return insights;
 };
 
-// Get complete user check-in history for individual dashboard
+// Get individual user dashboard data with comprehensive analytics
+const getUserDashboardData = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { period = 'month' } = req.query;
+
+        if (!userId) {
+            return sendError(res, 'User ID is required', 400);
+        }
+
+        // Calculate date range based on period
+        let startDate, endDate;
+        const now = new Date();
+
+        switch (period) {
+            case 'week':
+                startDate = new Date(now);
+                startDate.setDate(now.getDate() - 7);
+                endDate = new Date(now);
+                break;
+            case 'month':
+                startDate = new Date(now);
+                startDate.setDate(now.getDate() - 30);
+                endDate = new Date(now);
+                break;
+            case 'semester':
+                startDate = new Date(now);
+                startDate.setDate(now.getDate() - 180);
+                endDate = new Date(now);
+                break;
+            default:
+                startDate = new Date(now);
+                startDate.setDate(now.getDate() - 30);
+                endDate = new Date(now);
+        }
+
+        // Get user details
+        const user = await User.findById(userId, 'name email role department unit');
+        if (!user) {
+            return sendError(res, 'User not found', 404);
+        }
+
+        // Get user's check-in history
+        const checkins = await EmotionalCheckin.find({
+            userId,
+            date: { $gte: startDate, $lt: endDate }
+        })
+            .sort({ date: -1 })
+            .populate('supportContactUserId', 'name role department')
+            .select('weatherType selectedMoods presenceLevel capacityLevel aiAnalysis details date submittedAt supportContactUserId supportContactResponse');
+
+        // Calculate comprehensive analytics
+        const totalCheckins = checkins.length;
+        const avgPresence = totalCheckins > 0 ? checkins.reduce((sum, c) => sum + c.presenceLevel, 0) / totalCheckins : 0;
+        const avgCapacity = totalCheckins > 0 ? checkins.reduce((sum, c) => sum + c.capacityLevel, 0) / totalCheckins : 0;
+
+        // Mood and weather analysis
+        const moodFrequency = {};
+        const weatherFrequency = {};
+        const aiInsights = [];
+
+        checkins.forEach(checkin => {
+            // Count moods (both selected and AI-detected)
+            const allMoods = [...checkin.selectedMoods];
+            if (checkin.aiAnalysis?.detectedEmotion) {
+                allMoods.push(checkin.aiAnalysis.detectedEmotion);
+            }
+            if (checkin.aiAnalysis?.secondaryEmotions) {
+                allMoods.push(...checkin.aiAnalysis.secondaryEmotions);
+            }
+
+            allMoods.forEach(mood => {
+                moodFrequency[mood] = (moodFrequency[mood] || 0) + 1;
+            });
+
+            // Count weather patterns
+            const weatherTypes = [checkin.weatherType];
+            if (checkin.aiAnalysis?.weatherPattern) {
+                weatherTypes.push(checkin.aiAnalysis.weatherPattern);
+            }
+
+            weatherTypes.forEach(weather => {
+                weatherFrequency[weather] = (weatherFrequency[weather] || 0) + 1;
+            });
+
+            // Collect AI insights
+            if (checkin.aiAnalysis) {
+                aiInsights.push({
+                    date: checkin.date,
+                    analysis: checkin.aiAnalysis,
+                    needsSupport: checkin.aiAnalysis.needsSupport,
+                    insights: checkin.aiAnalysis.insights || []
+                });
+            }
+        });
+
+        // Calculate trends and patterns
+        const recentCheckins = checkins.slice(0, 7); // Last 7 check-ins
+        const trend = recentCheckins.length >= 2 ? {
+            presence: recentCheckins[0].presenceLevel > recentCheckins[recentCheckins.length - 1].presenceLevel ? 'improving' : 'declining',
+            capacity: recentCheckins[0].capacityLevel > recentCheckins[recentCheckins.length - 1].capacityLevel ? 'improving' : 'declining'
+        } : null;
+
+        // Support request history
+        const supportRequests = checkins.filter(c => c.supportContactUserId).map(checkin => ({
+            date: checkin.date,
+            contact: checkin.supportContactUserId?.name,
+            status: checkin.supportContactResponse?.status || 'pending',
+            response: checkin.supportContactResponse?.details
+        }));
+
+        // Format response
+        const dashboardData = {
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                department: user.department,
+                unit: user.unit
+            },
+            period: {
+                type: period,
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString()
+            },
+            summary: {
+                totalCheckins,
+                averagePresence: Math.round(avgPresence * 10) / 10,
+                averageCapacity: Math.round(avgCapacity * 10) / 10,
+                trend,
+                lastCheckin: checkins.length > 0 ? checkins[0].submittedAt : null
+            },
+            analytics: {
+                moodDistribution: moodFrequency,
+                weatherDistribution: weatherFrequency,
+                topMoods: Object.entries(moodFrequency)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 5)
+                    .map(([mood, count]) => ({ mood, count, percentage: Math.round((count / totalCheckins) * 100) })),
+                topWeather: Object.entries(weatherFrequency)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 3)
+                    .map(([weather, count]) => ({ weather, count, percentage: Math.round((count / totalCheckins) * 100) }))
+            },
+            aiInsights: {
+                totalAnalyzed: aiInsights.length,
+                needsSupportCount: aiInsights.filter(i => i.needsSupport).length,
+                recentInsights: aiInsights.slice(0, 5),
+                patterns: {
+                    emotionalStability: aiInsights.filter(i => i.analysis.emotionalInstability).length,
+                    supportNeeded: aiInsights.filter(i => i.needsSupport).length,
+                    positivePatterns: aiInsights.filter(i => i.analysis.positiveIndicators).length
+                }
+            },
+            supportHistory: supportRequests,
+            recentCheckins: checkins.slice(0, 10).map(checkin => ({
+                id: checkin._id,
+                date: checkin.date,
+                submittedAt: checkin.submittedAt,
+                weatherType: checkin.weatherType,
+                selectedMoods: checkin.selectedMoods,
+                presenceLevel: checkin.presenceLevel,
+                capacityLevel: checkin.capacityLevel,
+                details: checkin.details,
+                aiAnalysis: checkin.aiAnalysis,
+                supportContact: checkin.supportContactUserId ? {
+                    name: checkin.supportContactUserId.name,
+                    role: checkin.supportContactUserId.role
+                } : null,
+                supportStatus: checkin.supportContactResponse?.status || 'none'
+            }))
+        };
+
+        sendSuccess(res, 'User dashboard data retrieved', dashboardData);
+    } catch (error) {
+        console.error('Get user dashboard data error:', error);
+        sendError(res, 'Failed to get user dashboard data', 500);
+    }
+};
+
+// Get complete user check-in history for individual dashboard (backward compatibility)
 const getUserCheckinHistory = async (req, res) => {
     try {
         const { userId, limit = 50, offset = 0 } = req.query;
@@ -913,6 +1307,7 @@ module.exports = {
     getMoodDistribution,
     getRecentCheckins,
     getUserTrends,
+    getUserDashboardData,
     getUserCheckinHistory,
     exportDashboardData,
     confirmSupportRequest
