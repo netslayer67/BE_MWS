@@ -45,25 +45,41 @@ passport.use(new GoogleStrategy({
                 const emailParts = profile.emails[0].value.split('@');
                 const username = emailParts[0];
 
-                user = new User({
-                    googleId: profile.id,
-                    email: profile.emails[0].value,
-                    name: profile.displayName, // Fullname from Google
-                    username: username, // Username extracted from email
-                    role: 'student', // Default role, can be updated later
-                    // Leave organizational fields empty for admin assignment:
-                    department: null, // Empty for admin assignment
-                    jobLevel: null,   // Empty for admin assignment
-                    unit: null,       // Empty for admin assignment
-                    jobPosition: null, // Empty for admin assignment
-                    employeeId: null, // Empty for admin assignment
-                    googleProfile: profile,
-                    isActive: true,
-                    emailVerified: true // Google accounts are pre-verified
-                });
-                await user.save();
-                console.log('✅ New user created:', user._id);
-                console.log('📋 User data saved:', {
+                // For new users, we need to check if they're a pre-created head_unit
+                // like faisal@millennia21.id who might not have Google ID linked yet
+                const existingUser = await User.findOne({ email: profile.emails[0].value });
+
+                if (existingUser) {
+                    // If user exists in database (pre-created), link Google account
+                    console.log('✅ Found existing user by email, linking Google account:', existingUser._id);
+                    existingUser.googleId = profile.id;
+                    existingUser.googleProfile = profile;
+                    existingUser.emailVerified = true;
+                    existingUser.lastLogin = new Date();
+                    await existingUser.save();
+                    user = existingUser;
+                } else {
+                    // Create completely new user
+                    user = new User({
+                        googleId: profile.id,
+                        email: profile.emails[0].value,
+                        name: profile.displayName, // Fullname from Google
+                        username: username, // Username extracted from email
+                        role: 'student', // Default role for new users
+                        department: null,
+                        jobLevel: null,
+                        unit: null,
+                        jobPosition: null,
+                        employeeId: null,
+                        googleProfile: profile,
+                        isActive: true,
+                        emailVerified: true
+                    });
+                    await user.save();
+                    console.log('✅ New user created:', user._id);
+                }
+
+                console.log('📋 Final user data:', {
                     email: user.email,
                     name: user.name,
                     username: user.username,
@@ -71,7 +87,8 @@ passport.use(new GoogleStrategy({
                     department: user.department,
                     jobLevel: user.jobLevel,
                     unit: user.unit,
-                    jobPosition: user.jobPosition
+                    jobPosition: user.jobPosition,
+                    employeeId: user.employeeId
                 });
             } else {
                 console.log('❌ Email domain not allowed:', profile.emails[0].value);

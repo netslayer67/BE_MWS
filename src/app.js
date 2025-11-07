@@ -115,10 +115,12 @@ const initializeApp = async () => {
             if (slackStatus.hasWebClient && slackStatus.hasSocketClient) {
                 winston.info('Slack Socket Mode service initialized');
             } else {
-                winston.warn('Slack Socket Mode service not fully initialized - some features may be unavailable');
+                // Downgrade to info to avoid noisy warnings; activation handled automatically when tokens are present
+                winston.info('Slack Socket Mode service not fully initialized (waiting for valid tokens)');
             }
         } catch (slackError) {
-            winston.warn('Slack Socket Mode initialization failed:', slackError.message);
+            // Use info level to avoid alarming logs in environments without Slack configured
+            winston.info('Slack Socket Mode initialization skipped:', slackError.message);
         }
 
         winston.info('Application initialized successfully');

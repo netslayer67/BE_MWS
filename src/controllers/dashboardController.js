@@ -101,6 +101,22 @@ const getDashboardStats = async (req, res) => {
             //     }
             // }
 
+            // Apply head_unit scoping to checkins if applicable
+            if (userRole === 'head_unit' && userUnit) {
+                try {
+                    const unitMembers = await User.find({
+                        isActive: true,
+                        $or: [
+                            { unit: userUnit },
+                            { department: userUnit }
+                        ]
+                    }).select('_id');
+                    checkinQuery.userId = { $in: unitMembers.map(u => u._id) };
+                } catch (e) {
+                    checkinQuery.userId = { $in: [] };
+                }
+            }
+
             // Get checkins in the period with support contact populated
             const periodCheckins = await EmotionalCheckin.find(checkinQuery)
                 .populate('userId', 'name email role department unit')
@@ -108,6 +124,15 @@ const getDashboardStats = async (req, res) => {
 
             // Get all users for role-based statistics (filtered for head_unit)
             let userQuery = {};
+            if (userRole === 'head_unit' && userUnit) {
+                userQuery = {
+                    isActive: true,
+                    $or: [
+                        { unit: userUnit },
+                        { department: userUnit }
+                    ]
+                };
+            }
             // For head_unit, temporarily allow access to all users (like directorate)
             // TODO: Revert to unit-specific filtering when more data is available
             // if (userRole === 'head_unit' && userUnit) {
@@ -558,6 +583,8 @@ const getDashboardStats = async (req, res) => {
 const getMoodDistribution = async (req, res) => {
     try {
         const { period = 'today' } = req.query;
+        const userRole = req.user.role;
+        const userUnit = req.user.unit || req.user.department;
 
         // Calculate date range based on period
         let startDate, endDate;
@@ -588,9 +615,20 @@ const getMoodDistribution = async (req, res) => {
                 endDate.setDate(endDate.getDate() + 1);
         }
 
-        const checkins = await EmotionalCheckin.find({
-            date: { $gte: startDate, $lt: endDate }
-        }).populate('userId', 'name');
+        const query = { date: { $gte: startDate, $lt: endDate } };
+        if (userRole === 'head_unit' && userUnit) {
+            const unitMembers = await User.find({
+                isActive: true,
+                $or: [
+                    { unit: userUnit },
+                    { department: userUnit }
+                ]
+            }).select('_id');
+            query.userId = { $in: unitMembers.map(u => u._id) };
+        }
+
+        const checkins = await EmotionalCheckin.find(query)
+            .populate('userId', 'name');
 
         const moodLists = {};
 
@@ -618,6 +656,8 @@ const getRecentCheckins = async (req, res) => {
 
         // Build query based on filters
         let query = {};
+        const userRole = req.user.role;
+        const userUnit = req.user.unit || req.user.department;
         let populateOptions = 'name email role department';
 
         // Add period filter
@@ -663,6 +703,18 @@ const getRecentCheckins = async (req, res) => {
             query['userId'] = { $in: await User.find({ department }).select('_id') };
         }
 
+        // Head Unit scoping
+        if (userRole === 'head_unit' && userUnit) {
+            const unitMembers = await User.find({
+                isActive: true,
+                $or: [
+                    { unit: userUnit },
+                    { department: userUnit }
+                ]
+            }).select('_id');
+            query.userId = { $in: unitMembers.map(u => u._id) };
+        }
+
         const checkins = await EmotionalCheckin.find(query)
             .sort({ submittedAt: -1 })
             .limit(parseInt(limit))
@@ -702,6 +754,16 @@ const getUserTrends = async (req, res) => {
 
         if (!userId) {
             return sendError(res, 'User ID is required', 400);
+        }
+
+        // Enforce access: head_unit can only access users in their unit/department
+        const requester = req.user;
+        if (requester.role === 'head_unit') {
+            const target = await User.findById(userId).select('unit department');
+            const unit = requester.unit || requester.department;
+            if (!target || (target.unit !== unit && target.department !== unit)) {
+                return sendError(res, 'Access denied for this user', 403);
+            }
         }
 
         // Calculate date range
@@ -1009,10 +1071,20 @@ const getUserDashboardData = async (req, res) => {
                 endDate = new Date(now);
         }
 
+        // Enforce access: head_unit can only access users in their unit/department
+        const requester = req.user;
+
         // Get user details
         const user = await User.findById(userId, 'name email role department unit');
         if (!user) {
             return sendError(res, 'User not found', 404);
+        }
+
+        if (requester.role === 'head_unit') {
+            const unit = requester.unit || requester.department;
+            if (user.unit !== unit && user.department !== unit) {
+                return sendError(res, 'Access denied for this user', 403);
+            }
         }
 
         // Get user's check-in history
@@ -1302,6 +1374,128 @@ const confirmSupportRequest = async (req, res) => {
     }
 };
 
+// Get unit members for head_unit/directorate
+const getUnitMembers = async (req, res) => {
+    try {
+        const userRole = req.user.role;
+        const userUnit = req.user.unit || req.user.department;
+
+        // Build query based on user role
+        let userQuery = { isActive: true };
+
+        // For head_unit, only show members from their unit/department
+        if (userRole === 'head_unit' && userUnit) {
+            userQuery = {
+                isActive: true,
+                $or: [
+                    { unit: userUnit },
+                    { department: userUnit }
+                ]
+            };
+        }
+        // For directorate and superadmin, show all users
+        // No additional filtering needed
+
+        const unitMembers = await User.find(userQuery, 'name email role department unit isActive')
+            .sort({ name: 1 });
+
+        // Calculate statistics for each member
+        const membersWithStats = await Promise.all(
+            unitMembers.map(async (member) => {
+                // Get today's check-in for this member
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+
+                const todayCheckin = await EmotionalCheckin.findOne({
+                    userId: member._id,
+                    date: { $gte: today, $lt: tomorrow }
+                });
+
+                // Get recent check-ins (last 7 days) for trend analysis
+                const weekAgo = new Date();
+                weekAgo.setDate(weekAgo.getDate() - 7);
+
+                const recentCheckins = await EmotionalCheckin.find({
+                    userId: member._id,
+                    date: { $gte: weekAgo }
+                }).sort({ date: -1 });
+
+                // Calculate basic stats
+                const avgPresence = recentCheckins.length > 0
+                    ? recentCheckins.reduce((sum, c) => sum + c.presenceLevel, 0) / recentCheckins.length
+                    : 0;
+
+                const avgCapacity = recentCheckins.length > 0
+                    ? recentCheckins.reduce((sum, c) => sum + c.capacityLevel, 0) / recentCheckins.length
+                    : 0;
+
+                const supportRequests = recentCheckins.filter(c => c.supportContactUserId).length;
+
+                return {
+                    id: member._id,
+                    name: member.name,
+                    email: member.email,
+                    role: member.role,
+                    department: member.department,
+                    unit: member.unit,
+                    isActive: member.isActive,
+                    checkinStatus: todayCheckin ? 'submitted' : 'not-submitted',
+                    lastCheckin: todayCheckin?.submittedAt || null,
+                    todayPresence: todayCheckin?.presenceLevel || null,
+                    todayCapacity: todayCheckin?.capacityLevel || null,
+                    weeklyStats: {
+                        totalCheckins: recentCheckins.length,
+                        avgPresence: Math.round(avgPresence * 10) / 10,
+                        avgCapacity: Math.round(avgCapacity * 10) / 10,
+                        supportRequests,
+                        lastCheckin: recentCheckins[0]?.submittedAt || null
+                    },
+                    recentMoods: todayCheckin?.selectedMoods || [],
+                    weatherType: todayCheckin?.weatherType || null
+                };
+            })
+        );
+
+        // Generate summary statistics
+        const totalMembers = membersWithStats.length;
+        const submittedToday = membersWithStats.filter(m => m.checkinStatus === 'submitted').length;
+        const avgPresence = membersWithStats
+            .filter(m => m.todayPresence !== null)
+            .reduce((sum, m) => sum + m.todayPresence, 0) / Math.max(1, submittedToday);
+
+        const avgCapacity = membersWithStats
+            .filter(m => m.todayCapacity !== null)
+            .reduce((sum, m) => sum + m.todayCapacity, 0) / Math.max(1, submittedToday);
+
+        const pendingSupportRequests = membersWithStats
+            .filter(m => m.weeklyStats.supportRequests > 0)
+            .reduce((sum, m) => sum + m.weeklyStats.supportRequests, 0);
+
+        const unitSummary = {
+            totalMembers,
+            submittedToday,
+            pendingSupportRequests,
+            averagePresence: Math.round(avgPresence * 10) / 10 || 0,
+            averageCapacity: Math.round(avgCapacity * 10) / 10 || 0,
+            submissionRate: totalMembers > 0 ? Math.round((submittedToday / totalMembers) * 100) : 0
+        };
+
+        sendSuccess(res, 'Unit members retrieved', {
+            unit: userUnit,
+            role: userRole,
+            summary: unitSummary,
+            members: membersWithStats
+        });
+
+    } catch (error) {
+        console.error('Get unit members error:', error);
+        sendError(res, 'Failed to get unit members', 500);
+    }
+};
+
+
 module.exports = {
     getDashboardStats,
     getMoodDistribution,
@@ -1310,5 +1504,6 @@ module.exports = {
     getUserDashboardData,
     getUserCheckinHistory,
     exportDashboardData,
-    confirmSupportRequest
+    confirmSupportRequest,
+    getUnitMembers
 };

@@ -96,11 +96,13 @@ class AIAnalysisService {
                     console.log('🚫 AI quota exceeded - using fallback analysis');
 
                     // Use fallback analysis for quota exceeded
-                    const fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
-                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
+                    let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
+                    // Normalize/validate to ensure structure and minimum 4 recommendations
+                    const validated = this.validateAnalysis(fallbackResult);
+                    cacheService.setCheckinAnalysis(cacheKey, validated); // Cache fallback for 1 week
 
                     resolve({
-                        ...fallbackResult,
+                        ...validated,
                         fallback: true,
                         quotaExceeded: true
                     });
@@ -109,11 +111,13 @@ class AIAnalysisService {
 
                 // For other AI errors, use fallback
                 console.log('⚠️ AI service error - using fallback analysis');
-                const fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
-                cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
+                let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
+                // Normalize/validate to ensure structure and minimum 4 recommendations
+                const validated = this.validateAnalysis(fallbackResult);
+                cacheService.setCheckinAnalysis(cacheKey, validated); // Cache fallback for 1 week
 
                 resolve({
-                    ...fallbackResult,
+                    ...validated,
                     fallback: true,
                     error: error.message
                 });
@@ -339,8 +343,83 @@ IMPORTANT FOR PERSONAL GROWTH:
             analysis.recommendations = [];
         }
 
-        // Limit recommendations to 4
-        analysis.recommendations = analysis.recommendations.slice(0, 4);
+        // Normalize existing recs and trim to avoid bloat
+        analysis.recommendations = analysis.recommendations
+            .filter(r => r && r.title && r.description)
+            .slice(0, 4);
+
+        // Ensure a minimum of 4 personalized recommendations
+        const basePool = [
+            {
+                title: 'Grounding Breath',
+                description: 'Take 3–5 deep breaths. Inhale for 4s, exhale for 6s to settle your nervous system.',
+                priority: 'medium',
+                category: 'mindfulness'
+            },
+            {
+                title: 'Micro Break',
+                description: 'Step away for 3 minutes. Stretch shoulders and neck, hydrate, and reset your posture.',
+                priority: 'medium',
+                category: 'recovery'
+            },
+            {
+                title: 'Focused One‑Task',
+                description: 'Choose one small task and complete it end‑to‑end to regain focus and momentum.',
+                priority: 'low',
+                category: 'focus'
+            },
+            {
+                title: 'Support Check‑in',
+                description: 'Message a trusted colleague or supervisor to share how you are and what support would help.',
+                priority: 'high',
+                category: 'support'
+            },
+            {
+                title: 'Reflective Journal',
+                description: 'Write 3 lines about what you’re feeling and 1 helpful next step you can take today.',
+                priority: 'low',
+                category: 'reflection'
+            },
+            {
+                title: 'Gratitude Scan',
+                description: 'List 2 small things you appreciate right now to broaden perspective and ease tension.',
+                priority: 'low',
+                category: 'mindset'
+            }
+        ];
+
+        const titles = new Set(analysis.recommendations.map(r => String(r.title).toLowerCase()));
+
+        // Bias selection based on states
+        const wantSupport = !!analysis.needsSupport;
+        const presenceLow = analysis.presenceState === 'low';
+        const capacityLow = analysis.capacityState === 'low';
+        const emotionalChallenging = analysis.emotionalState === 'challenging' || analysis.emotionalState === 'depleted';
+
+        const prioritized = [];
+        if (wantSupport) prioritized.push('Support Check‑in');
+        if (presenceLow) prioritized.push('Grounding Breath', 'Focused One‑Task');
+        if (capacityLow) prioritized.push('Micro Break');
+        if (emotionalChallenging) prioritized.push('Reflective Journal');
+
+        const poolByTitle = Object.fromEntries(basePool.map(r => [r.title, r]));
+
+        for (const t of prioritized) {
+            if (analysis.recommendations.length >= 4) break;
+            if (t && poolByTitle[t] && !titles.has(t.toLowerCase())) {
+                analysis.recommendations.push(poolByTitle[t]);
+                titles.add(t.toLowerCase());
+            }
+        }
+
+        // Fill remaining slots from pool, preserving diversity
+        for (const rec of basePool) {
+            if (analysis.recommendations.length >= 4) break;
+            if (!titles.has(rec.title.toLowerCase())) {
+                analysis.recommendations.push(rec);
+                titles.add(rec.title.toLowerCase());
+            }
+        }
 
         // Ensure confidence is a number
         analysis.confidence = typeof analysis.confidence === 'number'

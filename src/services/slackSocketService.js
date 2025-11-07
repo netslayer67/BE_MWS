@@ -7,6 +7,7 @@ class SlackSocketService {
         this.webClient = null;
         this.socketClient = null;
         this.isConnected = false;
+        this.logLevel = (process.env.SLACK_SOCKET_LOG_LEVEL || 'error').toLowerCase();
 
         this.init();
     }
@@ -24,16 +25,19 @@ class SlackSocketService {
             // Initialize WebClient for API calls
             this.webClient = new WebClient(botToken);
 
-            // Initialize Socket Mode client
+            // Initialize Socket Mode client with gated logger
+            const order = ['debug', 'info', 'warn', 'error'];
+            const allow = (lvl) => order.indexOf(lvl) >= order.indexOf(this.logLevel);
+
             this.socketClient = new SocketModeClient({
                 appToken,
                 logger: {
-                    debug: (...msgs) => winston.debug('Slack Socket:', ...msgs),
-                    info: (...msgs) => winston.info('Slack Socket:', ...msgs),
-                    warn: (...msgs) => winston.warn('Slack Socket:', ...msgs),
-                    error: (...msgs) => winston.error('Slack Socket:', ...msgs),
+                    debug: (...msgs) => { if (allow('debug')) winston.debug('Slack Socket:', ...msgs); },
+                    info:  (...msgs) => { if (allow('info'))  winston.info('Slack Socket:',  ...msgs); },
+                    warn:  (...msgs) => { if (allow('warn'))  winston.warn('Slack Socket:',  ...msgs); },
+                    error: (...msgs) => { if (allow('error')) winston.error('Slack Socket:', ...msgs); },
                     setLevel: () => { },
-                    getLevel: () => 'info',
+                    getLevel: () => this.logLevel,
                     setName: () => { }
                 }
             });
@@ -57,7 +61,8 @@ class SlackSocketService {
 
         // Handle disconnection
         this.socketClient.on('disconnected', () => {
-            winston.warn('⚠️ Slack Socket Mode disconnected');
+            // Downgrade to info to avoid noisy warns during reconnects
+            winston.info('⚠️ Slack Socket Mode disconnected');
             this.isConnected = false;
         });
 
@@ -98,7 +103,7 @@ class SlackSocketService {
 
                 // Safety check for payload
                 if (!payload) {
-                    winston.warn('⚠️ Received interactive event without payload', {
+                    winston.debug('⚠️ Received interactive event without payload', {
                         service: 'integra-learn-backend',
                         timestamp: new Date().toISOString()
                     });
@@ -286,3 +291,4 @@ class SlackSocketService {
 
 // Export singleton instance
 module.exports = new SlackSocketService();
+

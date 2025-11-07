@@ -7,7 +7,8 @@ const {
     getUserTrends,
     getUserCheckinHistory,
     exportDashboardData,
-    confirmSupportRequest
+    confirmSupportRequest,
+    getUnitMembers
 } = require('../controllers/dashboardController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { validateQuery } = require('../middleware/validation');
@@ -17,12 +18,12 @@ router.use(authenticate);
 // Allow directorate, superadmin, and admin roles
 router.use((req, res, next) => {
     const userRole = req.user.role;
-    const allowedRoles = ['directorate', 'superadmin', 'admin'];
+    const allowedRoles = ['directorate', 'superadmin', 'admin', 'head_unit'];
 
     if (!allowedRoles.includes(userRole)) {
         return res.status(403).json({
             success: false,
-            message: 'Access denied. Dashboard access requires directorate, superadmin, or admin privileges.'
+            message: 'Access denied. Dashboard access requires directorate, superadmin, admin, or head_unit privileges.'
         });
     }
 
@@ -43,6 +44,12 @@ router.get('/user-trends', getUserTrends);
 
 // Get complete user check-in history
 router.get('/user-history', getUserCheckinHistory);
+
+// Rich per-user overview (latest check-ins + insights)
+router.get('/user-overview/:userId', require('../controllers/dashboardController').getUserDashboardData);
+
+// Unit members for head_unit/directorate
+router.get('/unit/members', getUnitMembers);
 
 // Export dashboard data
 router.get('/export', exportDashboardData);

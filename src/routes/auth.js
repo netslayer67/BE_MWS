@@ -43,7 +43,7 @@ router.get('/google/callback',
                 { expiresIn: '7d' }
             );
 
-            // Redirect to frontend with token
+            // Redirect to frontend with complete user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify({
                 id: req.user._id,
@@ -54,7 +54,11 @@ router.get('/google/callback',
                 department: req.user.department,
                 jobLevel: req.user.jobLevel,
                 unit: req.user.unit,
-                jobPosition: req.user.jobPosition
+                jobPosition: req.user.jobPosition,
+                employeeId: req.user.employeeId,
+                lastLogin: req.user.lastLogin,
+                isActive: req.user.isActive,
+                emailVerified: req.user.emailVerified
             }))}`;
 
             console.log('🔄 Redirecting to:', redirectUrl);

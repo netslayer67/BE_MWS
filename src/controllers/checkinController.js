@@ -656,10 +656,27 @@ const getCheckinHistory = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        // Build query - allow filtering by userId for dashboard use
+        // Build query - allow filtering by userId with role-based checks
         const query = {};
-        if (req.query.userId) {
-            query.userId = req.query.userId;
+        const requestedUserId = req.query.userId;
+        if (requestedUserId) {
+            // If requesting another user's data, enforce permissions
+            const isSelf = String(requestedUserId) === String(req.user.id);
+            const elevated = ['directorate', 'admin', 'superadmin'].includes(req.user.role);
+            if (!isSelf && !elevated) {
+                if (req.user.role === 'head_unit') {
+                    // Head Unit: only within same unit/department
+                    const User = require('../models/User');
+                    const target = await User.findById(requestedUserId).select('unit department');
+                    const unit = req.user.unit || req.user.department;
+                    if (!target || (target.unit !== unit && target.department !== unit)) {
+                        return sendError(res, 'Access denied for this user\'s history', 403);
+                    }
+                } else {
+                    return sendError(res, 'Access denied for this user\'s history', 403);
+                }
+            }
+            query.userId = requestedUserId;
         } else {
             // Default to current user's history if no userId specified
             query.userId = req.user.id;
