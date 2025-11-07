@@ -29,39 +29,75 @@ router.get('/google/callback',
         try {
             console.log('✅ Google OAuth successful for user:', req.user.email);
 
-            // Update last login
-            await User.findByIdAndUpdate(req.user._id, { lastLogin: new Date() });
+            // Validate user exists in database and get authoritative user data
+            const dbUser = await User.findById(req.user._id).select('-password -googleProfile');
 
-            // Generate JWT token
+            if (!dbUser) {
+                console.error('❌ User not found in database after OAuth:', req.user.email);
+                return res.redirect('/login?error=user_not_found');
+            }
+
+            // Check if user is active
+            if (!dbUser.isActive) {
+                console.error('❌ Inactive user attempted OAuth login:', req.user.email);
+                return res.redirect('/login?error=account_inactive');
+            }
+
+            // Update last login
+            dbUser.lastLogin = new Date();
+            await dbUser.save();
+
+            // Log role validation for security
+            console.log('🔐 Role validation for OAuth user:', {
+                email: dbUser.email,
+                role: dbUser.role,
+                isHeadUnit: dbUser.role === 'head_unit',
+                isDirectorate: dbUser.role === 'directorate',
+                department: dbUser.department,
+                unit: dbUser.unit
+            });
+
+            // Generate JWT token with database-validated user data
             const token = jwt.sign(
                 {
-                    userId: req.user._id,
-                    email: req.user.email,
-                    role: req.user.role
+                    userId: dbUser._id,
+                    email: dbUser.email,
+                    role: dbUser.role
                 },
                 process.env.JWT_SECRET,
                 { expiresIn: '7d' }
             );
 
-            // Redirect to frontend with complete user data
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify({
-                id: req.user._id,
-                name: req.user.name,
-                email: req.user.email,
-                role: req.user.role,
-                username: req.user.username,
-                department: req.user.department,
-                jobLevel: req.user.jobLevel,
-                unit: req.user.unit,
-                jobPosition: req.user.jobPosition,
-                employeeId: req.user.employeeId,
-                lastLogin: req.user.lastLogin,
-                isActive: req.user.isActive,
-                emailVerified: req.user.emailVerified
-            }))}`;
+            // Send database-validated user data to frontend
+            const userDataForFrontend = {
+                id: dbUser._id,
+                name: dbUser.name,
+                email: dbUser.email,
+                role: dbUser.role, // This is the authoritative role from database
+                username: dbUser.username,
+                department: dbUser.department,
+                jobLevel: dbUser.jobLevel,
+                unit: dbUser.unit,
+                jobPosition: dbUser.jobPosition,
+                employeeId: dbUser.employeeId,
+                lastLogin: dbUser.lastLogin,
+                isActive: dbUser.isActive,
+                emailVerified: dbUser.emailVerified,
+                // Add validation metadata
+                validatedAt: new Date().toISOString(),
+                authMethod: 'google_oauth'
+            };
 
-            console.log('🔄 Redirecting to:', redirectUrl);
+            // Redirect to frontend with validated user data
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}`;
+
+            console.log('🔄 Redirecting to frontend with database-validated user data');
+            console.log('📋 User role for dashboard access:', {
+                role: dbUser.role,
+                hasDashboardAccess: ['head_unit', 'directorate'].includes(dbUser.role)
+            });
+
             res.redirect(redirectUrl);
 
         } catch (error) {
@@ -139,9 +175,33 @@ router.post('/logout', (req, res) => {
 // Get current user info
 router.get('/me', require('../middleware/auth').authenticate, async (req, res) => {
     try {
+        // Fetch fresh user data from database for security
         const user = await User.findById(req.user.id).select('-password -googleProfile');
+
+        if (!user) {
+            console.error('❌ User not found in /auth/me endpoint:', req.user.id);
+            return sendError(res, 'User not found', 404);
+        }
+
+        // Additional security check - ensure user is still active
+        if (!user.isActive) {
+            console.error('❌ Inactive user accessed /auth/me:', user.email);
+            return sendError(res, 'Account is deactivated', 403);
+        }
+
+        // Log role access for security monitoring
+        console.log('🔐 /auth/me access - Role validation:', {
+            userId: user._id,
+            email: user.email,
+            role: user.role,
+            hasDashboardAccess: ['head_unit', 'directorate'].includes(user.role),
+            department: user.department,
+            unit: user.unit
+        });
+
         sendSuccess(res, 'User info retrieved', { user });
     } catch (error) {
+        console.error('❌ /auth/me error:', error);
         sendError(res, 'Failed to get user info', 500);
     }
 });

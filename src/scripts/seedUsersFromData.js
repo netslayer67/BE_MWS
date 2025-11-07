@@ -1633,10 +1633,10 @@ const userData = [
         gender: 'M'
     },
     {
-        email: 'sayed.jilliyan@millennia21.id',
+        email: 'faisal@millennia21.id',
         password: 'password123',
-        name: 'SAYED JILLIYAN',
-        username: 'IYAN',
+        name: 'Faisal Nur Hidayat',
+        username: 'Faisal',
         role: 'head_unit',
         department: 'MAD Lab',
         jobLevel: 'Head Unit',
