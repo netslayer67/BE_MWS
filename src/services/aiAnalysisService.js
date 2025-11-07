@@ -97,12 +97,19 @@ class AIAnalysisService {
 
                     // Use fallback analysis for quota exceeded
                     let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
-                    // Normalize/validate to ensure structure and minimum 4 recommendations
-                    const validated = this.validateAnalysis(fallbackResult);
-                    cacheService.setCheckinAnalysis(cacheKey, validated); // Cache fallback for 1 week
+
+                    // For quota exceeded, remove template-based recommendations to maintain AI-only standard
+                    fallbackResult.recommendations = [];
+
+                    // Add metadata to indicate these are not AI recommendations
+                    fallbackResult.isAIRecommendations = false;
+                    fallbackResult.aiUnavailable = true;
+                    fallbackResult.quotaExceeded = true;
+
+                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
 
                     resolve({
-                        ...validated,
+                        ...fallbackResult,
                         fallback: true,
                         quotaExceeded: true
                     });
@@ -112,12 +119,18 @@ class AIAnalysisService {
                 // For other AI errors, use fallback
                 console.log('⚠️ AI service error - using fallback analysis');
                 let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
-                // Normalize/validate to ensure structure and minimum 4 recommendations
-                const validated = this.validateAnalysis(fallbackResult);
-                cacheService.setCheckinAnalysis(cacheKey, validated); // Cache fallback for 1 week
+
+                // For fallback analysis, remove template-based recommendations to maintain AI-only standard
+                fallbackResult.recommendations = [];
+
+                // Add metadata to indicate these are not AI recommendations
+                fallbackResult.isAIRecommendations = false;
+                fallbackResult.aiUnavailable = true;
+
+                cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
 
                 resolve({
-                    ...validated,
+                    ...fallbackResult,
                     fallback: true,
                     error: error.message
                 });
@@ -138,10 +151,13 @@ class AIAnalysisService {
         const presenceText = `${data.presenceLevel}/10`;
         const capacityText = `${data.capacityLevel}/10`;
 
+        // Declare prompt variable at the top level
+        let prompt;
+
         // Different prompts based on context (employee self-assessment vs manager/supervisor view)
         if (context === 'manager') {
             // Manager/Supervisor perspective - more analytical, focused on team management
-            const prompt = `You are a workplace wellness consultant analyzing an employee's emotional check-in data from a management perspective. Provide insights for supervisors and HR professionals to support their team members effectively.
+            prompt = `You are a workplace wellness consultant analyzing an employee's emotional check-in data from a management perspective. Provide insights for supervisors and HR professionals to support their team members effectively.
 
 EMPLOYEE DATA:
 - Weather/Mood Metaphor: ${weatherText}
@@ -163,14 +179,14 @@ MANAGEMENT ANALYSIS FRAMEWORK:
 3. Identify patterns that may require managerial intervention
 4. Consider organizational support needs and resource allocation
 5. Determine appropriate supervisory response based on:
-   - Performance readiness indicators (presence/capacit y levels)
+   - Performance readiness indicators (presence/capacity levels)
    - Team impact potential (low engagement may affect others)
    - Escalation triggers (severe indicators requiring immediate action)
 
 SUPERVISORY RESPONSE GUIDELINES:
-- IMMEDIATE INTERVENTION: presence/capacit y ≤3, concerning patterns, potential team impact
-- MONITOR CLOSELY: presence/capacit y 4-5, inconsistent patterns, gradual changes
-- BUSINESS AS USUAL: presence/capacit y ≥6, stable positive indicators, no concerns
+- IMMEDIATE INTERVENTION: presence/capacity ≤3, concerning patterns, potential team impact
+- MONITOR CLOSELY: presence/capacity 4-5, inconsistent patterns, gradual changes
+- BUSINESS AS USUAL: presence/capacity ≥6, stable positive indicators, no concerns
 
 RESPONSE FORMAT (JSON only):
 {
@@ -198,10 +214,10 @@ IMPORTANT FOR MANAGEMENT:
 - Provide actionable management strategies
 - Consider both employee well-being and organizational productivity
 - Be specific about intervention triggers and response levels
-- needsSupport should be true if presence/capacit y ≤4 OR concerning patterns OR potential team impact`;
+- needsSupport should be true if presence/capacity ≤4 OR concerning patterns OR potential team impact`;
         } else {
             // Employee self-assessment perspective - more personal, supportive
-            const prompt = `You are an empathetic psychologist providing personal emotional wellness guidance. Help this individual understand their emotional state and support their personal growth journey.
+            prompt = `You are an empathetic psychologist providing personal emotional wellness guidance. Help this individual understand their emotional state and support their personal growth journey.
 
 PERSONAL EMOTIONAL CHECK-IN DATA:
 - Weather/Mood Metaphor: ${weatherText}
@@ -223,14 +239,14 @@ PERSONAL WELLNESS ANALYSIS:
 3. Explore what your mood selections and weather metaphor tell you about yourself
 4. ${hasHistoricalContext ? 'Notice patterns in your emotional journey and personal growth' : 'Begin building awareness of your emotional patterns'}
 5. Identify personal support needs based on:
-   - Your current emotional comfort (presence/capacit y levels)
+   - Your current emotional comfort (presence/capacity levels)
    - How you're feeling in this moment
    - ${hasHistoricalContext ? 'Your personal growth patterns and changes' : 'Your authentic emotional experience'}
 
 SELF-CARE GUIDANCE:
-- GENTLE SUPPORT: presence/capacit y ≤4, feeling challenged, ready for self-compassion
-- SELF-AWARENESS: presence/capacit y 5-7, exploring feelings, building emotional intelligence
-- PERSONAL GROWTH: presence/capacit y ≥8, feeling strong, celebrating your journey
+- GENTLE SUPPORT: presence/capacity ≤4, feeling challenged, ready for self-compassion
+- SELF-AWARENESS: presence/capacity 5-7, exploring feelings, building emotional intelligence
+- PERSONAL GROWTH: presence/capacity ≥8, feeling strong, celebrating your journey
 
 RESPONSE FORMAT (JSON only):
 {
@@ -258,7 +274,12 @@ IMPORTANT FOR PERSONAL GROWTH:
 - Celebrate emotional awareness as a strength
 - Provide gentle, non-judgmental guidance
 - Encourage authentic self-expression
-- needsSupport should be true if presence/capacit y ≤4 OR feeling challenged OR seeking personal growth support`;
+- needsSupport should be true if presence/capacity ≤4 OR feeling challenged OR seeking personal growth support`;
+        }
+
+        // Ensure prompt is always defined
+        if (!prompt) {
+            throw new Error('Failed to generate prompt for AI analysis');
         }
 
         return prompt;
@@ -287,8 +308,17 @@ IMPORTANT FOR PERSONAL GROWTH:
 
             console.log('📝 AI Text Content:', aiText);
 
+            // Fix malformed JSON that includes "json" wrapper
+            let cleanText = aiText.trim();
+
+            // Remove "json" word at the beginning if present
+            if (cleanText.toLowerCase().startsWith('json')) {
+                cleanText = cleanText.substring(4).trim();
+                console.log('🧹 Removed json wrapper');
+            }
+
             // Remove markdown code blocks if present
-            const cleanText = aiText.replace(/```json\n ? /g, '').replace(/```\n?/g, '').trim();
+            cleanText = cleanText.replace(/```json\n ? /g, '').replace(/```\n?/g, '').trim();
             console.log('🧹 Cleaned Text:', cleanText);
 
             // Try to parse the cleaned JSON
@@ -304,6 +334,15 @@ IMPORTANT FOR PERSONAL GROWTH:
 
         } catch (error) {
             console.error('❌ Failed to parse AI response:', error.message);
+            console.error('❌ Full error details:', error);
+
+            // Log the problematic content for debugging
+            if (error.message.includes('Unexpected token')) {
+                const candidate = aiResponse.candidates?.[0];
+                const problematicText = candidate?.content?.parts?.[0]?.text || candidate?.content?.text;
+                console.error('❌ Problematic text that failed to parse:', problematicText);
+            }
+
             throw new Error(`AI response parsing failed: ${error.message} `);
         }
     }
@@ -647,12 +686,14 @@ IMPORTANT FOR PERSONAL GROWTH:
                 presenceLevel <= 4 || capacityLevel <= 4 ? 'challenging' : 'balanced',
             presenceState: presenceLevel >= 7 ? 'high' : presenceLevel >= 4 ? 'moderate' : 'low',
             capacityState: capacityLevel >= 7 ? 'high' : capacityLevel >= 4 ? 'moderate' : 'low',
-            recommendations: getRecommendations(),
+            recommendations: [], // Empty recommendations - only AI should provide these
             psychologicalInsights: getPsychologicalInsights(),
             motivationalMessage: getMotivationalMessage(),
             needsSupport: capacityLevel <= 4 || presenceLevel <= 4,
             confidence: 100, // Maximum confidence for ultra-motivational fallback
-            processingTime: Date.now() - startTime
+            processingTime: Date.now() - startTime,
+            isAIRecommendations: false, // Indicate these are not AI-generated
+            aiUnavailable: true // Flag that AI service was unavailable
         };
     }
 

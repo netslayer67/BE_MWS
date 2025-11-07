@@ -77,6 +77,16 @@ const getDashboardStats = async (req, res) => {
                 date: { $gte: startDate, $lt: endDate }
             };
 
+            // Log role-based data access for monitoring
+            console.log('🔍 Dashboard data access scope:', {
+                userRole: userRole,
+                userUnit: userUnit,
+                scope: userRole === 'directorate' ? 'ALL_EMPLOYEES' : 'UNIT_ONLY',
+                expectedData: userRole === 'directorate'
+                    ? 'Comprehensive data for all employees across organization'
+                    : `Unit-specific data for ${userUnit} employees only`
+            });
+
             // For head_unit, temporarily allow access to all data (like directorate)
             // TODO: Revert to unit-specific filtering when more data is available
             // if (userRole === 'head_unit' && userUnit) {
@@ -1374,11 +1384,20 @@ const confirmSupportRequest = async (req, res) => {
     }
 };
 
-// Get unit members for head_unit/directorate
 const getUnitMembers = async (req, res) => {
     try {
         const userRole = req.user.role;
         const userUnit = req.user.unit || req.user.department;
+
+        // Log role-based data access for monitoring
+        console.log('👥 Unit members access scope:', {
+            userRole: userRole,
+            userUnit: userUnit,
+            scope: userRole === 'directorate' ? 'ALL_EMPLOYEES' : 'UNIT_ONLY',
+            expectedData: userRole === 'directorate'
+                ? 'All active employees across organization'
+                : `Active employees in ${userUnit} only`
+        });
 
         // Build query based on user role
         let userQuery = { isActive: true };
@@ -1392,6 +1411,7 @@ const getUnitMembers = async (req, res) => {
                     { department: userUnit }
                 ]
             };
+            console.log('🔒 Applied unit filtering for head_unit:', userUnit);
         }
         // For directorate and superadmin, show all users
         // No additional filtering needed
@@ -1482,9 +1502,25 @@ const getUnitMembers = async (req, res) => {
             submissionRate: totalMembers > 0 ? Math.round((submittedToday / totalMembers) * 100) : 0
         };
 
+        // Add data scope information to response
+        const dataScope = {
+            scope: userRole === 'directorate' ? 'ALL_EMPLOYEES' : 'UNIT_ONLY',
+            description: userRole === 'directorate'
+                ? 'Comprehensive data for all active employees across the organization'
+                : `Unit-specific data for employees in ${userUnit}`,
+            totalOrganizations: userRole === 'directorate' ? 'All departments/units' : userUnit
+        };
+
+        console.log(`📊 ${userRole === 'directorate' ? 'Ms. Mahrukh' : 'Head Unit'} access:`, {
+            scope: dataScope.scope,
+            employees: totalMembers,
+            expected: dataScope.description
+        });
+
         sendSuccess(res, 'Unit members retrieved', {
             unit: userUnit,
             role: userRole,
+            dataScope: dataScope,
             summary: unitSummary,
             members: membersWithStats
         });
