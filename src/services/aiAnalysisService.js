@@ -308,18 +308,32 @@ IMPORTANT FOR PERSONAL GROWTH:
 
             console.log('📝 AI Text Content:', aiText);
 
-            // Fix malformed JSON that includes "json" wrapper
+            // Fix malformed JSON that includes markdown/code wrappers
             let cleanText = aiText.trim();
+
+            // Strip fenced code blocks such as ```json ... ```
+            if (cleanText.startsWith('```')) {
+                cleanText = cleanText
+                    .replace(/^```(?:json)?/i, '')
+                    .replace(/```$/i, '')
+                    .trim();
+                console.log('?? Stripped markdown fences');
+            }
 
             // Remove "json" word at the beginning if present
             if (cleanText.toLowerCase().startsWith('json')) {
                 cleanText = cleanText.substring(4).trim();
-                console.log('🧹 Removed json wrapper');
+                console.log('?? Removed json wrapper');
             }
 
-            // Remove markdown code blocks if present
-            cleanText = cleanText.replace(/```json\n ? /g, '').replace(/```\n?/g, '').trim();
-            console.log('🧹 Cleaned Text:', cleanText);
+            // When AI wraps JSON with extra prose, keep only the object portion
+            const firstBrace = cleanText.indexOf('{');
+            const lastBrace = cleanText.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                cleanText = cleanText.substring(firstBrace, lastBrace + 1).trim();
+            }
+
+            console.log('?? Cleaned Text:', cleanText);
 
             // Try to parse the cleaned JSON
             const parsed = JSON.parse(cleanText);

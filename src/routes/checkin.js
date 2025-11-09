@@ -4,6 +4,7 @@ const multer = require('multer');
 const {
     submitCheckin,
     submitAICheckin,
+    getPersonalDashboard,
     getTodayCheckin,
     getTodayCheckinStatus,
     getCheckinResults,
@@ -64,6 +65,9 @@ router.get('/today', getTodayCheckin);
 
 // Get today's check-in status (for UI to show available options)
 router.get('/today/status', getTodayCheckinStatus);
+
+// Personal dashboard (today + overall stats) for any authenticated user
+router.get('/personal/dashboard', getPersonalDashboard);
 
 // Get check-in results with AI analysis
 router.get('/results/:id', getCheckinResults);

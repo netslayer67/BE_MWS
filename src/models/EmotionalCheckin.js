@@ -70,6 +70,12 @@ const emotionalCheckinSchema = new mongoose.Schema({
             message: 'Invalid support contact - must be a valid staff member'
         }
     },
+    // Preserve legacy form selections when no exact staff match exists
+    supportContactLegacyLabel: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
 
     // AI Analysis Results (populated after submission)
     aiAnalysis: {

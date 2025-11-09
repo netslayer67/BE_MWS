@@ -1,3 +1,167 @@
+const mongoose = require('mongoose');
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const normalizeObjectId = (id) => {
+    if (!id) {
+        return null;
+    }
+    return typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id;
+};
+
+const computeStreaksFromBuckets = (buckets = []) => {
+    if (!Array.isArray(buckets) || buckets.length === 0) {
+        return { current: 0, longest: 0 };
+    }
+
+    const sortedDays = buckets
+        .map(bucket => bucket?._id)
+        .filter(Boolean)
+        .map((day) => {
+            const normalized = new Date(day);
+            normalized.setHours(0, 0, 0, 0);
+            return normalized;
+        })
+        .sort((a, b) => b.getTime() - a.getTime());
+
+    if (sortedDays.length === 0) {
+        return { current: 0, longest: 0 };
+    }
+
+    const streakChunks = [];
+    let chunkLength = 0;
+    let previousDate = null;
+
+    for (const date of sortedDays) {
+        if (!previousDate) {
+            chunkLength = 1;
+        } else {
+            const diffDays = Math.round((previousDate.getTime() - date.getTime()) / DAY_IN_MS);
+            if (diffDays === 1) {
+                chunkLength += 1;
+            } else {
+                streakChunks.push(chunkLength);
+                chunkLength = 1;
+            }
+        }
+        previousDate = date;
+    }
+
+    if (chunkLength > 0) {
+        streakChunks.push(chunkLength);
+    }
+
+    return {
+        current: streakChunks[0] || 0,
+        longest: streakChunks.reduce((max, streak) => Math.max(max, streak), 0)
+    };
+};
+
+const formatCheckinSnapshot = (checkin) => {
+    if (!checkin) {
+        return null;
+    }
+
+    const supportContact = checkin.supportContactUserId;
+    const hasSupportMeta = supportContact && typeof supportContact === 'object' && (supportContact.name || supportContact.role);
+
+    return {
+        id: checkin._id || checkin.id,
+        date: checkin.date,
+        weatherType: checkin.weatherType || null,
+        selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+        presenceLevel: typeof checkin.presenceLevel === 'number' ? checkin.presenceLevel : null,
+        capacityLevel: typeof checkin.capacityLevel === 'number' ? checkin.capacityLevel : null,
+        aiAnalysis: checkin.aiAnalysis ? {
+            emotionalState: checkin.aiAnalysis.emotionalState,
+            presenceState: checkin.aiAnalysis.presenceState,
+            capacityState: checkin.aiAnalysis.capacityState,
+            needsSupport: !!checkin.aiAnalysis.needsSupport,
+            confidence: checkin.aiAnalysis.confidence,
+            motivationalMessage: checkin.aiAnalysis.motivationalMessage,
+            psychologicalInsights: checkin.aiAnalysis.psychologicalInsights,
+            personalizedGreeting: checkin.aiAnalysis.personalizedGreeting
+        } : null,
+        reflections: {
+            details: checkin.details || '',
+            userReflection: checkin.userReflection || ''
+        },
+        supportContact: hasSupportMeta ? {
+            id: supportContact._id || supportContact.id,
+            name: supportContact.name,
+            role: supportContact.role,
+            department: supportContact.department,
+            unit: supportContact.unit
+        } : null
+    };
+};
+
+const buildPeriodSummary = (checkins = []) => {
+    if (!Array.isArray(checkins) || checkins.length === 0) {
+        return {
+            count: 0,
+            averagePresence: 0,
+            averageCapacity: 0,
+            positiveDays: 0,
+            challengingDays: 0
+        };
+    }
+
+    const totals = checkins.reduce((acc, checkin) => {
+        acc.presence += typeof checkin.presenceLevel === 'number' ? checkin.presenceLevel : 0;
+        acc.capacity += typeof checkin.capacityLevel === 'number' ? checkin.capacityLevel : 0;
+
+        if (checkin.aiAnalysis?.emotionalState === 'positive') {
+            acc.positiveDays += 1;
+        }
+        if (checkin.aiAnalysis?.emotionalState === 'challenging' || checkin.aiAnalysis?.needsSupport) {
+            acc.challengingDays += 1;
+        }
+        return acc;
+    }, { presence: 0, capacity: 0, positiveDays: 0, challengingDays: 0 });
+
+    return {
+        count: checkins.length,
+        averagePresence: Math.round((totals.presence / checkins.length) * 10) / 10,
+        averageCapacity: Math.round((totals.capacity / checkins.length) * 10) / 10,
+        positiveDays: totals.positiveDays,
+        challengingDays: totals.challengingDays
+    };
+};
+
+const buildPersonalInsights = (summary, todaySnapshot, streaks, periodSummary) => {
+    const insights = [];
+
+    if (!todaySnapshot) {
+        insights.push('Belum ada check-in hari ini. Luangkan waktu 2 menit untuk mencatat kondisi emosimu.');
+    }
+
+    if (!summary.totalCheckins) {
+        insights.push('Mulai catat emosi secara rutin agar AI dapat menyiapkan insight personal untukmu.');
+        return insights.slice(0, 3);
+    }
+
+    if (typeof summary.averagePresence === 'number' && summary.averagePresence > 0 && summary.averagePresence < 5) {
+        insights.push('Presence rata-rata masih di bawah 5. Pertimbangkan micro break atau jeda singkat sepanjang hari.');
+    } else if (typeof summary.averagePresence === 'number' && summary.averagePresence >= 7.5) {
+        insights.push('Presence kamu stabil dan tinggi. Pertahankan ritme kerja yang seimbang seperti sekarang.');
+    }
+
+    if (summary.aiSupportDays > 0) {
+        insights.push(`AI mendeteksi kebutuhan dukungan sebanyak ${summary.aiSupportDays} hari. Manfaatkan support contact jika diperlukan.`);
+    }
+
+    if (streaks.current >= 3) {
+        insights.push(`Keren! Kamu konsisten check-in selama ${streaks.current} hari berturut-turut.`);
+    }
+
+    if (periodSummary?.challengingDays >= periodSummary?.positiveDays && periodSummary?.challengingDays > 0) {
+        insights.push('Dalam 30 hari terakhir, emosi menantang muncul lebih sering. Coba tinjau ulang rekomendasi AI di riwayat check-in.');
+    }
+
+    return insights.slice(0, 3);
+};
+
 // Enhance AI analysis with user reflection context
 const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
     try {
@@ -1169,9 +1333,173 @@ const submitAICheckin = async (req, res) => {
     }
 };
 
+const getPersonalDashboard = async (req, res) => {
+    const EmotionalCheckin = require('../models/EmotionalCheckin');
+    const { sendSuccess, sendError } = require('../utils/response');
+
+    try {
+        const userId = req.user.id;
+        const objectId = normalizeObjectId(userId);
+
+        if (!objectId) {
+            return sendError(res, 'Unable to resolve user profile for dashboard', 400);
+        }
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(todayStart);
+        todayEnd.setDate(todayEnd.getDate() + 1);
+
+        const thirtyDaysAgo = new Date(todayStart);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const [
+            todayCheckin,
+            recentCheckins,
+            overallStats,
+            moodBuckets,
+            streakBuckets,
+            last30DaysCheckins
+        ] = await Promise.all([
+            EmotionalCheckin.findOne({
+                userId,
+                date: { $gte: todayStart, $lt: todayEnd }
+            })
+                .populate('supportContactUserId', 'name role department unit email')
+                .lean(),
+            EmotionalCheckin.find({ userId })
+                .populate('supportContactUserId', 'name role department unit')
+                .sort({ date: -1 })
+                .limit(5)
+                .lean(),
+            EmotionalCheckin.aggregate([
+                { $match: { userId: objectId } },
+                {
+                    $group: {
+                        _id: null,
+                        totalCheckins: { $sum: 1 },
+                        avgPresence: { $avg: '$presenceLevel' },
+                        avgCapacity: { $avg: '$capacityLevel' },
+                        firstCheckinDate: { $min: '$date' },
+                        lastCheckinDate: { $max: '$date' },
+                        supportNeeded: {
+                            $sum: {
+                                $cond: [{ $eq: ['$aiAnalysis.needsSupport', true] }, 1, 0]
+                            }
+                        },
+                        stableDays: {
+                            $sum: {
+                                $cond: [{ $eq: ['$aiAnalysis.needsSupport', true] }, 0, 1]
+                            }
+                        }
+                    }
+                }
+            ]),
+            EmotionalCheckin.aggregate([
+                {
+                    $match: {
+                        userId: objectId,
+                        selectedMoods: { $exists: true, $ne: [] }
+                    }
+                },
+                { $unwind: '$selectedMoods' },
+                {
+                    $group: {
+                        _id: { $toLower: '$selectedMoods' },
+                        count: { $sum: 1 }
+                    }
+                },
+                { $sort: { count: -1 } },
+                { $limit: 6 }
+            ]),
+            EmotionalCheckin.aggregate([
+                { $match: { userId: objectId } },
+                {
+                    $group: {
+                        _id: {
+                            $dateToString: { format: '%Y-%m-%d', date: '$date' }
+                        }
+                    }
+                },
+                { $sort: { '_id': -1 } }
+            ]),
+            EmotionalCheckin.find({
+                userId,
+                date: { $gte: thirtyDaysAgo }
+            })
+                .select('date presenceLevel capacityLevel aiAnalysis.emotionalState aiAnalysis.needsSupport')
+                .sort({ date: -1 })
+                .lean()
+        ]);
+
+        const summaryStats = overallStats?.[0] || null;
+        const summary = {
+            totalCheckins: summaryStats?.totalCheckins || 0,
+            averagePresence: summaryStats?.avgPresence ? Math.round(summaryStats.avgPresence * 10) / 10 : 0,
+            averageCapacity: summaryStats?.avgCapacity ? Math.round(summaryStats.avgCapacity * 10) / 10 : 0,
+            firstCheckinDate: summaryStats?.firstCheckinDate || null,
+            lastCheckinDate: summaryStats?.lastCheckinDate || null,
+            aiSupportDays: summaryStats?.supportNeeded || 0,
+            stableDays: summaryStats?.stableDays || 0,
+            uniqueDays: Array.isArray(streakBuckets) ? streakBuckets.length : 0
+        };
+
+        const streaks = computeStreaksFromBuckets(streakBuckets);
+        const todaySnapshot = formatCheckinSnapshot(todayCheckin);
+        const recentSnapshots = Array.isArray(recentCheckins)
+            ? recentCheckins.map(formatCheckinSnapshot)
+            : [];
+        const periodSummary = buildPeriodSummary(last30DaysCheckins);
+        const moodHighlights = Array.isArray(moodBuckets)
+            ? moodBuckets.map((bucket) => ({
+                mood: bucket._id,
+                count: bucket.count,
+                percentage: summary.totalCheckins > 0
+                    ? Math.round((bucket.count / summary.totalCheckins) * 100)
+                    : 0
+            }))
+            : [];
+
+        const insights = buildPersonalInsights(summary, todaySnapshot, streaks, periodSummary);
+
+        sendSuccess(res, 'Personal dashboard data retrieved', {
+            today: {
+                status: todaySnapshot ? 'completed' : 'pending',
+                message: todaySnapshot
+                    ? 'Check-in hari ini sudah tercatat'
+                    : 'Belum ada check-in untuk hari ini',
+                checkin: todaySnapshot
+            },
+            overall: {
+                totalCheckins: summary.totalCheckins,
+                averages: {
+                    presence: summary.averagePresence,
+                    capacity: summary.averageCapacity
+                },
+                firstCheckinDate: summary.firstCheckinDate,
+                lastCheckinDate: summary.lastCheckinDate,
+                uniqueCheckinDays: summary.uniqueDays,
+                streaks,
+                moodHighlights,
+                periodSummary,
+                aiHighlights: {
+                    supportNeededDays: summary.aiSupportDays,
+                    stableDays: summary.stableDays
+                }
+            },
+            recentCheckins: recentSnapshots,
+            insights
+        });
+    } catch (error) {
+        console.error('Get personal dashboard error:', error);
+        sendError(res, 'Failed to load personal dashboard data', 500);
+    }
+};
+
 module.exports = {
     submitCheckin,
     submitAICheckin,
+    getPersonalDashboard,
     getTodayCheckin,
     getTodayCheckinStatus,
     getCheckinResults,

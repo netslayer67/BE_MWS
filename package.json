@@ -9,7 +9,8 @@
     "dev": "nodemon src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "seed": "node src/scripts/seedUsersFromData.js"
+    "seed": "node src/scripts/seedUsersFromData.js",
+    "import:legacy-checkins": "node src/scripts/importLegacyCheckins.js"
   },
   "keywords": [
     "emotional-wellness",
@@ -23,8 +24,8 @@
   "dependencies": {
     "@google/genai": "^1.25.0",
     "@google/generative-ai": "^0.24.1",
-    "@slack/web-api": "^7.8.0",
     "@slack/socket-mode": "^2.0.2",
+    "@slack/web-api": "^7.8.0",
     "axios": "^1.13.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
@@ -43,7 +44,8 @@
     "passport-google-oauth20": "^2.0.0",
     "socket.io": "^4.8.1",
     "uuid": "^13.0.0",
-    "winston": "^3.18.3"
+    "winston": "^3.18.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "jest": "^30.2.0",

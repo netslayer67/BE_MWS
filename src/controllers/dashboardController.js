@@ -4,6 +4,20 @@ const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
 const { sendSuccess, sendError } = require('../utils/response');
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const startOfDay = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const endOfDay = (date) => {
+    const d = new Date(date);
+    d.setHours(23, 59, 59, 999);
+    return d;
+};
+
 // Cache TTL configurations (in seconds)
 const CACHE_CONFIG = {
     DASHBOARD_STATS: parseInt(process.env.CACHE_TTL) || 300, // 5 minutes for testing
@@ -21,60 +35,58 @@ const getDashboardStats = async (req, res) => {
         const now = new Date();
 
         switch (period) {
-            case 'today':
-                startDate = new Date(now);
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 1);
+            case 'today': {
+                startDate = startOfDay(now);
+                endDate = endOfDay(now);
                 break;
-            case 'week':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 7);
+            }
+            case 'week': {
+                startDate = startOfDay(new Date(now.getTime() - (6 * DAY_IN_MS)));
+                endDate = endOfDay(now);
                 break;
-            case 'month':
-                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            }
+            case 'month': {
+                startDate = startOfDay(new Date(now.getTime() - (29 * DAY_IN_MS)));
+                endDate = endOfDay(now);
                 break;
-            case 'semester':
-                // Assuming semester starts in January and July
-                const currentMonth = now.getMonth();
-                const currentYear = now.getFullYear();
-                if (currentMonth < 6) { // Jan-Jun
-                    startDate = new Date(currentYear, 0, 1); // Jan 1
-                    endDate = new Date(currentYear, 6, 1); // Jul 1
-                } else { // Jul-Dec
-                    startDate = new Date(currentYear, 6, 1); // Jul 1
-                    endDate = new Date(currentYear + 1, 0, 1); // Jan 1 next year
-                }
+            }
+            case 'semester': {
+                startDate = startOfDay(new Date(now.getTime() - (180 * DAY_IN_MS)));
+                endDate = endOfDay(now);
                 break;
-            default:
-                startDate = new Date(now);
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 1);
+            }
+            case 'all': {
+                // Include the entire emotional wellness history
+                startDate = startOfDay(new Date(0));
+                endDate = endOfDay(now);
+                break;
+            }
+            default: {
+                startDate = startOfDay(now);
+                endDate = endOfDay(now);
+                break;
+            }
         }
 
         // Override with specific date if provided
         if (date) {
             const selectedDate = new Date(date);
-            startDate = new Date(selectedDate);
-            startDate.setHours(0, 0, 0, 0);
-            endDate = new Date(selectedDate);
-            endDate.setHours(23, 59, 59, 999);
+            startDate = startOfDay(selectedDate);
+            endDate = endOfDay(selectedDate);
         }
 
         // Check cache first (skip if force refresh requested)
         const forceRefresh = req.query.force === 'true';
+        const rangeEndExclusive = new Date(endDate);
+        rangeEndExclusive.setMilliseconds(rangeEndExclusive.getMilliseconds() + 1);
+
         const cacheKey = `dashboard:stats:${period}:${date || startDate.toISOString().split('T')[0]}:${userRole}:${userUnit || 'all'}`;
         let stats = forceRefresh ? null : cacheService.getDashboardStats(cacheKey);
 
         if (!stats) {
             // Build query based on user role
             let checkinQuery = {
-                date: { $gte: startDate, $lt: endDate }
+                date: { $gte: startDate, $lt: rangeEndExclusive }
             };
 
             // Log role-based data access for monitoring
@@ -132,6 +144,81 @@ const getDashboardStats = async (req, res) => {
                 .populate('userId', 'name email role department unit')
                 .populate('supportContactUserId', 'name role department unit');
 
+            const timelineBuckets = {};
+            const periodStatsByUser = {};
+
+            periodCheckins.forEach(checkin => {
+                const dayBucket = new Date(checkin.date);
+                dayBucket.setHours(0, 0, 0, 0);
+                const dayKey = dayBucket.toISOString().split('T')[0];
+
+                if (!timelineBuckets[dayKey]) {
+                    timelineBuckets[dayKey] = {
+                        count: 0,
+                        flagged: 0,
+                        presence: 0,
+                        capacity: 0
+                    };
+                }
+
+                const bucket = timelineBuckets[dayKey];
+                bucket.count += 1;
+                bucket.presence += checkin.presenceLevel || 0;
+                bucket.capacity += checkin.capacityLevel || 0;
+                if (checkin.aiAnalysis?.needsSupport) {
+                    bucket.flagged += 1;
+                }
+
+                const memberId = checkin.userId?._id?.toString() || checkin.userId?.toString();
+                if (memberId) {
+                    if (!periodStatsByUser[memberId]) {
+                        periodStatsByUser[memberId] = {
+                            count: 0,
+                            presenceTotal: 0,
+                            capacityTotal: 0,
+                            needsSupportCount: 0,
+                            latest: null
+                        };
+                    }
+
+                    const statsForUser = periodStatsByUser[memberId];
+                    statsForUser.count += 1;
+                    statsForUser.presenceTotal += checkin.presenceLevel || 0;
+                    statsForUser.capacityTotal += checkin.capacityLevel || 0;
+                    if (checkin.aiAnalysis?.needsSupport) {
+                        statsForUser.needsSupportCount += 1;
+                    }
+                    if (
+                        !statsForUser.latest ||
+                        new Date(checkin.date) > new Date(statsForUser.latest.date)
+                    ) {
+                        statsForUser.latest = {
+                            date: checkin.date,
+                            presenceLevel: checkin.presenceLevel,
+                            capacityLevel: checkin.capacityLevel,
+                            weatherType: checkin.weatherType,
+                            moods: checkin.selectedMoods,
+                            needsSupport: !!checkin.aiAnalysis?.needsSupport
+                        };
+                    }
+                }
+            });
+
+            const timeline = [];
+            const timelineStart = startOfDay(startDate);
+            const timelineEnd = startOfDay(endDate);
+            for (let cursor = new Date(timelineStart); cursor <= timelineEnd; cursor.setDate(cursor.getDate() + 1)) {
+                const key = cursor.toISOString().split('T')[0];
+                const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0 };
+                timeline.push({
+                    date: key,
+                    totalCheckins: bucket.count,
+                    needsSupport: bucket.flagged,
+                    avgPresence: bucket.count ? Math.round((bucket.presence / bucket.count) * 10) / 10 : 0,
+                    avgCapacity: bucket.count ? Math.round((bucket.capacity / bucket.count) * 10) / 10 : 0
+                });
+            }
+
             // Get all users for role-based statistics (filtered for head_unit)
             let userQuery = {};
             if (userRole === 'head_unit' && userUnit) {
@@ -158,7 +245,7 @@ const getDashboardStats = async (req, res) => {
             //     console.log('👥 Unit users for statistics:', unitUsers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
             // }
 
-            const allUsers = await User.find(userQuery, 'name role department unit');
+            const allUsers = await User.find(userQuery, 'name email role department unit');
             const totalUsersByRole = {
                 student: allUsers.filter(u => u.role === 'student').length,
                 staff: allUsers.filter(u => u.role === 'staff').length,
@@ -174,6 +261,8 @@ const getDashboardStats = async (req, res) => {
                 period,
                 startDate: startDate.toISOString(),
                 endDate: endDate.toISOString(),
+                periodTimeline: timeline,
+                periodLengthDays: timeline.length,
                 totalCheckins: periodCheckins.length,
                 totalUsers: allUsers.length,
                 submissionRate: allUsers.length > 0 ? Math.round((periodCheckins.length / allUsers.length) * 100) : 0,
@@ -577,6 +666,96 @@ const getDashboardStats = async (req, res) => {
 
             // Generate insights
             stats.insights = generateInsights(stats, period);
+
+            const includeStaffDetail = userRole === 'head_unit';
+            if (includeStaffDetail && allUsers.length > 0) {
+                const memberList = allUsers.filter(member => member._id.toString() !== req.user.id);
+                const memberIds = memberList.map(member => member._id);
+
+                if (memberIds.length > 0) {
+                    const latestCheckins = await EmotionalCheckin.aggregate([
+                        { $match: { userId: { $in: memberIds } } },
+                        { $sort: { date: -1 } },
+                        {
+                            $group: {
+                                _id: '$userId',
+                                lastCheckin: { $first: '$$ROOT' },
+                                totalCheckins: { $sum: 1 },
+                                avgPresence: { $avg: '$presenceLevel' },
+                                avgCapacity: { $avg: '$capacityLevel' }
+                            }
+                        }
+                    ]);
+
+                    const latestMap = new Map();
+                    latestCheckins.forEach(entry => {
+                        latestMap.set(entry._id.toString(), entry);
+                    });
+
+                    const staffDetails = memberList.map(member => {
+                        const memberId = member._id.toString();
+                        const latestEntry = latestMap.get(memberId);
+                        const periodData = periodStatsByUser[memberId];
+                        const lastCheckinDoc = latestEntry?.lastCheckin || periodData?.latest || null;
+
+                        const formattedLastCheckin = lastCheckinDoc ? {
+                            date: lastCheckinDoc.date,
+                            presenceLevel: lastCheckinDoc.presenceLevel,
+                            capacityLevel: lastCheckinDoc.capacityLevel,
+                            weatherType: lastCheckinDoc.weatherType,
+                            moods: lastCheckinDoc.selectedMoods || lastCheckinDoc.moods || [],
+                            needsSupport: !!(lastCheckinDoc.aiAnalysis?.needsSupport || lastCheckinDoc.needsSupport),
+                            supportContact: lastCheckinDoc.supportContactUserId
+                        } : null;
+
+                        const periodSummary = periodData ? {
+                            submissions: periodData.count,
+                            avgPresence: periodData.count ? Math.round((periodData.presenceTotal / periodData.count) * 10) / 10 : 0,
+                            avgCapacity: periodData.count ? Math.round((periodData.capacityTotal / periodData.count) * 10) / 10 : 0,
+                            needsSupportDays: periodData.needsSupportCount,
+                            latest: periodData.latest
+                        } : null;
+
+                        return {
+                            id: memberId,
+                            name: member.name,
+                            email: member.email,
+                            role: member.role,
+                            department: member.department,
+                            unit: member.unit,
+                            totalCheckins: latestEntry?.totalCheckins || 0,
+                            overallAvgPresence: latestEntry?.avgPresence ? Math.round(latestEntry.avgPresence * 10) / 10 : 0,
+                            overallAvgCapacity: latestEntry?.avgCapacity ? Math.round(latestEntry.avgCapacity * 10) / 10 : 0,
+                            lastCheckin: formattedLastCheckin,
+                            periodSummary
+                        };
+                    }).sort((a, b) => {
+                        const aTime = a.lastCheckin?.date ? new Date(a.lastCheckin.date).getTime() : 0;
+                        const bTime = b.lastCheckin?.date ? new Date(b.lastCheckin.date).getTime() : 0;
+                        return bTime - aTime;
+                    });
+
+                    const todayKey = startOfDay(new Date()).toISOString().split('T')[0];
+                    const activeToday = staffDetails.filter(member => {
+                        if (!member.lastCheckin?.date) return false;
+                        const compare = new Date(member.lastCheckin.date);
+                        compare.setHours(0, 0, 0, 0);
+                        return compare.toISOString().split('T')[0] === todayKey;
+                    }).length;
+                    const flaggedMembers = staffDetails.filter(member =>
+                        member.lastCheckin?.needsSupport ||
+                        (member.periodSummary?.needsSupportDays || 0) > 0
+                    ).length;
+
+                    stats.unitStaffDetails = staffDetails;
+                    stats.unitStaffSummary = {
+                        totalMembers: staffDetails.length,
+                        activeToday,
+                        flaggedMembers,
+                        submittedInPeriod: staffDetails.filter(member => (member.periodSummary?.submissions || 0) > 0).length
+                    };
+                }
+            }
 
             // Cache the results
             cacheService.setDashboardStats(cacheKey, stats);
