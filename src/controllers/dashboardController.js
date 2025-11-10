@@ -667,9 +667,9 @@ const getDashboardStats = async (req, res) => {
             // Generate insights
             stats.insights = generateInsights(stats, period);
 
-            const includeStaffDetail = userRole === 'head_unit';
-            if (includeStaffDetail && allUsers.length > 0) {
-                const memberList = allUsers.filter(member => member._id.toString() !== req.user.id);
+        const includeStaffDetail = ['head_unit', 'directorate', 'admin', 'superadmin'].includes(userRole);
+        if (includeStaffDetail && allUsers.length > 0) {
+            const memberList = allUsers.filter(member => member._id.toString() !== req.user.id);
                 const memberIds = memberList.map(member => member._id);
 
                 if (memberIds.length > 0) {
@@ -754,6 +754,7 @@ const getDashboardStats = async (req, res) => {
                         flaggedMembers,
                         submittedInPeriod: staffDetails.filter(member => (member.periodSummary?.submissions || 0) > 0).length
                     };
+                    stats.staffExplorerContext = userRole === 'head_unit' ? 'unit' : 'organization';
                 }
             }
 
