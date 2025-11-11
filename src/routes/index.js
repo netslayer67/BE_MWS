@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { checkinLimiter } = require('../middleware/rateLimiter');
 
 // Import route modules
 const authRoutes = require('./auth');
@@ -145,7 +146,7 @@ router.post('/slack/interactions', express.raw({ type: 'application/x-www-form-u
 
 // Mount routes with /v1 prefix for API versioning
 router.use('/v1/auth', authRoutes);
-router.use('/v1/checkin', checkinRoutes);
+router.use('/v1/checkin', checkinLimiter, checkinRoutes);
 router.use('/v1/dashboard', dashboardRoutes);
 router.use('/v1/support', supportRoutes);
 router.use('/v1/users', userRoutes);

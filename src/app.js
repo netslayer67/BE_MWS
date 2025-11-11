@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const expressRateLimit = require('express-rate-limit');
 const winston = require('winston');
 
 // Import configurations
@@ -15,6 +14,7 @@ const routes = require('./routes');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
+const { apiLimiter } = require('./middleware/rateLimiter');
 
 // Create Express app
 const app = express();
@@ -35,21 +35,8 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 }));
 
-// Rate limiting
-const limiter = expressRateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) * 60 * 1000, // minutes to milliseconds
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS),
-    message: {
-        success: false,
-        message: 'Too many requests from this IP, please try again later.',
-        retryAfter: Math.ceil(parseInt(process.env.RATE_LIMIT_WINDOW) * 60 / 60) // minutes
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-    skip: (req) => req.path === '/health' || req.path.startsWith('/v1/auth') // Skip rate limiting for health checks and auth
-});
-
-app.use('/api/', limiter);
+// Rate limiting (per-user aware with IP fallback)
+app.use('/api/', apiLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
