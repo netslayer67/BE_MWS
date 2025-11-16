@@ -1,14 +1,17 @@
-const expressRateLimit = require('express-rate-limit');
+const {
+    rateLimit: expressRateLimit,
+    ipKeyGenerator
+} = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 
 const DEFAULT_WINDOW_MINUTES = parseInt(process.env.RATE_LIMIT_WINDOW || '15', 10);
-const DEFAULT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10);
+const DEFAULT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '600', 10);
 const DEFAULT_CHECKIN_WINDOW_MINUTES = parseInt(
     process.env.CHECKIN_RATE_LIMIT_WINDOW || '1',
     10
 );
 const DEFAULT_CHECKIN_MAX_REQUESTS = parseInt(
-    process.env.CHECKIN_RATE_LIMIT_MAX_REQUESTS || '20',
+    process.env.CHECKIN_RATE_LIMIT_MAX_REQUESTS || '400',
     10
 );
 
@@ -61,10 +64,13 @@ const getClientIdentifier = (req) => {
 
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
-        return `ip:${forwardedFor.split(',')[0].trim()}`;
+        const firstForwardedIp = forwardedFor.split(',')[0].trim();
+        if (firstForwardedIp) {
+            return `ip:${ipKeyGenerator(firstForwardedIp)}`;
+        }
     }
 
-    return `ip:${req.ip}`;
+    return `ip:${ipKeyGenerator(req.ip || '')}`;
 };
 
 const computeRetryAfterSeconds = (req, options) => {
