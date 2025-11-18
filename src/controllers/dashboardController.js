@@ -3,6 +3,7 @@ const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
 const { sendSuccess, sendError } = require('../utils/response');
+const { getEffectiveDashboardRole } = require('../utils/accessControl');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -27,7 +28,7 @@ const CACHE_CONFIG = {
 const getDashboardStats = async (req, res) => {
     try {
         const { period = 'today', date } = req.query;
-        const userRole = req.user.role;
+        const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
 
         // Calculate date range based on period
@@ -773,7 +774,7 @@ const getDashboardStats = async (req, res) => {
 const getMoodDistribution = async (req, res) => {
     try {
         const { period = 'today' } = req.query;
-        const userRole = req.user.role;
+        const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
 
         // Calculate date range based on period
@@ -846,7 +847,7 @@ const getRecentCheckins = async (req, res) => {
 
         // Build query based on filters
         let query = {};
-        const userRole = req.user.role;
+        const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
         let populateOptions = 'name email role department';
 
@@ -1566,7 +1567,7 @@ const confirmSupportRequest = async (req, res) => {
 
 const getUnitMembers = async (req, res) => {
     try {
-        const userRole = req.user.role;
+        const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
 
         // Log role-based data access for monitoring

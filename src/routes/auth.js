@@ -4,6 +4,7 @@ const passport = require('../config/googleOAuth');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
+const { buildDashboardAccessProfile, hasDashboardAccess } = require('../utils/accessControl');
 
 // Initialize session for OAuth
 router.use(require('express-session')({
@@ -68,6 +69,8 @@ router.get('/google/callback',
                 { expiresIn: '7d' }
             );
 
+            const dashboardAccess = buildDashboardAccessProfile(dbUser);
+
             // Send database-validated user data to frontend
             const userDataForFrontend = {
                 id: dbUser._id,
@@ -85,17 +88,27 @@ router.get('/google/callback',
                 emailVerified: dbUser.emailVerified,
                 // Add validation metadata
                 validatedAt: new Date().toISOString(),
-                authMethod: 'google_oauth'
+                authMethod: 'google_oauth',
+                dashboardAccess,
+                dashboardRole: dashboardAccess.effectiveRole
             };
 
             // Redirect to frontend with validated user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}`;
 
+            const oauthUserForLogging = {
+                ...dbUser.toObject(),
+                dashboardAccess
+            };
+            const canViewDashboard = hasDashboardAccess(oauthUserForLogging);
+
             console.log('🔄 Redirecting to frontend with database-validated user data');
             console.log('📋 User role for dashboard access:', {
                 role: dbUser.role,
-                hasDashboardAccess: ['head_unit', 'directorate'].includes(dbUser.role)
+                dashboardRole: dashboardAccess.effectiveRole,
+                delegatedFrom: dashboardAccess.delegatedFromEmail || null,
+                hasDashboardAccess: canViewDashboard
             });
 
             res.redirect(redirectUrl);
@@ -140,6 +153,8 @@ router.post('/login', require('../middleware/validation').validate(require('../u
             { expiresIn: '7d' }
         );
 
+        const dashboardAccess = buildDashboardAccessProfile(user);
+
         // Return user data and token
         const userData = {
             user: {
@@ -148,7 +163,12 @@ router.post('/login', require('../middleware/validation').validate(require('../u
                 email: user.email,
                 role: user.role,
                 username: user.username,
-                department: user.department
+                department: user.department,
+                unit: user.unit,
+                jobLevel: user.jobLevel,
+                jobPosition: user.jobPosition,
+                dashboardAccess,
+                dashboardRole: dashboardAccess.effectiveRole
             },
             token
         };
@@ -189,17 +209,25 @@ router.get('/me', require('../middleware/auth').authenticate, async (req, res) =
             return sendError(res, 'Account is deactivated', 403);
         }
 
+        const dashboardAccess = buildDashboardAccessProfile(user);
+        const responseUser = user.toObject ? user.toObject() : { ...user };
+        responseUser.dashboardAccess = dashboardAccess;
+        responseUser.dashboardRole = dashboardAccess.effectiveRole;
+
         // Log role access for security monitoring
+        const canViewDashboard = hasDashboardAccess(responseUser);
         console.log('🔐 /auth/me access - Role validation:', {
             userId: user._id,
             email: user.email,
-            role: user.role,
-            hasDashboardAccess: ['head_unit', 'directorate'].includes(user.role),
-            department: user.department,
-            unit: user.unit
+            role: responseUser.role,
+            dashboardRole: dashboardAccess.effectiveRole,
+            delegatedFrom: dashboardAccess.delegatedFromEmail || null,
+            hasDashboardAccess: canViewDashboard,
+            department: responseUser.department,
+            unit: responseUser.unit
         });
 
-        sendSuccess(res, 'User info retrieved', { user });
+        sendSuccess(res, 'User info retrieved', { user: responseUser });
     } catch (error) {
         console.error('❌ /auth/me error:', error);
         sendError(res, 'Failed to get user info', 500);

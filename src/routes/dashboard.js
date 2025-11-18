@@ -11,20 +11,24 @@ const {
     getUnitMembers
 } = require('../controllers/dashboardController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { hasDashboardAccess, getEffectiveDashboardRole } = require('../utils/accessControl');
 const { validateQuery } = require('../middleware/validation');
 
 // All dashboard routes require authentication and appropriate access
 router.use(authenticate);
-// Allow directorate, superadmin, and admin roles
+// Allow dashboard access for native or delegated roles
 router.use((req, res, next) => {
-    const userRole = req.user.role;
-    const allowedRoles = ['directorate', 'superadmin', 'admin', 'head_unit'];
-
-    if (!allowedRoles.includes(userRole)) {
+    if (!hasDashboardAccess(req.user)) {
         return res.status(403).json({
             success: false,
-            message: 'Access denied. Dashboard access requires directorate, superadmin, admin, or head_unit privileges.'
+            message: 'Access denied. Emotional Checkin Dashboard requires directorate, superadmin, admin, head_unit, or delegated privileges.',
+            delegatedAccess: false
         });
+    }
+
+    // Ensure downstream handlers have the effective dashboard role
+    if (!req.user.dashboardRole) {
+        req.user.dashboardRole = getEffectiveDashboardRole(req.user);
     }
 
     next();

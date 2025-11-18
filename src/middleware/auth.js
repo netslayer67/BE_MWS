@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { sendError } = require('../utils/response');
+const { buildDashboardAccessProfile } = require('../utils/accessControl');
 
 // JWT Authentication Middleware
 const authenticate = async (req, res, next) => {
@@ -23,6 +24,7 @@ const authenticate = async (req, res, next) => {
         }
 
         // Attach user to request object
+        const dashboardAccess = buildDashboardAccessProfile(user);
         req.user = {
             id: user._id,
             email: user.email,
@@ -33,7 +35,9 @@ const authenticate = async (req, res, next) => {
             jobLevel: user.jobLevel,
             unit: user.unit,
             jobPosition: user.jobPosition,
-            googleId: user.googleId
+            googleId: user.googleId,
+            dashboardRole: dashboardAccess.effectiveRole,
+            dashboardAccess
         };
 
         next();
