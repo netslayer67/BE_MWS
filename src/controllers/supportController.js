@@ -1,6 +1,19 @@
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
 
+const CORE_SUPPORT_CONTACTS = [
+    { email: 'mahrukh@millennia21.id', displayName: 'Ms. Mahrukh' },
+    { email: 'latifah@millennia21.id', displayName: 'Ms. Latifah' },
+    { email: 'kholida@millennia21.id', displayName: 'Ms. Kholida' },
+    { email: 'aria@millennia21.id', displayName: 'Mr. Aria' },
+    { email: 'hana@millennia21.id', displayName: 'Ms. Hana' },
+    { email: 'wina@millennia21.id', displayName: 'Ms. Wina', displayRole: "School's Psychologist" },
+    { email: 'sarah@millennia21.id', displayName: 'Ms. Sarah' },
+    { email: 'hanny@millennia21.id', displayName: 'Ms. Hanny' },
+    { email: 'dodi@millennia21.id', displayName: 'Mr. Dodi' },
+    { email: 'faisal@millennia21.id', displayName: 'Mr. Faisal' }
+];
+
 // Get all directorate and head_unit users for support contacts
 const getSupportContacts = async (req, res) => {
     try {
@@ -61,7 +74,7 @@ const getSupportContacts = async (req, res) => {
                 isActive: true,
                 _id: { $ne: req.user.id } // Exclude self
             })
-                .select('name email department employeeId role jobLevel unit jobPosition')
+                .select('name username email department employeeId role jobLevel unit jobPosition gender')
                 .sort({ name: 1 });
             supportUsers = [...roleBasedUsers];
         }
@@ -76,7 +89,7 @@ const getSupportContacts = async (req, res) => {
                     ...(specificUser.unit && { unit: specificUser.unit }),
                     ...(specificUser.department && { department: specificUser.department })
                 })
-                    .select('name email department employeeId role jobLevel unit jobPosition');
+                    .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                 if (foundUser && !supportUsers.find(u => u._id.toString() === foundUser._id.toString())) {
                     supportUsers.push(foundUser);
@@ -103,7 +116,7 @@ const getSupportContacts = async (req, res) => {
                     for (const teacherMember of teacherMembers) {
                         if (teacherMember.userId && teacherMember.userId.role === 'teacher') {
                             const teacherUser = await User.findById(teacherMember.userId._id)
-                                .select('name email department employeeId role jobLevel unit jobPosition');
+                                .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                             if (teacherUser && !supportUsers.find(u => u._id.toString() === teacherUser._id.toString())) {
                                 // Mark as class teacher
@@ -120,10 +133,40 @@ const getSupportContacts = async (req, res) => {
             }
         }
 
+        // Ensure core support contacts are included and augmented
+        for (const specialContact of CORE_SUPPORT_CONTACTS) {
+            try {
+                let existingContact = supportUsers.find(user => user.email === specialContact.email);
+
+                if (!existingContact) {
+                    const foundSpecial = await User.findOne({
+                        email: specialContact.email,
+                        isActive: true,
+                        _id: { $ne: req.user.id }
+                    }).select('name username email department employeeId role jobLevel unit jobPosition gender');
+
+                    if (foundSpecial) {
+                        foundSpecial._doc.specialSupportTag = specialContact.priorityTag || 'priority';
+                        foundSpecial._doc.displayRole = specialContact.displayRole || foundSpecial.role;
+                        foundSpecial._doc.preferredName = specialContact.displayName || specialContact.label || foundSpecial.name;
+                        supportUsers.push(foundSpecial);
+                        existingContact = foundSpecial;
+                    }
+                } else {
+                    existingContact._doc.specialSupportTag = specialContact.priorityTag || existingContact.specialSupportTag;
+                    existingContact._doc.displayRole = specialContact.displayRole || existingContact.displayRole;
+                    existingContact._doc.preferredName = specialContact.displayName || specialContact.label || existingContact.preferredName;
+                }
+            } catch (specialError) {
+                console.error('Failed to append special support contact:', specialError);
+            }
+        }
+
         // Format the response to match frontend expectations
-        const supportContacts = supportUsers.map(user => ({
+        let supportContacts = supportUsers.map(user => ({
             id: user._id.toString(), // Use MongoDB ObjectId as ID
-            name: user.name,
+            name: user.preferredName || user.name,
+            username: user.username,
             role: user.role,
             department: user.department,
             jobLevel: user.jobLevel,
@@ -132,6 +175,9 @@ const getSupportContacts = async (req, res) => {
             employeeId: user.employeeId,
             avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase(),
             email: user.email,
+            gender: user.gender,
+            specialSupportTag: user.specialSupportTag,
+            displayRole: user.displayRole,
             // Add special indicators for students
             ...(user.isClassTeacher && {
                 isClassTeacher: true,
@@ -141,13 +187,22 @@ const getSupportContacts = async (req, res) => {
         }));
 
         // Sort contacts: class teachers first, then specific support contacts, then others
-        supportContacts.sort((a, b) => {
-            if (a.isClassTeacher && !b.isClassTeacher) return -1;
-            if (!a.isClassTeacher && b.isClassTeacher) return 1;
-
-            // Then sort by name
-            return a.name.localeCompare(b.name);
+        // Restrict to core support contacts with defined ordering
+        const coreContactsMap = new Map();
+        supportContacts.forEach(contact => {
+            coreContactsMap.set(contact.email, contact);
         });
+
+        const orderedCoreContacts = [];
+        for (const coreContact of CORE_SUPPORT_CONTACTS) {
+            const match = coreContactsMap.get(coreContact.email);
+            if (match) {
+                match.displayName = coreContact.displayName || match.name;
+                orderedCoreContacts.push(match);
+            }
+        }
+
+        supportContacts = orderedCoreContacts;
 
         // Add "No Need" option
         supportContacts.push({
