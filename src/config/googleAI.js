@@ -2,15 +2,15 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class GoogleAIService {
     constructor() {
-        // // Use the correct Google Generative AI SDK
-        // this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+        // Use the correct Google Generative AI SDK
+        this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
-        // // Always use gemini-2.0-flash-lite as requested, with rate limiting
-        // // this.modelName = 'gemini-2.0-flash-lite';
-        // this.requestQueue = [];
-        // this.isProcessing = false;
-        // this.minDelay = 1000; // 1 second minimum delay between requests
-        // this.lastRequestTime = 0;
+        // Always use gemini-2.0-flash-lite as requested, with rate limiting
+        this.modelName = 'gemini-2.0-flash-lite';
+        this.requestQueue = [];
+        this.isProcessing = false;
+        this.minDelay = 1000; // 1 second minimum delay between requests
+        this.lastRequestTime = 0;
 
         console.log(`Using Google AI model: ${this.modelName} with rate limiting`);
     }
