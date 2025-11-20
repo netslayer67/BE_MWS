@@ -5,7 +5,7 @@ class AIAnalysisService {
     constructor() {
         this.requestQueue = [];
         this.isProcessing = false;
-        this.minDelay = 1000; // 1 second minimum delay between requests
+        this.minDelay = 1500;
         this.lastRequestTime = 0;
     }
 
