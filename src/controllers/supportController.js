@@ -8,7 +8,7 @@ const CORE_SUPPORT_CONTACTS = [
     { email: 'aria@millennia21.id', displayName: 'Mr. Aria' },
     { email: 'hana@millennia21.id', displayName: 'Ms. Hana' },
     { email: 'wina@millennia21.id', displayName: 'Ms. Wina', displayRole: "School's Psychologist" },
-    { email: 'sarah@millennia21.id', displayName: 'Ms. Sarah' },
+    { email: 'sarahyuliana@millennia21.id', displayName: 'Ms. Sarah' },
     { email: 'hanny@millennia21.id', displayName: 'Ms. Hanny' },
     { email: 'dodi@millennia21.id', displayName: 'Mr. Dodi' },
     { email: 'faisal@millennia21.id', displayName: 'Mr. Faisal' }
