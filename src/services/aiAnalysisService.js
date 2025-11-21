@@ -726,6 +726,7 @@ IMPORTANT FOR PERSONAL GROWTH:
     }
 
     generateRichFallbackResponse(checkinData, startTime, reason = 'fallback') {
+        const base = this.enhancedFallbackAnalysis(checkinData, startTime);
         const seed = this.createSeed(checkinData);
         const moods = Array.isArray(checkinData.selectedMoods) ? checkinData.selectedMoods : [];
         const weather = checkinData.weatherType || 'unknown';
@@ -740,7 +741,16 @@ IMPORTANT FOR PERSONAL GROWTH:
 
         const summary = this.buildFallbackSummary(moods, weather, checkinData.details);
 
+        const structuredRecommendations = recommendedRituals.map((ritual, index) => ({
+            title: ritual.name,
+            description: ritual.description,
+            duration: ritual.duration,
+            priority: index === 0 ? 'high' : 'medium',
+            category: 'supportive_ritual'
+        }));
+
         return {
+            ...base,
             summary,
             emotionalHighlights,
             resilienceScore: this.calculateResilienceScore(checkinData, seed),
@@ -750,6 +760,7 @@ IMPORTANT FOR PERSONAL GROWTH:
             selfReflectionPrompts,
             groundingPractices,
             gratitudeAffirmations,
+            recommendations: structuredRecommendations,
             metadata: {
                 generatedBy: 'fallback_engine',
                 timestamp: new Date().toISOString(),
