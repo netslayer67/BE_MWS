@@ -6,7 +6,7 @@ class GoogleAIService {
         this.ai = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
         // Always use gemini-2.0-flash-lite as requested, with rate limiting
-        this.modelName = 'gemini-2.0-flash-lite';
+        this.modelName = 'gemini-2.5-flash';
         this.requestQueue = [];
         this.isProcessing = false;
         this.minDelay = 1000; // 1 second minimum delay between requests
@@ -82,7 +82,7 @@ class GoogleAIService {
             }
         } catch (error) {
             console.error('❌ AI connection test failed with error:', error.message);
-            throw new Error('AI connection test failed - no fallback allowed');
+            throw new Error(`AI connection test failed: ${error.message}`);
         }
     }
 }

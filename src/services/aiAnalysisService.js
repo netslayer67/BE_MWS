@@ -7,6 +7,8 @@ class AIAnalysisService {
         this.isProcessing = false;
         this.minDelay = 1500;
         this.lastRequestTime = 0;
+        this.cooldownUntil = 0;
+        this.cooldownDurationMs = parseInt(process.env.AI_RATE_LIMIT_COOLDOWN_MS, 10) || (5 * 60 * 1000);
     }
 
     async analyzeEmotionalCheckin(checkinData) {
@@ -21,6 +23,22 @@ class AIAnalysisService {
                 ...cachedResult,
                 cached: true,
                 processingTime: Date.now() - startTime
+            };
+        }
+
+        if (this.isInCooldown()) {
+            const message = this.getCooldownMessage();
+            throw new Error(message);
+        }
+
+        if (this.isInCooldown()) {
+            const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'cooldown_active');
+            cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
+            return {
+                ...fallbackResult,
+                fallback: true,
+                cooldownActive: true,
+                cooldownMessage: this.getCooldownMessage()
             };
         }
 
@@ -54,6 +72,12 @@ class AIAnalysisService {
 
         while (this.requestQueue.length > 0) {
             const { checkinData, cacheKey, startTime, resolve, reject } = this.requestQueue.shift();
+
+            if (this.isInCooldown()) {
+                const cooldownError = new Error(this.getCooldownMessage());
+                reject(cooldownError);
+                continue;
+            }
 
             try {
                 // Implement rate limiting
@@ -90,50 +114,35 @@ class AIAnalysisService {
             } catch (error) {
                 console.error('❌ AI Analysis failed:', error.message);
 
-                // Check for quota/rate limit errors
-                if (error.message.includes('429') || error.message.includes('Too Many Requests') ||
-                    error.message.includes('quota') || error.message.includes('exceeded')) {
-                    console.log('🚫 AI quota exceeded - using fallback analysis');
-
-                    // Use fallback analysis for quota exceeded
-                    let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
-
-                    // For quota exceeded, remove template-based recommendations to maintain AI-only standard
-                    fallbackResult.recommendations = [];
-
-                    // Add metadata to indicate these are not AI recommendations
-                    fallbackResult.isAIRecommendations = false;
-                    fallbackResult.aiUnavailable = true;
-                    fallbackResult.quotaExceeded = true;
-
-                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
-
+                if (this.isRateLimitError(error)) {
+                    const cooldownMs = this.scheduleCooldown();
+                    const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'rate_limit');
+                    fallbackResult.cooldown = {
+                        durationMs: this.cooldownDurationMs,
+                        remainingMs: cooldownMs
+                    };
+                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
                     resolve({
                         ...fallbackResult,
                         fallback: true,
-                        quotaExceeded: true
+                        rateLimited: true,
+                        message: this.getCooldownMessage()
                     });
                     continue;
                 }
 
-                // For other AI errors, use fallback
-                console.log('⚠️ AI service error - using fallback analysis');
-                let fallbackResult = this.enhancedFallbackAnalysis(checkinData, startTime);
+                if (this.isServiceUnavailableError(error)) {
+                    const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'service_unavailable');
+                    cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
+                    resolve({
+                        ...fallbackResult,
+                        fallback: true,
+                        serviceUnavailable: true
+                    });
+                    continue;
+                }
 
-                // For fallback analysis, remove template-based recommendations to maintain AI-only standard
-                fallbackResult.recommendations = [];
-
-                // Add metadata to indicate these are not AI recommendations
-                fallbackResult.isAIRecommendations = false;
-                fallbackResult.aiUnavailable = true;
-
-                cacheService.setCheckinAnalysis(cacheKey, fallbackResult); // Cache fallback for 1 week
-
-                resolve({
-                    ...fallbackResult,
-                    fallback: true,
-                    error: error.message
-                });
+                reject(error);
             }
         }
 
@@ -714,6 +723,263 @@ IMPORTANT FOR PERSONAL GROWTH:
     // Keep the old method for backward compatibility
     fallbackAnalysis(checkinData, startTime = Date.now()) {
         return this.enhancedFallbackAnalysis(checkinData, startTime);
+    }
+
+    generateRichFallbackResponse(checkinData, startTime, reason = 'fallback') {
+        const seed = this.createSeed(checkinData);
+        const moods = Array.isArray(checkinData.selectedMoods) ? checkinData.selectedMoods : [];
+        const weather = checkinData.weatherType || 'unknown';
+
+        const emotionalHighlights = this.buildEmotionalHighlights(moods, weather, checkinData.details, seed);
+        const recommendedRituals = this.buildRecommendedRituals(moods, weather, seed);
+        const microHabits = this.buildMicroHabits(seed);
+        const supportRecommendations = this.buildSupportRecommendations(checkinData.supportContact, seed);
+        const selfReflectionPrompts = this.buildSelfReflectionPrompts(moods, weather, seed);
+        const groundingPractices = this.buildGroundingPractices(seed);
+        const gratitudeAffirmations = this.buildGratitudeAffirmations(seed);
+
+        const summary = this.buildFallbackSummary(moods, weather, checkinData.details);
+
+        return {
+            summary,
+            emotionalHighlights,
+            resilienceScore: this.calculateResilienceScore(checkinData, seed),
+            recommendedRituals,
+            microHabits,
+            supportRecommendations,
+            selfReflectionPrompts,
+            groundingPractices,
+            gratitudeAffirmations,
+            metadata: {
+                generatedBy: 'fallback_engine',
+                timestamp: new Date().toISOString(),
+                processingTime: Date.now() - startTime,
+                reason
+            }
+        };
+    }
+
+    buildFallbackSummary(moods, weather, details = '') {
+        const moodText = moods.length > 0
+            ? `You are navigating feelings of ${moods.join(', ')}`
+            : 'You are observing a complex emotional landscape';
+
+        const weatherText = weather !== 'unknown'
+            ? ` with an internal weather of ${weather}.`
+            : '.';
+
+        const detailsText = details
+            ? ` The way you articulated "${details.substring(0, 180)}" shows meaningful self-awareness.`
+            : ' Thank you for taking a mindful pause to check in with yourself.';
+
+        return `${moodText}${weatherText}${detailsText}`;
+    }
+
+    buildEmotionalHighlights(moods, weather, details, seed) {
+        const insights = [
+            {
+                title: 'Emotional Spectrum',
+                insight: moods.length
+                    ? `Today features a tapestry of ${moods.slice(0, 4).join(', ')}. Your ability to name these experiences builds emotional literacy.`
+                    : 'Even when emotions feel muted or vague, noticing the absence of clarity is a courageous first step.',
+                encouragement: 'Stay curious. Each emotion is data, not a directive.'
+            },
+            {
+                title: 'Weather Metaphor',
+                insight: weather !== 'unknown'
+                    ? `The ${weather} weather imagery suggests your nervous system is paying attention to subtle shifts.`
+                    : 'No weather selected today, which is perfectly okay. Some days simply observing is enough.',
+                encouragement: 'Whatever the climate, you are learning to forecast and prepare.'
+            },
+            {
+                title: 'Narrative Depth',
+                insight: details
+                    ? `Your reflection "${details.substring(0, 160)}" reveals thoughtful processing.`
+                    : 'Even without written details, showing up signals a commitment to self-care.',
+                encouragement: 'The act of naming your experience is a bold, restorative decision.'
+            }
+        ];
+
+        return this.rotateArray(insights, seed);
+    }
+
+    buildRecommendedRituals(moods, weather, seed) {
+        const rituals = [
+            {
+                name: 'Micro-Journaling Burst',
+                duration: '6 minutes',
+                description: 'Free-write three sentences: (1) What I am sensing in my body, (2) What my mind is repeating, (3) What I choose to believe right now.'
+            },
+            {
+                name: 'Breath + Intention Ladder',
+                duration: '5 minutes',
+                description: 'Inhale hope, exhale tension. With each breath ladder, whisper a word you need (e.g., calm, clarity, courage).'
+            },
+            {
+                name: 'Movement Reset',
+                duration: '8 minutes',
+                description: 'Gentle stretching while naming one thing you are releasing and one thing you are inviting with each movement.'
+            },
+            {
+                name: 'Connection Ping',
+                duration: '4 minutes',
+                description: 'Send a short voice note or message to someone you trust. Share gratitude or a micro-update to stay anchored.'
+            },
+            {
+                name: 'Focus Ritual',
+                duration: '10 minutes',
+                description: 'Break work into a “sprint + soothe” cycle: 8 minutes focused effort, followed by 2 minutes of grounding.'
+            }
+        ];
+
+        return this.rotateArray(rituals, seed).slice(0, 3);
+    }
+
+    buildMicroHabits(seed) {
+        const habits = [
+            'Drink water mindfully while repeating a calming mantra.',
+            'Write one sentence of appreciation about yourself on a sticky note.',
+            'Step outside for 120 seconds and simply observe the horizon.',
+            'Use a colored highlighter to mark moments of hope in your notes.',
+            'Adopt a “one-tab” rule for 15 minutes to reduce cognitive load.',
+            'Queue a song that matches your mood and breathe with the rhythm.'
+        ];
+
+        return this.rotateArray(habits, seed).slice(0, 4);
+    }
+
+    buildSupportRecommendations(supportContact, seed) {
+        const baseSuggestions = [
+            'Share a low-stakes update to maintain relational warmth.',
+            'Ask specifically for listening, advice, or accountability to get the support you need.',
+            'Consider scheduling a shared mindful moment—two minutes of silence together can be grounding.'
+        ];
+
+        if (supportContact) {
+            baseSuggestions.unshift(`Reach out to ${supportContact} with one sentence about how you truly are—authenticity builds deeper support.`);
+        }
+
+        return this.rotateArray(baseSuggestions, seed).slice(0, 3);
+    }
+
+    buildSelfReflectionPrompts(moods, weather, seed) {
+        const prompts = [
+            'What is one gentle truth I am willing to acknowledge about today?',
+            'Which emotion feels loudest, and what message might it be sending?',
+            'Where in my body is my stress or hope sitting right now?',
+            'What would “2% more ease” look like in the next hour?',
+            'Who or what reminded me that I am not alone?',
+            'If I could name today’s chapter, what would it be called and why?'
+        ];
+
+        return this.rotateArray(prompts, seed).slice(0, 4);
+    }
+
+    buildGroundingPractices(seed) {
+        const practices = [
+            'Box breathing (inhale 4, hold 4, exhale 4) for five cycles.',
+            'Progressive muscle relaxation starting from your toes to your forehead.',
+            'Name five things you can see, four you can touch, three you can hear, two you can smell, one you can taste.',
+            'Hold a warm mug with both hands and focus on the sensation.',
+            'Walk barefoot indoors for one minute to reconnect with the present.',
+            'Trace the outline of your hand slowly while repeating an affirmation.'
+        ];
+
+        return this.rotateArray(practices, seed).slice(0, 3);
+    }
+
+    buildGratitudeAffirmations(seed) {
+        const affirmations = [
+            'I honor the part of me that keeps showing up.',
+            'I am allowed to take up space with my emotions.',
+            'Progress can be microscopic and still meaningful.',
+            'Every breath is a quiet vote for my well-being.',
+            'I can be both a work in progress and worthy of kindness.',
+            'I nurture others by remembering to nurture myself.'
+        ];
+
+        return this.rotateArray(affirmations, seed).slice(0, 3);
+    }
+
+    calculateResilienceScore(checkinData, seed) {
+        const presence = Number(checkinData.presenceLevel) || 0;
+        const capacity = Number(checkinData.capacityLevel) || 0;
+        const baseScore = Math.min(Math.round(((presence + capacity) / 20) * 100), 100);
+        const fluctuation = (seed % 6) - 3; // -3 to +2
+        const score = Math.max(Math.min(baseScore + fluctuation, 100), 15);
+
+        return {
+            value: score,
+            interpretation: this.buildResilienceNarrative(presence, capacity)
+        };
+    }
+
+    buildResilienceNarrative(presence, capacity) {
+        const pct = Math.round(((presence + capacity) / 20) * 100);
+        if (pct >= 80) return 'Your system shows remarkable resilience right now—strong presence paired with high capacity.';
+        if (pct >= 60) return 'You’re managing a thoughtful balance of presence and capacity; a brief pause could elevate both.';
+        if (pct >= 40) return 'Your emotional bandwidth is being tested. Gentle structure and micro-breaks can revive it.';
+        return 'You’re operating under a heavy load—radical gentleness and asking for help are strategic moves.';
+    }
+
+    createSeed(checkinData) {
+        const content = [
+            checkinData.weatherType,
+            ...(checkinData.selectedMoods || []),
+            checkinData.presenceLevel,
+            checkinData.capacityLevel,
+            checkinData.details,
+            checkinData.supportContact
+        ].join('|');
+
+        let hash = 0;
+        for (let i = 0; i < content.length; i++) {
+            hash = (hash << 5) - hash + content.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash);
+    }
+
+    rotateArray(arr, seed) {
+        if (!arr || arr.length === 0) return [];
+        const rotated = [...arr];
+        const shift = seed % rotated.length;
+        return rotated.slice(shift).concat(rotated.slice(0, shift));
+    }
+
+    isRateLimitError(error) {
+        if (!error?.message) return false;
+        const message = error.message.toLowerCase();
+        return message.includes('429') ||
+            message.includes('too many requests') ||
+            message.includes('quota') ||
+            message.includes('exceeded') ||
+            message.includes('rate limit');
+    }
+
+    isServiceUnavailableError(error) {
+        if (!error?.message) return false;
+        const message = error.message.toLowerCase();
+        return message.includes('503') ||
+            message.includes('service unavailable') ||
+            message.includes('overloaded');
+    }
+
+    scheduleCooldown() {
+        this.cooldownUntil = Date.now() + this.cooldownDurationMs;
+        console.warn(`⚠️ AI service entering cooldown for ${Math.ceil(this.cooldownDurationMs / 1000)} seconds due to rate limiting.`);
+        return Math.max(this.cooldownUntil - Date.now(), 0);
+    }
+
+    isInCooldown() {
+        return Date.now() < this.cooldownUntil;
+    }
+
+    getCooldownMessage() {
+        const remainingMs = Math.max(this.cooldownUntil - Date.now(), 0);
+        const seconds = Math.ceil(remainingMs / 1000);
+        if (seconds <= 0) return 'AI service cooldown complete.';
+        return `AI service is cooling down due to quota limits. Please retry in ${seconds} seconds.`;
     }
 }
 
