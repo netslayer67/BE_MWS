@@ -485,7 +485,11 @@ const submitCheckin = async (req, res) => {
             console.log('✅ AI analysis completed');
         } catch (aiError) {
             console.error('❌ AI analysis failed:', aiError.message);
-            throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+            aiAnalysis = aiAnalysisService.getFallbackAnalysis(checkinData, 'controller_fallback');
+            aiAnalysis.fallback = true;
+            aiAnalysis.aiUnavailable = true;
+            aiAnalysis.errorMessage = aiError.message;
+            console.warn('⚠️ Falling back to enhanced template analysis so check-in can continue.');
         }
 
         // Enhance AI analysis with user reflection if provided (but keep it 100% AI-generated)

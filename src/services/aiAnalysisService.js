@@ -725,6 +725,10 @@ IMPORTANT FOR PERSONAL GROWTH:
         return this.enhancedFallbackAnalysis(checkinData, startTime);
     }
 
+    getFallbackAnalysis(checkinData, reason = 'manual_fallback') {
+        return this.generateRichFallbackResponse(checkinData, Date.now(), reason);
+    }
+
     generateRichFallbackResponse(checkinData, startTime, reason = 'fallback') {
         const base = this.enhancedFallbackAnalysis(checkinData, startTime);
         const seed = this.createSeed(checkinData);
@@ -738,6 +742,10 @@ IMPORTANT FOR PERSONAL GROWTH:
         const selfReflectionPrompts = this.buildSelfReflectionPrompts(moods, weather, seed);
         const groundingPractices = this.buildGroundingPractices(seed);
         const gratitudeAffirmations = this.buildGratitudeAffirmations(seed);
+        const energyForecast = this.buildEnergyForecast(checkinData.presenceLevel, checkinData.capacityLevel, seed);
+        const moodPulse = this.buildMoodPulseInsights(moods, seed);
+        const compassionateCheckpoints = this.buildCompassionateCheckpoints(seed);
+        const breathPatterns = this.buildBreathPatterns(seed);
 
         const summary = this.buildFallbackSummary(moods, weather, checkinData.details);
 
@@ -760,6 +768,10 @@ IMPORTANT FOR PERSONAL GROWTH:
             selfReflectionPrompts,
             groundingPractices,
             gratitudeAffirmations,
+            energyForecast,
+            moodPulse,
+            compassionateCheckpoints,
+            breathPatterns,
             recommendations: structuredRecommendations,
             metadata: {
                 generatedBy: 'fallback_engine',
@@ -910,6 +922,81 @@ IMPORTANT FOR PERSONAL GROWTH:
         ];
 
         return this.rotateArray(affirmations, seed).slice(0, 3);
+    }
+
+    buildEnergyForecast(presenceLevel = 5, capacityLevel = 5, seed) {
+        const avg = (Number(presenceLevel) + Number(capacityLevel)) / 2 || 0;
+        const descriptor = avg >= 7 ? 'buoyant'
+            : avg >= 5 ? 'steady'
+            : avg >= 3 ? 'sensitive'
+            : 'delicate';
+
+        const tips = [
+            'Honor micro-rests between tasks to preserve momentum.',
+            'Alternate focused work with sensory breaks (sound, scent, or touch).',
+            'Choose one task to simplify or delegate to create breathing space.',
+            'Schedule a five-minute ritual to celebrate small completions.',
+            'Invite natural light or music to nudge your nervous system toward calm activation.'
+        ];
+
+        return {
+            descriptor,
+            outlook: `Your emotional energy feels ${descriptor} today. Protect what is vibrant, cradle what feels raw.`,
+            tips: this.rotateArray(tips, seed).slice(0, 3)
+        };
+    }
+
+    buildMoodPulseInsights(moods, seed) {
+        if (!moods || moods.length === 0) {
+            moods = ['calm'];
+        }
+
+        const pulseInsights = moods.map((mood, idx) => ({
+            mood,
+            pulse: idx % 2 === 0 ? 'ascending' : 'steady',
+            suggestion: this.rotateArray([
+                `Notice when ${mood} intensifies; breathe into that wave.`,
+                `Document a micro-moment that sparked ${mood} today.`,
+                `Pair the feeling of ${mood} with a grounding object nearby.`
+            ], seed + idx)[0]
+        }));
+
+        return pulseInsights.slice(0, 5);
+    }
+
+    buildCompassionateCheckpoints(seed) {
+        const checkpoints = [
+            'Pause before lunch to acknowledge one thing you handled with courage.',
+            'At 3 PM, ask yourself “What would make the rest of the day 10% kinder?”',
+            'Before bedtime, write down a thought you’re releasing.',
+            'Send a quick appreciation message to someone who crossed your mind today.',
+            'Celebrate one boundary you protected, even if tiny.'
+        ];
+
+        return this.rotateArray(checkpoints, seed).slice(0, 3);
+    }
+
+    buildBreathPatterns(seed) {
+        const patterns = [
+            {
+                name: '4-7-8 Flow',
+                description: 'Inhale 4, hold 7, exhale 8. Repeat four cycles to soften the nervous system.'
+            },
+            {
+                name: 'Tidal Breath',
+                description: 'Breathe in through the nose, out through the mouth with a sigh; imagine a wave washing stress away.'
+            },
+            {
+                name: 'Heart Coherence',
+                description: 'Inhale 5 seconds imagining gratitude, exhale 5 seconds sending compassion inward.'
+            },
+            {
+                name: 'Box Breath with Intention',
+                description: 'On each side of the box, whisper a supportive word: inhale “calm”, hold “safe”, exhale “release”, hold “renew”.'
+            }
+        ];
+
+        return this.rotateArray(patterns, seed).slice(0, 2);
     }
 
     calculateResilienceScore(checkinData, seed) {

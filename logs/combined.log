@@ -13233,3 +13233,38 @@
 {"level":"info","message":"User connected: E92p8Ec6mr3g6bQzAAAK","service":"integra-learn-backend","timestamp":"2025-11-22T18:18:35.684Z"}
 {"level":"info","message":"User connected: xKUYkkS6cGenYPxCAAAL","service":"integra-learn-backend","timestamp":"2025-11-22T18:18:35.699Z"}
 {"level":"info","message":"🔄 MongoDB reconnected","service":"integra-learn-backend","timestamp":"2025-11-22T18:18:43.537Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:11.356Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-01.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:12.544Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:12.855Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:12.855Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.289Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.290Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.291Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.299Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.300Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.301Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:13.302Z"}
+{"level":"info","message":"User connected: jyVRitnEahXvzQ37AAAB","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:15.923Z"}
+{"level":"info","message":"User connected: lgE4nZSLbwjbfy9sAAAD","service":"integra-learn-backend","timestamp":"2025-11-25T01:44:17.476Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:03.541Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/support/contacts","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:12.160Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:27.124Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:27.278Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:27.282Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:27.508Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:28.060Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:39.745Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"level":"info","message":"User connected: 2XkwwOzt0JLUoLQmAAAG","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:39.751Z"}
+{"level":"info","message":"User connected: 7bFBnpq9ZENsRi1OAAAH","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:39.752Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:45:39.943Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"level":"info","message":"User undefined left personal room","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:09.895Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:09.922Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:09.927Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:10.165Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:10.217Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"POST /api/v1/auth/logout","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:21.606Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+{"level":"info","message":"User disconnected: jyVRitnEahXvzQ37AAAB","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:43.485Z"}
+{"level":"info","message":"User disconnected: lgE4nZSLbwjbfy9sAAAD","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:43.496Z"}
+{"level":"info","message":"User disconnected: 2XkwwOzt0JLUoLQmAAAG","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:45.700Z"}
+{"level":"info","message":"User disconnected: 7bFBnpq9ZENsRi1OAAAH","service":"integra-learn-backend","timestamp":"2025-11-25T01:46:45.702Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2025-11-25T01:49:05.945Z"}
