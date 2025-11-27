@@ -146,10 +146,101 @@ const dateRangeSchema = Joi.object({
     }).optional()
 });
 
+const mtssStrategyCreateSchema = Joi.object({
+    name: Joi.string().min(3).max(120).required(),
+    overview: Joi.string().min(10).required(),
+    howItWorks: Joi.string().min(10).required(),
+    bestFor: Joi.array().items(Joi.string()).min(1).required(),
+    tierApplicability: Joi.array().items(Joi.string().valid('tier1', 'tier2', 'tier3')).min(1).required(),
+    implementationSteps: Joi.array().items(Joi.string()).min(1).required(),
+    materials: Joi.array().items(Joi.string()).optional(),
+    duration: Joi.string().optional(),
+    groupFriendly: Joi.boolean().optional(),
+    tags: Joi.array().items(Joi.string()).optional()
+});
+
+const mtssStrategyUpdateSchema = Joi.object({
+    name: Joi.string().min(3).max(120).optional(),
+    overview: Joi.string().min(10).optional(),
+    howItWorks: Joi.string().min(10).optional(),
+    bestFor: Joi.array().items(Joi.string()).min(1).optional(),
+    tierApplicability: Joi.array().items(Joi.string().valid('tier1', 'tier2', 'tier3')).min(1).optional(),
+    implementationSteps: Joi.array().items(Joi.string()).min(1).optional(),
+    materials: Joi.array().items(Joi.string()).optional(),
+    duration: Joi.string().optional(),
+    groupFriendly: Joi.boolean().optional(),
+    tags: Joi.array().items(Joi.string()).optional(),
+    isActive: Joi.boolean().optional()
+});
+
+const mentorAssignmentCreateSchema = Joi.object({
+    mentorId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
+    studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(2).required(),
+    tier: Joi.string().valid('tier2', 'tier3').required(),
+    focusAreas: Joi.array().items(Joi.string()).min(1).required(),
+    startDate: Joi.date().optional(),
+    goals: Joi.array().items(Joi.object({
+        description: Joi.string().required(),
+        successCriteria: Joi.string().optional()
+    })).optional(),
+    notes: Joi.string().optional()
+});
+
+const mentorAssignmentUpdateSchema = Joi.object({
+    focusAreas: Joi.array().items(Joi.string()).optional(),
+    status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
+    endDate: Joi.date().optional(),
+    notes: Joi.string().optional(),
+    goals: Joi.array().items(Joi.object({
+        description: Joi.string().required(),
+        successCriteria: Joi.string().optional(),
+        completed: Joi.boolean().optional()
+    })).optional(),
+    checkIns: Joi.array().items(Joi.object({
+        date: Joi.date().optional(),
+        summary: Joi.string().required(),
+        nextSteps: Joi.string().optional()
+    })).optional()
+});
+
+const mtssStudentCreateSchema = Joi.object({
+    name: Joi.string().min(2).max(120).required(),
+    nickname: Joi.string().max(80).allow('', null),
+    username: Joi.string().max(80).allow('', null),
+    gender: Joi.string().valid('male', 'female', 'nonbinary', 'other', 'prefer_not_to_say').optional(),
+    status: Joi.string().valid('active', 'inactive', 'graduated', 'transferred', 'pending').optional(),
+    email: Joi.string().email().allow('', null),
+    currentGrade: Joi.string().max(60).optional(),
+    className: Joi.string().max(120).optional(),
+    joinAcademicYear: Joi.string().max(20).optional(),
+    tags: Joi.array().items(Joi.string()).optional(),
+    notes: Joi.string().max(500).optional()
+});
+
+const mtssStudentUpdateSchema = Joi.object({
+    name: Joi.string().min(2).max(120).optional(),
+    nickname: Joi.string().max(80).allow('', null),
+    username: Joi.string().max(80).allow('', null),
+    gender: Joi.string().valid('male', 'female', 'nonbinary', 'other', 'prefer_not_to_say').optional(),
+    status: Joi.string().valid('active', 'inactive', 'graduated', 'transferred', 'pending').optional(),
+    email: Joi.string().email().allow('', null),
+    currentGrade: Joi.string().max(60).optional(),
+    className: Joi.string().max(120).optional(),
+    joinAcademicYear: Joi.string().max(20).optional(),
+    tags: Joi.array().items(Joi.string()).optional(),
+    notes: Joi.string().max(500).optional()
+});
+
 module.exports = {
     userLoginSchema,
     userRegistrationSchema,
     emotionalCheckinSchema,
     paginationSchema,
-    dateRangeSchema
+    dateRangeSchema,
+    mtssStrategyCreateSchema,
+    mtssStrategyUpdateSchema,
+    mentorAssignmentCreateSchema,
+    mentorAssignmentUpdateSchema,
+    mtssStudentCreateSchema,
+    mtssStudentUpdateSchema
 };

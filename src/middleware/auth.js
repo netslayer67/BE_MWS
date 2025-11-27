@@ -70,6 +70,7 @@ const authorize = (...roles) => {
 
 // Admin and above roles
 const requireAdmin = authorize('admin', 'superadmin', 'directorate');
+const requireMTSSAdmin = authorize('admin', 'superadmin', 'directorate', 'head_unit');
 
 // Super admin and directorate only
 const requireSuperAdmin = authorize('superadmin', 'directorate');
@@ -89,6 +90,7 @@ module.exports = {
     authenticate,
     authorize,
     requireAdmin,
+    requireMTSSAdmin,
     requireSuperAdmin,
     requireStaffOrTeacher,
     requireAuthenticated

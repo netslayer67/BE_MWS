@@ -39,6 +39,28 @@ const initSocket = (server) => {
             winston.info(`User ${userId} left personal room`);
         });
 
+        socket.on('join-mtss-admin', () => {
+            socket.join('mtss-admin');
+            winston.info(`Socket ${socket.id} joined mtss-admin room`);
+        });
+
+        socket.on('leave-mtss-admin', () => {
+            socket.leave('mtss-admin');
+            winston.info(`Socket ${socket.id} left mtss-admin room`);
+        });
+
+        socket.on('join-mtss-mentor', (mentorId) => {
+            if (!mentorId) return;
+            socket.join(`mtss-mentor-${mentorId}`);
+            winston.info(`Mentor ${mentorId} joined MTSS mentor room`);
+        });
+
+        socket.on('leave-mtss-mentor', (mentorId) => {
+            if (!mentorId) return;
+            socket.leave(`mtss-mentor-${mentorId}`);
+            winston.info(`Mentor ${mentorId} left MTSS mentor room`);
+        });
+
         socket.on('disconnect', () => {
             winston.info(`User disconnected: ${socket.id}`);
         });

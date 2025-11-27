@@ -9,7 +9,9 @@
     "dev": "nodemon src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:cypress": "cypress run --e2e",
     "seed": "node src/scripts/seedUsersFromData.js",
+    "seed:mtss": "node src/scripts/seedMtssData.js",
     "import:legacy-checkins": "node src/scripts/importLegacyCheckins.js"
   },
   "keywords": [
@@ -48,6 +50,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "cypress": "^15.7.0",
     "jest": "^30.2.0",
     "nodemon": "^3.1.10",
     "supertest": "^7.1.4"
