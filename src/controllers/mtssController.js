@@ -242,11 +242,15 @@ const createMentorAssignment = async (req, res) => {
         await ensureMentorEligibility(mentorId);
         await ensureStudentsValid(studentIds);
 
+        const normalizedFocusAreas = Array.isArray(focusAreas)
+            ? focusAreas.map(area => area?.trim()).filter(Boolean)
+            : [];
+
         const assignment = await MentorAssignment.create({
             mentorId,
             studentIds,
             tier,
-            focusAreas,
+            focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
             startDate: startDate || Date.now(),
             goals,
             notes,
@@ -321,7 +325,10 @@ const updateMentorAssignment = async (req, res) => {
             return sendError(res, 'Mentor assignment not found', 404);
         }
 
-        if (focusAreas) assignment.focusAreas = focusAreas;
+        if (Array.isArray(focusAreas)) {
+            const cleaned = focusAreas.map(area => area?.trim()).filter(Boolean);
+            assignment.focusAreas = cleaned.length ? cleaned : ['Universal Supports'];
+        }
         if (status) assignment.status = status;
         if (endDate) assignment.endDate = endDate;
         if (typeof notes === 'string') assignment.notes = notes;

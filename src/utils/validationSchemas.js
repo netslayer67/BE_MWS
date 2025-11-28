@@ -177,17 +177,17 @@ const mentorAssignmentCreateSchema = Joi.object({
     mentorId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
     studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(2).required(),
     tier: Joi.string().valid('tier2', 'tier3').required(),
-    focusAreas: Joi.array().items(Joi.string()).min(1).required(),
+    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
     startDate: Joi.date().optional(),
     goals: Joi.array().items(Joi.object({
         description: Joi.string().required(),
         successCriteria: Joi.string().optional()
     })).optional(),
-    notes: Joi.string().optional()
+    notes: Joi.string().optional().allow('')
 });
 
 const mentorAssignmentUpdateSchema = Joi.object({
-    focusAreas: Joi.array().items(Joi.string()).optional(),
+    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
     endDate: Joi.date().optional(),
     notes: Joi.string().optional(),
