@@ -110,8 +110,9 @@ const upsertTier = async (req, res) => {
 
 const getStrategies = async (req, res) => {
     try {
-        const { tier, bestFor, search } = req.query;
+        const { tier, bestFor, search, type } = req.query;
         const filter = { isActive: true };
+        const orFilters = [];
 
         if (tier) {
             filter.tierApplicability = tier.split(',').map(t => t.toLowerCase());
@@ -121,8 +122,19 @@ const getStrategies = async (req, res) => {
             filter.bestFor = { $in: bestFor.split(',').map(item => item.trim()) };
         }
 
+        if (type) {
+            const typeFilters = type.split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
+            if (typeFilters.length) {
+                orFilters.push({ bestFor: { $in: typeFilters } }, { tags: { $in: typeFilters } });
+            }
+        }
+
         if (search) {
             filter.$text = { $search: search };
+        }
+
+        if (orFilters.length) {
+            filter.$or = filter.$or ? filter.$or.concat(orFilters) : orFilters;
         }
 
         const strategies = await MTSSStrategy.find(filter).sort({ name: 1 });
@@ -231,9 +243,19 @@ const ensureStudentsValid = async (studentIds) => {
     return students;
 };
 
+const sanitizeScorePayload = (score = {}) => {
+    if (!score) return undefined;
+    const value = Number(score.value);
+    if (!Number.isFinite(value)) return undefined;
+    return {
+        value,
+        unit: (score.unit || 'score').toLowerCase()
+    };
+};
+
 const createMentorAssignment = async (req, res) => {
     try {
-        const { mentorId, studentIds, tier, focusAreas, startDate, goals, notes } = req.body;
+        const { mentorId, studentIds, tier, focusAreas, startDate, goals, notes, metricLabel, baselineScore, targetScore } = req.body;
 
         if (!studentIds || studentIds.length < 2) {
             return sendError(res, 'Mentor assignments must include at least two students to encourage group support.', 400);
@@ -246,6 +268,9 @@ const createMentorAssignment = async (req, res) => {
             ? focusAreas.map(area => area?.trim()).filter(Boolean)
             : [];
 
+        const sanitizedBaseline = sanitizeScorePayload(baselineScore);
+        const sanitizedTarget = sanitizeScorePayload(targetScore);
+
         const assignment = await MentorAssignment.create({
             mentorId,
             studentIds,
@@ -254,6 +279,9 @@ const createMentorAssignment = async (req, res) => {
             startDate: startDate || Date.now(),
             goals,
             notes,
+            metricLabel: metricLabel?.trim() || undefined,
+            baselineScore: sanitizedBaseline,
+            targetScore: sanitizedTarget,
             createdBy: req.user?.id || null
         });
 
@@ -318,7 +346,7 @@ const getMentorAssignmentById = async (req, res) => {
 
 const updateMentorAssignment = async (req, res) => {
     try {
-        const { focusAreas, status, endDate, notes, goals, checkIns } = req.body;
+        const { focusAreas, status, endDate, notes, goals, checkIns, metricLabel, baselineScore, targetScore } = req.body;
         const assignment = await MentorAssignment.findById(req.params.id);
 
         if (!assignment) {
@@ -333,12 +361,30 @@ const updateMentorAssignment = async (req, res) => {
         if (endDate) assignment.endDate = endDate;
         if (typeof notes === 'string') assignment.notes = notes;
         if (goals) assignment.goals = goals;
+        if (metricLabel !== undefined) {
+            assignment.metricLabel = metricLabel?.trim() || undefined;
+        }
+
+        const sanitizedBaseline = sanitizeScorePayload(baselineScore);
+        if (sanitizedBaseline) {
+            assignment.baselineScore = sanitizedBaseline;
+        }
+
+        const sanitizedTarget = sanitizeScorePayload(targetScore);
+        if (sanitizedTarget) {
+            assignment.targetScore = sanitizedTarget;
+        }
+
         if (Array.isArray(checkIns)) {
             checkIns.forEach(checkIn => {
                 assignment.checkIns.push({
                     date: checkIn.date || new Date(),
                     summary: checkIn.summary,
-                    nextSteps: checkIn.nextSteps
+                    nextSteps: checkIn.nextSteps,
+                    value: Number.isFinite(Number(checkIn.value)) ? Number(checkIn.value) : undefined,
+                    unit: checkIn.unit,
+                    performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
+                    celebration: checkIn.celebration
                 });
             });
         }

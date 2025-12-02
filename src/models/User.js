@@ -96,8 +96,9 @@ const userSchema = new mongoose.Schema({
     }],
     classes: [{
         grade: String,
+        className: { type: String, trim: true },
         subject: String,
-        role: { type: String, enum: ['Homeroom Teacher', 'Subject Teacher', 'Special Education Teacher'] }
+        role: { type: String, enum: ['Homeroom Teacher', 'Subject Teacher', 'Special Education Teacher', 'Principal'] }
     }],
     lastLogin: {
         type: Date

@@ -36,6 +36,30 @@ const mentorAssignmentSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    metricLabel: {
+        type: String,
+        trim: true
+    },
+    baselineScore: {
+        value: {
+            type: Number,
+            default: null
+        },
+        unit: {
+            type: String,
+            trim: true
+        }
+    },
+    targetScore: {
+        value: {
+            type: Number,
+            default: null
+        },
+        unit: {
+            type: String,
+            trim: true
+        }
+    },
     notes: {
         type: String,
         trim: true
@@ -54,7 +78,14 @@ const mentorAssignmentSchema = new mongoose.Schema({
             default: Date.now
         },
         summary: String,
-        nextSteps: String
+        nextSteps: String,
+        value: Number,
+        unit: String,
+        performed: {
+            type: Boolean,
+            default: true
+        },
+        celebration: String
     }]
 }, {
     timestamps: true

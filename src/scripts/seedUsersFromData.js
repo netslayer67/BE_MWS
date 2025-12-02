@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const { CLASS_ASSIGNMENTS, parseAssignmentLabel } = require('./data/classAssignments');
 require('dotenv').config();
 
 // Sample user data based on provided CSV
@@ -1647,7 +1648,18 @@ const userData = [
         endDate: new Date('2026-06-22'),
         gender: 'M'
     },
-]
+];
+
+userData.forEach((entry) => {
+    const assignments = CLASS_ASSIGNMENTS[entry.name];
+    if (!assignments) return;
+    const parsed = assignments
+        .map((label) => parseAssignmentLabel(label, entry.jobPosition))
+        .filter(Boolean);
+    if (parsed.length) {
+        entry.classes = parsed;
+    }
+});
 
 const seedUsersFromData = async () => {
     try {
