@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 const MTSSStudent = require('../models/MTSSStudent');
 const MentorAssignment = require('../models/MentorAssignment');
+const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
-const { summarizeAssignmentsForStudents, formatRosterStudent } = require('../utils/mtssStudentHelpers');
+const { summarizeAssignmentsForStudents, formatRosterStudent, defaultProfile } = require('../utils/mtssStudentHelpers');
 const { emitStudentsChanged } = require('../services/mtssRealtimeService');
 
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
@@ -120,6 +121,99 @@ const buildStudentSummary = (students = []) => {
     };
 };
 
+const deriveUnitFromGrade = (grade = '') => {
+    const normalized = grade.toString().toLowerCase();
+    if (normalized.includes('grade 7') || normalized.includes('grade 8') || normalized.includes('grade 9')) {
+        return 'Junior High';
+    }
+    if (normalized.includes('grade 1') || normalized.includes('grade 2') || normalized.includes('grade 3') || normalized.includes('grade 4') || normalized.includes('grade 5') || normalized.includes('grade 6')) {
+        return 'Elementary';
+    }
+    if (normalized.includes('kindergarten') || normalized.includes('k1') || normalized.includes('k2') || normalized.includes('pre-k')) {
+        return 'Kindergarten';
+    }
+    return undefined;
+};
+
+const mentorRoleFilter = { role: { $in: ['teacher', 'se_teacher', 'head_unit'] }, isActive: true };
+const SUBJECT_EXCLUSION_PATTERNS = [/math/i, /mathematics/i, /english/i];
+
+const shouldExcludeMentor = (mentor = {}) => {
+    if (!mentor || mentor.unit !== 'Junior High') return false;
+    const jobPosition = (mentor.jobPosition || '').toLowerCase();
+    return SUBJECT_EXCLUSION_PATTERNS.some((pattern) => pattern.test(jobPosition));
+};
+
+const loadMentorsByGrade = async (grades = []) => {
+    const cache = new Map();
+    if (!grades.length) return cache;
+
+    const queries = await Promise.all(
+        grades.map(async (grade) => {
+            if (!grade) return null;
+            const unit = deriveUnitFromGrade(grade);
+            const mentors = await User.find({
+                ...mentorRoleFilter,
+                $or: [
+                    { 'classes.grade': grade },
+                    { 'classes.grade': new RegExp(`^${grade}`, 'i') },
+                    unit ? { unit } : null
+                ].filter(Boolean)
+            })
+                .select('name email username jobPosition unit classes')
+                .lean();
+            const filteredMentors = (mentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
+            return { grade, mentors: filteredMentors };
+        })
+    );
+
+    queries.forEach((entry) => {
+        if (entry?.grade) {
+            cache.set(entry.grade, entry.mentors || []);
+        }
+    });
+
+    return cache;
+};
+
+const buildFallbackSummary = (mentors = []) => {
+    const list = Array.isArray(mentors) ? mentors.filter(Boolean) : [];
+    const seen = new Set();
+    const roster = list
+        .map((mentor) => {
+            const key = mentor?._id?.toString?.() || mentor?.email || mentor?.name;
+            if (!key || seen.has(key)) return null;
+            seen.add(key);
+            return mentor?.name;
+        })
+        .filter(Boolean);
+    const teacherRoster = roster;
+    const displayTeacher = teacherRoster.length ? teacherRoster.join(' • ') : defaultProfile.profile.teacher;
+    const primaryMentor = teacherRoster[0] || defaultProfile.profile.mentor;
+
+    const profile = {
+        ...defaultProfile.profile,
+        teacher: displayTeacher,
+        mentor: primaryMentor,
+        teacherRoster,
+        mentors: list
+            .map((mentor) => ({
+                id: mentor?._id?.toString?.() || mentor?._id,
+                name: mentor?.name,
+                email: mentor?.email,
+                jobPosition: mentor?.jobPosition,
+                unit: mentor?.unit,
+                classes: mentor?.classes || []
+            }))
+            .filter((entry) => entry.name)
+    };
+    return {
+        ...defaultProfile,
+        teacherRoster,
+        profile
+    };
+};
+
 const listStudents = async (req, res) => {
     try {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
@@ -132,6 +226,15 @@ const listStudents = async (req, res) => {
             MTSSStudent.countDocuments(filter)
         ]);
 
+        const uniqueGrades = Array.from(
+            new Set(
+                students
+                    .map((student) => student.currentGrade || student.className)
+                    .filter(Boolean)
+            )
+        );
+        const gradeMentorMap = await loadMentorsByGrade(uniqueGrades);
+
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
@@ -141,7 +244,16 @@ const listStudents = async (req, res) => {
             : [];
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
-        const payload = students.map((student) => formatRosterStudent(student, summaryMap.get(student._id.toString())));
+        const payload = students.map((student) => {
+            const gradeLabel = student.currentGrade || student.className;
+            const summary = summaryMap.get(student._id.toString());
+            if (summary) {
+                return formatRosterStudent(student, summary);
+            }
+            const mentorList = gradeMentorMap.get(gradeLabel) || [];
+            const fallback = buildFallbackSummary(mentorList);
+            return formatRosterStudent(student, fallback);
+        });
         const summary = buildStudentSummary(payload);
 
         sendSuccess(res, 'Students retrieved', {
@@ -176,7 +288,16 @@ const getStudent = async (req, res) => {
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
-        const payload = formatRosterStudent(student, summaryMap.get(student._id.toString()));
+        let payload;
+        const summary = summaryMap.get(student._id.toString());
+        if (summary) {
+            payload = formatRosterStudent(student, summary);
+        } else {
+            const gradeLabel = student.currentGrade || student.className;
+            const mentors = await loadMentorsByGrade([gradeLabel]);
+            const mentorList = mentors.get(gradeLabel) || [];
+            payload = formatRosterStudent(student, buildFallbackSummary(mentorList));
+        }
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

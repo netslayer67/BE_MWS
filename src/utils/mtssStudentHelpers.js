@@ -23,6 +23,7 @@ const defaultProfile = {
     profile: {
         teacher: '-',
         mentor: '-',
+        teacherRoster: [],
         type: 'Universal Supports',
         strategy: 'Tier 1 differentiation',
         started: '-',
@@ -137,10 +138,12 @@ const buildProfile = (assignment = {}) => {
     const goals = assignment.goals || [];
     const completedGoals = goals.filter(goal => goal.completed).length;
     const progressUnit = inferProgressUnit(assignment);
+    const teacherRoster = assignment.mentorId?.name ? [assignment.mentorId.name] : [];
 
     return {
         teacher: assignment.mentorId?.name || 'MTSS Mentor',
         mentor: assignment.mentorId?.name || 'MTSS Mentor',
+        teacherRoster,
         type: deriveFocusArea(assignment),
         strategy: Array.isArray(assignment.focusAreas) && assignment.focusAreas.length
             ? assignment.focusAreas.join(', ')
@@ -176,7 +179,8 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
                 tier: mapTierLabel(assignment.tier),
                 progress: STATUS_LABELS[assignment.status] || 'On Track',
                 nextUpdate: inferNextUpdate(assignment),
-                profile: buildProfile(assignment)
+                profile: buildProfile(assignment),
+                teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : []
             });
         });
     });
@@ -196,6 +200,17 @@ const formatRosterStudent = (studentDoc, summary) => {
         ...profileSource,
         mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor'
     };
+    const teacherRoster = Array.isArray(support.teacherRoster)
+        ? support.teacherRoster
+        : Array.isArray(safeProfile.teacherRoster)
+            ? safeProfile.teacherRoster
+            : safeProfile.teacher
+                ? [safeProfile.teacher]
+                : [];
+    const mentorLabel = teacherRoster[0] || safeProfile.mentor;
+    safeProfile.teacherRoster = teacherRoster;
+    safeProfile.teacher = teacherRoster.length ? teacherRoster.join(' • ') : safeProfile.teacher;
+    safeProfile.mentor = mentorLabel;
 
     return {
         id: source._id,
@@ -210,7 +225,8 @@ const formatRosterStudent = (studentDoc, summary) => {
         joinAcademicYear: source.joinAcademicYear,
         status: source.status,
         grade: gradeLabel,
-        mentor: safeProfile.mentor,
+        mentor: mentorLabel,
+        teachers: teacherRoster,
         type: support.type,
         tier: support.tier,
         progress: support.progress,
@@ -222,6 +238,7 @@ const formatRosterStudent = (studentDoc, summary) => {
 module.exports = {
     STATUS_LABELS,
     STATUS_PRIORITY,
+    defaultProfile,
     formatDate,
     formatDuration,
     inferNextUpdate,

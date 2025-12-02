@@ -96,9 +96,7 @@ const parseAssignmentLabel = (label = "", role = "") => {
             ? "Special Education Teacher"
             : normalizedRole.includes("homeroom")
                 ? "Homeroom Teacher"
-                : normalizedRole.includes("teacher")
-                    ? "Subject Teacher"
-                    : "Teacher";
+                : "Subject Teacher";
 
     return {
         grade: grade.trim(),

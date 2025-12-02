@@ -253,6 +253,19 @@ const sanitizeScorePayload = (score = {}) => {
     };
 };
 
+const sanitizeCheckIn = (checkIn = {}) => {
+    const parsedValue = Number(checkIn.value);
+    return {
+        date: checkIn.date || new Date(),
+        summary: checkIn.summary,
+        nextSteps: checkIn.nextSteps,
+        value: Number.isFinite(parsedValue) ? parsedValue : undefined,
+        unit: checkIn.unit ? checkIn.unit.toString().trim().toLowerCase() : undefined,
+        performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
+        celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined
+    };
+};
+
 const createMentorAssignment = async (req, res) => {
     try {
         const { mentorId, studentIds, tier, focusAreas, startDate, goals, notes, metricLabel, baselineScore, targetScore } = req.body;
@@ -376,17 +389,7 @@ const updateMentorAssignment = async (req, res) => {
         }
 
         if (Array.isArray(checkIns)) {
-            checkIns.forEach(checkIn => {
-                assignment.checkIns.push({
-                    date: checkIn.date || new Date(),
-                    summary: checkIn.summary,
-                    nextSteps: checkIn.nextSteps,
-                    value: Number.isFinite(Number(checkIn.value)) ? Number(checkIn.value) : undefined,
-                    unit: checkIn.unit,
-                    performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
-                    celebration: checkIn.celebration
-                });
-            });
+            checkIns.forEach(checkIn => assignment.checkIns.push(sanitizeCheckIn(checkIn)));
         }
 
         await assignment.save();

@@ -1,10 +1,13 @@
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const { CLASS_ASSIGNMENTS, parseAssignmentLabel } = require('./data/classAssignments');
 require('dotenv').config();
 
-// Sample user data based on provided CSV
-const userData = [
+// Sample user data based on provided CSV (used as fallback if JSON seed file is missing)
+const DEFAULT_USER_DATA = [
     {
         email: 'abdul.mansyur@millennia21.id',
         password: 'password123',
@@ -398,21 +401,6 @@ const userData = [
         endDate: new Date('2026-06-22'),
         gender: 'M'
     },
-    // {
-    //     email: 'faisal@millennia21.id',
-    //     password: 'password123',
-    //     name: 'Faisal Nur Hidayat',
-    //     username: 'Faisal',
-    //     role: 'head_unit',
-    //     department: 'MAD Lab',
-    //     jobLevel: 'Head Unit',
-    //     unit: 'MAD Lab',
-    //     jobPosition: 'Head of IT',
-    //     employmentStatus: 'Contract',
-    //     joinDate: new Date('2024-07-15'),
-    //     endDate: new Date('2026-06-22'),
-    //     gender: 'M'
-    // },
     {
         email: 'fasa@millennia21.id',
         password: 'password123',
@@ -1648,88 +1636,332 @@ const userData = [
         endDate: new Date('2026-06-22'),
         gender: 'M'
     },
+
 ];
 
+const DEFAULT_USER_SEED_FILE = process.env.SEED_USERS_FILE || path.resolve(__dirname, '../../../test.users.json');
+
+const convertExtendedJsonValue = (input) => {
+    if (Array.isArray(input)) {
+        return input.map(convertExtendedJsonValue);
+    }
+
+    if (input && typeof input === 'object') {
+        if (Object.prototype.hasOwnProperty.call(input, '$oid')) {
+            return new mongoose.Types.ObjectId(input.$oid);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(input, '$date')) {
+            return new Date(input.$date);
+        }
+
+        return Object.entries(input).reduce((acc, [key, value]) => {
+            acc[key] = convertExtendedJsonValue(value);
+            return acc;
+        }, {});
+    }
+
+    return input;
+};
+
+const normalizeUserDocument = (doc = {}) => {
+    const normalized = convertExtendedJsonValue(doc);
+
+    if (normalized.gender === 'M') normalized.gender = 'male';
+    if (normalized.gender === 'F') normalized.gender = 'female';
+
+    if (Array.isArray(normalized.classes) && normalized.classes.length === 0) {
+        delete normalized.classes;
+    }
+
+    return normalized;
+};
+
+const loadUsersFromSeedFile = () => {
+    const filePath = DEFAULT_USER_SEED_FILE;
+
+    if (!fs.existsSync(filePath)) {
+        console.warn(`Warning: Seed file not found at ${filePath}. Falling back to inline dataset.`);
+        return [];
+    }
+
+    try {
+        const fileContents = fs.readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(fileContents);
+
+        if (!Array.isArray(parsed)) {
+            console.warn(`Warning: Seed file ${filePath} does not contain an array. Falling back to inline dataset.`);
+            return [];
+        }
+
+        return parsed.map(normalizeUserDocument);
+    } catch (error) {
+        console.warn(`Warning: Unable to parse ${filePath}. Falling back to inline dataset.`, error.message);
+        return [];
+    }
+};
+
+const loadedFileUsers = loadUsersFromSeedFile();
+const USING_EXTERNAL_SEED_DATA = loadedFileUsers.length > 0;
+const userData = USING_EXTERNAL_SEED_DATA ? loadedFileUsers : DEFAULT_USER_DATA;
+const SEED_SOURCE_LABEL = USING_EXTERNAL_SEED_DATA ? DEFAULT_USER_SEED_FILE : 'inline fallback dataset';
+
+// Fallback grade mapping to auto-attach classes to teachers/principals based on provided roster info.
+const TEACHER_GRADE_MAP = {
+    // Junior High homerooms / specialists
+    'abu bakar ali, s.sos i': ['Grade 7'],
+    'yosa': ['Grade 7'],
+    'nadia': ['Grade 7'],
+    'novan syaiful rahman': ['Grade 7'],
+    'rifqi satria permana, s.pd': ['Grade 8'],
+    'rizki nurul hayati': ['Grade 8'],
+    'anggie ayu setya pradini, s.pd': ['Grade 8'],
+    'alifananda dhaffa hanif musyafa, s.pd': ['Grade 9'],
+    'tiastiningrum nugrahanti, s.pd': ['Grade 9'],
+    'vicki aprinando': ['Grade 9'],
+    'zolla firmalia rossa': ['Grade 9'],
+    'hasan': ['Grade 7', 'Grade 8', 'Grade 9'],
+    'hadi': ['Grade 7', 'Grade 8', 'Grade 9'],
+    'himawan': ['Grade 7', 'Grade 8', 'Grade 9'],
+    'aria wisnuwardana, s.tp': ['Grade 7', 'Grade 8', 'Grade 9'],
+
+    // Elementary homerooms & SE teachers
+    'gundah basiswi, s.pd': ['Grade 1'],
+    'krisalyssa esna rehulina tarigan, s.k.pm': ['Grade 1'],
+    'almia ester kristiyany sinabang, s.pd': ['Grade 1'],
+    'romasta oryza sativa siagian, s.pd': ['Grade 1'],
+    'zavier cloudya mashareen': ['Grade 1'],
+    'novia syifaputri ramadhan': ['Grade 1'],
+
+    'auliya hasanatin suwisto, s.ikom': ['Grade 2'],
+    'bela kartika sari': ['Grade 2'],
+    'maria rosa apriliana jaftoran': ['Grade 2'],
+    'tria fadilla': ['Grade 2'],
+    'devi larasati': ['Grade 2'],
+    'dini meilani pramesti': ['Grade 2'],
+    'restia widiasari': ['Grade 2'],
+    'reza rizky prayudha': ['Grade 2'],
+
+    'berliana gustina siregar': ['Grade 3'],
+    'raisa ramadhani': ['Grade 3'],
+    'pricilla cecil leander, s.pd': ['Grade 3'],
+    'putri fitriyani, s.pd': ['Grade 3'],
+    'galen rasendriya': ['Grade 3'],
+    'salsabila dhiyaussyifa laela': ['Grade 3'],
+    'dien islami': ['Grade 3'],
+    'ika rahayu': ['Grade 3'],
+
+    'fransiska evasari, s.pd': ['Grade 4'],
+    'nathasya christine prabowo, s.si': ['Grade 4'],
+    'rike rahmawati s.pd': ['Grade 4'],
+    'prisy dewanti': ['Grade 4'],
+    'risma ayu angelita': ['Grade 4'],
+    'risma galuh pitaloka fahdin': ['Grade 4'],
+    'annisa fitri tanjung': ['Grade 4'],
+    'iis asifah': ['Grade 4'],
+
+    'tri ayu lestari': ['Grade 5'],
+    'robby noer abjuny': ['Grade 5'],
+    'nazmi kusumawantari': ['Grade 5'],
+    'fadholi akbar': ['Grade 5'],
+
+    'devi agriani, s.pd.': ['Grade 6'],
+    'pipiet anggreiny, s.tp': ['Grade 6'],
+
+    // Kindergarten homerooms / SE
+    'afiyanti hardiansari': ['Kindergarten K1'],
+    'ayunda primaputri': ['Kindergarten K1'],
+    'diya pratiwi, s.s': ['Kindergarten K1'],
+    'nanda citra ryani, s.ip': ['Kindergarten K1'],
+    'nurul widyaningtyas agustin': ['Kindergarten K1'],
+    'yohana setia risli': ['Kindergarten K1'],
+    'ferlyna balqis': ['Kindergarten K1'],
+    'vinka erawati, s.pd': ['Kindergarten K1'],
+
+    // Principals by unit
+    'kholida widyawati, s.sos, ma': ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'],
+    'latifah nur restiningtyas, s.pd': ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2'],
+};
+
+const deriveClassRole = (roleLabel = '', fallbackLabel = '') => {
+    const source = (roleLabel || fallbackLabel || '').toLowerCase();
+
+    if (source.includes('principal')) return 'Principal';
+    if (source.includes('special education') || source.includes('se teacher')) return 'Special Education Teacher';
+    if (source.includes('homeroom')) return 'Homeroom Teacher';
+
+    return 'Subject Teacher';
+};
+
+const buildClasses = (user) => {
+    if (!['teacher', 'se_teacher', 'head_unit'].includes(user.role)) return undefined;
+    const key = (user.name || user.username || '').toLowerCase();
+    const grades = TEACHER_GRADE_MAP[key];
+    if (!grades || !grades.length) return undefined;
+    const classRole = deriveClassRole(user.jobPosition, user.jobLevel);
+    return grades.map((grade) => ({ grade, role: classRole }));
+};
+
+const HASHED_PASSWORD_REGEX = /^\$2[aby]\$/i;
+
+const ensureHashedPassword = async (password) => {
+    if (!password) return undefined;
+    if (HASHED_PASSWORD_REGEX.test(password)) {
+        return password;
+    }
+    return bcrypt.hash(password, 12);
+};
+
+const normalizeGenderValue = (value) => {
+    if (!value) return 'other';
+    const normalized = value.toString().toLowerCase();
+    if (normalized === 'm' || normalized === 'male') return 'male';
+    if (normalized === 'f' || normalized === 'female') return 'female';
+    return normalized;
+};
+
+const calculateWorkingPeriod = (joinDate, referenceDate = new Date()) => {
+    if (!joinDate) return undefined;
+    const start = new Date(joinDate);
+    const end = new Date(referenceDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return undefined;
+
+    let years = end.getFullYear() - start.getFullYear();
+    let months = end.getMonth() - start.getMonth();
+    let days = end.getDate() - start.getDate();
+
+    if (days < 0) {
+        months -= 1;
+        const lastMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+        days += lastMonth.getDate();
+    }
+
+    if (months < 0) {
+        years -= 1;
+        months += 12;
+    }
+
+    return {
+        years: Math.max(years, 0),
+        months: Math.max(months, 0),
+        days: Math.max(days, 0)
+    };
+};
+
+const toObjectId = (value) => {
+    if (!value) return undefined;
+    if (value instanceof mongoose.Types.ObjectId) return value;
+    if (typeof value === 'string' && value.trim()) {
+        return new mongoose.Types.ObjectId(value.trim());
+    }
+    if (typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, '$oid')) {
+        return new mongoose.Types.ObjectId(value.$oid);
+    }
+    return value;
+};
+
+const prepareUserDocument = async (userDataItem) => {
+    const sanitized = { ...userDataItem };
+
+    sanitized._id = toObjectId(sanitized._id) || new mongoose.Types.ObjectId();
+    sanitized.reportsTo = toObjectId(sanitized.reportsTo);
+
+    if (Array.isArray(sanitized.subordinates) && sanitized.subordinates.length) {
+        sanitized.subordinates = sanitized.subordinates
+            .map((subordinate) => toObjectId(subordinate))
+            .filter(Boolean);
+    } else {
+        sanitized.subordinates = sanitized.subordinates || [];
+    }
+
+    if (sanitized.email) {
+        sanitized.email = sanitized.email.toLowerCase();
+    }
+    if (!sanitized.username && sanitized.email) {
+        sanitized.username = sanitized.email.split('@')[0];
+    }
+
+    const existingClasses = Array.isArray(sanitized.classes) && sanitized.classes.length ? sanitized.classes : undefined;
+    const derivedClasses = existingClasses || buildClasses(sanitized);
+    if (derivedClasses && derivedClasses.length) {
+        sanitized.classes = derivedClasses.map((assignment) => ({
+            ...assignment,
+            role: deriveClassRole(assignment.role, sanitized.jobPosition)
+        }));
+    } else {
+        delete sanitized.classes;
+    }
+
+    sanitized.gender = normalizeGenderValue(sanitized.gender);
+
+    if (!sanitized.workingPeriod && sanitized.joinDate) {
+        sanitized.workingPeriod = calculateWorkingPeriod(sanitized.joinDate);
+    }
+
+    sanitized.isActive = typeof sanitized.isActive === 'boolean' ? sanitized.isActive : true;
+    sanitized.emailVerified = typeof sanitized.emailVerified === 'boolean' ? sanitized.emailVerified : true;
+
+    sanitized.password = await ensureHashedPassword(sanitized.password || 'password123');
+
+    const now = new Date();
+    sanitized.createdAt = sanitized.createdAt || now;
+    sanitized.updatedAt = sanitized.updatedAt || now;
+
+    delete sanitized.__v;
+
+    return sanitized;
+};
+
+// Attach class info from CLASS_ASSIGNMENTS; fallback to TEACHER_GRADE_MAP when needed
 userData.forEach((entry) => {
     const assignments = CLASS_ASSIGNMENTS[entry.name];
-    if (!assignments) return;
-    const parsed = assignments
-        .map((label) => parseAssignmentLabel(label, entry.jobPosition))
-        .filter(Boolean);
-    if (parsed.length) {
-        entry.classes = parsed;
+    if (assignments && assignments.length) {
+        const parsed = assignments
+            .map((label) => parseAssignmentLabel(label, entry.jobPosition))
+            .filter(Boolean);
+        if (parsed.length) {
+            entry.classes = parsed;
+            return;
+        }
+    }
+    // Fallback: build classes from grade map if not already set
+    const built = buildClasses(entry);
+    if (built) {
+        entry.classes = built;
     }
 });
 
 const seedUsersFromData = async () => {
     try {
-        // Connect to MongoDB
         await mongoose.connect(process.env.MONGODB_URI);
+        console.log('Seeding users from provided data...');
+        console.log('Seed source: ' + SEED_SOURCE_LABEL);
 
-        console.log('🌱 Seeding users from provided data...');
-
-        // Clear existing users
         await User.deleteMany({});
-        console.log('🗑️  Cleared existing users');
+        console.log('Cleared existing users');
 
-        // Process and create users
+        const usersToInsert = [];
+
         for (const userDataItem of userData) {
-            // Calculate working period
-            if (userDataItem.joinDate) {
-                const joinDate = new Date(userDataItem.joinDate);
-                const now = new Date();
-                const diffTime = Math.abs(now - joinDate);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                userDataItem.workingPeriod = {
-                    years: Math.floor(diffDays / 365),
-                    months: Math.floor((diffDays % 365) / 30),
-                    days: diffDays % 30
-                };
-            }
-
-            // Map gender values
-            let gender = 'other';
-            if (userDataItem.gender === 'M') gender = 'male';
-            else if (userDataItem.gender === 'F') gender = 'female';
-
-            // Ensure all required fields are present
-            const userToCreate = {
-                name: userDataItem.name,
-                email: userDataItem.email,
-                password: userDataItem.password,
-                username: userDataItem.username,
-                role: userDataItem.role,
-                department: userDataItem.department,
-                jobLevel: userDataItem.jobLevel,
-                unit: userDataItem.unit,
-                jobPosition: userDataItem.jobPosition,
-                employmentStatus: userDataItem.employmentStatus,
-                joinDate: userDataItem.joinDate,
-                endDate: userDataItem.endDate,
-                workingPeriod: userDataItem.workingPeriod,
-                gender: gender,
-                isActive: true,
-                emailVerified: true
-            };
-
-            const user = new User(userToCreate);
-            await user.save();
-            console.log(`✅ Created user: ${userDataItem.email} (${userDataItem.role})`);
+            const preparedUser = await prepareUserDocument(userDataItem);
+            usersToInsert.push(preparedUser);
+            console.log('Prepared user: ' + preparedUser.email + ' (' + preparedUser.role + ')');
         }
 
-        console.log('🎉 User seeding completed successfully!');
-        console.log(`📊 Total users created: ${userData.length}`);
+        if (usersToInsert.length) {
+            await User.insertMany(usersToInsert, { ordered: true });
+        }
 
-        // Create directorate hierarchy
+        console.log('User seeding completed successfully!');
+        console.log('Total users created: ' + usersToInsert.length);
+
         const directorateUsers = await User.find({ role: 'directorate' });
-        console.log('👥 Directorate members:', directorateUsers.map(u => u.name));
-
+        console.log('Directorate members:', directorateUsers.map((u) => u.name));
     } catch (error) {
-        console.error('❌ Error seeding users:', error);
+        console.error('Error seeding users:', error);
     } finally {
         await mongoose.connection.close();
-        console.log('🔌 Database connection closed');
+        console.log('Database connection closed');
     }
 };
 
@@ -1739,3 +1971,5 @@ if (require.main === module) {
 }
 
 module.exports = seedUsersFromData;
+
+
