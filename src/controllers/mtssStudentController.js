@@ -58,6 +58,14 @@ const sanitizeStudentPayload = (payload = {}) => {
     return sanitized;
 };
 
+const deriveGradesForUnit = (unit = '') => {
+    const normalized = unit.toLowerCase();
+    if (normalized === 'junior high') return ['Grade 7', 'Grade 8', 'Grade 9'];
+    if (normalized === 'elementary') return ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'];
+    if (normalized === 'kindergarten' || normalized === 'pelangi') return ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2', 'Kindergarten'];
+    return [];
+};
+
 const buildFilter = (query = {}) => {
     const filter = {};
 
@@ -79,6 +87,12 @@ const buildFilter = (query = {}) => {
     const genderList = normalizeList(query.gender).map((gender) => gender.toLowerCase());
     if (genderList.length) {
         filter.gender = { $in: genderList };
+    }
+
+    const unitGrades = deriveGradesForUnit(query.unit || '');
+    if (unitGrades.length) {
+        const existing = filter.currentGrade ? filter.currentGrade.$in || [] : [];
+        filter.currentGrade = { $in: Array.from(new Set([...unitGrades, ...existing])) };
     }
 
     if (query.search) {

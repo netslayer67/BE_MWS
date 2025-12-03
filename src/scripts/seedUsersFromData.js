@@ -156,7 +156,7 @@ const DEFAULT_USER_DATA = [
         email: 'annisa.fitri@millennia21.id',
         password: 'password123',
         name: 'Annisa Fitri Tanjung',
-        username: 'Ardi',
+        username: 'Annisa',
         role: 'se_teacher',
         department: 'Elementary',
         jobLevel: 'SE Teacher',

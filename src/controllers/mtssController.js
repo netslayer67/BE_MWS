@@ -11,6 +11,14 @@ const TIER_ORDER = {
     tier2: 2,
     tier3: 3
 };
+const TYPE_ALIAS_MAP = {
+    english: ['english', 'ela', 'literacy', 'reading', 'ela/reading'],
+    math: ['math', 'mathematics', 'numeracy'],
+    sel: ['sel', 'social emotional', 'social emotional learning', 'behavior'],
+    behavior: ['behavior', 'behavioral', 'sel'],
+    attendance: ['attendance', 'engagement'],
+    universal: ['universal', 'all', 'whole school', 'schoolwide']
+};
 const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];
 const slugifyName = (value = '') =>
     value
@@ -125,7 +133,16 @@ const getStrategies = async (req, res) => {
         if (type) {
             const typeFilters = type.split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
             if (typeFilters.length) {
-                orFilters.push({ bestFor: { $in: typeFilters } }, { tags: { $in: typeFilters } });
+                const expanded = new Set();
+                typeFilters.forEach((token) => {
+                    if (!token) return;
+                    expanded.add(token);
+                    (TYPE_ALIAS_MAP[token] || []).forEach((alias) => expanded.add(alias.toLowerCase()));
+                });
+                const regexFilters = Array.from(expanded).map((token) => new RegExp(`^${token}$`, 'i'));
+                if (regexFilters.length) {
+                    orFilters.push({ bestFor: { $in: regexFilters } }, { tags: { $in: regexFilters } });
+                }
             }
         }
 
@@ -431,9 +448,29 @@ const getMyAssignedStudents = async (req, res) => {
     }
 };
 
+const deriveAllowedGradesForUser = (user = {}) => {
+    const grades = new Set();
+    (user.classes || []).forEach((cls) => {
+        if (cls?.grade) {
+            grades.add(cls.grade.toString().trim());
+        }
+    });
+    const unit = (user.unit || '').toLowerCase();
+    if (!grades.size && unit) {
+        if (unit === 'junior high') {
+            ['Grade 7', 'Grade 8', 'Grade 9'].forEach((grade) => grades.add(grade));
+        } else if (unit === 'elementary') {
+            ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'].forEach((grade) => grades.add(grade));
+        } else if (unit === 'kindergarten' || unit === 'pelangi') {
+            ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2'].forEach((grade) => grades.add(grade));
+        }
+    }
+    return Array.from(grades);
+};
+
 const listMentors = async (req, res) => {
     try {
-        const { search } = req.query;
+        const { search, unit } = req.query;
         const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
         const filter = {
             role: { $in: MTSS_MENTOR_ROLES },
@@ -450,10 +487,27 @@ const listMentors = async (req, res) => {
             ];
         }
 
-        const mentors = await User.find(filter)
+        if (unit) {
+            filter.unit = unit;
+        }
+
+        let mentors = await User.find(filter)
             .select('name email username role jobPosition unit gender classes')
             .sort({ name: 1 })
-            .limit(limit);
+            .limit(limit)
+            .lean();
+
+        const viewerIsPrincipal = req.user?.role === 'head_unit';
+        if (viewerIsPrincipal && !unit) {
+            const allowedGrades = deriveAllowedGradesForUser(req.user);
+            mentors = mentors.filter((mentor) => {
+                const mentorGrades = deriveAllowedGradesForUser(mentor);
+                if (!allowedGrades.length || !mentorGrades.length) {
+                    return (mentor.unit || '').toLowerCase() === (req.user.unit || '').toLowerCase();
+                }
+                return mentorGrades.some((grade) => allowedGrades.includes(grade));
+            });
+        }
 
         sendSuccess(res, 'Mentors retrieved', { mentors });
     } catch (error) {

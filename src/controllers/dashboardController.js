@@ -635,6 +635,7 @@ const getDashboardStats = async (req, res) => {
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
                 submittedAt: checkin.submittedAt,
+                date: checkin.date || checkin.submittedAt || checkin.createdAt,
                 status: checkin.supportContactResponse?.status || 'pending',
                 supportContact: checkin.supportContactUserId ? {
                     id: checkin.supportContactUserId._id,
