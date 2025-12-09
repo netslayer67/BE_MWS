@@ -928,8 +928,8 @@ IMPORTANT FOR PERSONAL GROWTH:
         const avg = (Number(presenceLevel) + Number(capacityLevel)) / 2 || 0;
         const descriptor = avg >= 7 ? 'buoyant'
             : avg >= 5 ? 'steady'
-            : avg >= 3 ? 'sensitive'
-            : 'delicate';
+                : avg >= 3 ? 'sensitive'
+                    : 'delicate';
 
         const tips = [
             'Honor micro-rests between tasks to preserve momentum.',
@@ -1086,7 +1086,7 @@ const generatePersonalizedGreeting = async (checkinData, aiAnalysis) => {
     try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
         const prompt = `
 You are an empathetic AI wellness coach. Based on this emotional check-in data, create a personalized, warm greeting (just 2-4 words) that acknowledges their current emotional state and makes them feel seen and supported.
