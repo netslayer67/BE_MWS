@@ -1,3 +1,5 @@
+const { INTERVENTION_TYPES, TIER_LABELS } = require('../constants/mtss');
+
 const STATUS_LABELS = {
     active: 'On Track',
     paused: 'Needs Attention',
@@ -59,6 +61,48 @@ const mapTierLabel = (tier = '') => {
     if (normalized.includes('3')) return 'Tier 3';
     if (normalized.includes('1')) return 'Tier 1';
     return 'Tier 2';
+};
+
+const tierLabelFromCode = (code = 'tier1') => TIER_LABELS[code] || mapTierLabel(code);
+
+const INTERVENTION_LOOKUP = new Map(INTERVENTION_TYPES.map((type) => [type.key, type]));
+
+const buildInterventionDisplay = (entry = {}, meta) => {
+    const tierCode = (entry.tier || 'tier1').toString().toLowerCase();
+    return {
+        type: meta.key,
+        label: meta.label,
+        accent: meta.accent,
+        tierCode,
+        tier: tierLabelFromCode(tierCode),
+        status: entry.status || 'monitoring',
+        strategies: Array.isArray(entry.strategies) ? entry.strategies.filter(Boolean) : [],
+        notes: entry.notes || '',
+        updatedAt: entry.updatedAt || null,
+        updatedBy: entry.updatedBy || null,
+        assignedMentor: entry.assignedMentor || null,
+        history: Array.isArray(entry.history) ? entry.history : []
+    };
+};
+
+const buildStudentInterventions = (studentDoc = {}) => {
+    const raw = Array.isArray(studentDoc.interventions) ? studentDoc.interventions : [];
+    const map = new Map();
+    raw.forEach((entry = {}) => {
+        const typeKey = entry.type ? entry.type.toString().toUpperCase() : null;
+        if (!typeKey || !INTERVENTION_LOOKUP.has(typeKey)) return;
+        map.set(typeKey, entry);
+    });
+    return INTERVENTION_TYPES.map((meta) => buildInterventionDisplay(map.get(meta.key) || {}, meta));
+};
+
+const pickPrimaryIntervention = (interventions = []) => {
+    if (!interventions.length) return null;
+    const prioritized = interventions
+        .filter((entry) => entry.tierCode !== 'tier1')
+        .sort((a, b) => (TIER_PRIORITY[b.tier] || 0) - (TIER_PRIORITY[a.tier] || 0));
+    if (prioritized.length) return prioritized[0];
+    return interventions[0];
 };
 
 const deriveFocusArea = (assignment = {}) => {
@@ -189,50 +233,133 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
 };
 
 const formatRosterStudent = (studentDoc, summary) => {
+
     const source = typeof studentDoc?.toObject === 'function' ? studentDoc.toObject() : { ...studentDoc };
+
     const support = summary || defaultProfile;
+
     const gradeLabel = source.currentGrade || source.className || '-';
+
     const slug = source.slug || slugifyValue(source.name || '');
+
     const username = source.username || source.nickname || source.name;
 
+
+
     const profileSource = support.profile || defaultProfile.profile;
+
     const safeProfile = {
+
         ...profileSource,
+
         mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor'
+
     };
+
     const teacherRoster = Array.isArray(support.teacherRoster)
+
         ? support.teacherRoster
+
         : Array.isArray(safeProfile.teacherRoster)
+
             ? safeProfile.teacherRoster
+
             : safeProfile.teacher
+
                 ? [safeProfile.teacher]
+
                 : [];
+
     const mentorLabel = teacherRoster[0] || safeProfile.mentor;
+
     safeProfile.teacherRoster = teacherRoster;
-    safeProfile.teacher = teacherRoster.length ? teacherRoster.join(' • ') : safeProfile.teacher;
+
+    safeProfile.teacher = teacherRoster.length ? teacherRoster.join('  ') : safeProfile.teacher;
+
     safeProfile.mentor = mentorLabel;
 
+    const interventions = buildStudentInterventions(source);
+
+    const highlight = pickPrimaryIntervention(interventions);
+
+    const typeLabel = support?.type && support.type !== defaultProfile.type
+
+        ? support.type
+
+        : highlight?.label || support.type;
+
+    const tierLabel = support?.tier && support.tier !== defaultProfile.tier
+
+        ? support.tier
+
+        : highlight?.tier || support.tier;
+
+    safeProfile.interventions = interventions;
+
+
+
     return {
+
         id: source._id,
+
         name: source.name,
+
         slug,
+
         nickname: source.nickname,
+
         username,
+
         gender: source.gender,
+
         email: source.email,
+
         currentGrade: source.currentGrade,
+
         className: source.className,
+
         joinAcademicYear: source.joinAcademicYear,
+
         status: source.status,
+
         grade: gradeLabel,
+
         mentor: mentorLabel,
+
         teachers: teacherRoster,
-        type: support.type,
-        tier: support.tier,
+
+        type: typeLabel,
+
+        tier: tierLabel,
+
         progress: support.progress,
+
         nextUpdate: support.nextUpdate,
-        profile: safeProfile
+
+        profile: safeProfile,
+
+        interventions,
+
+        primaryIntervention: highlight
+
+            ? {
+
+                type: highlight.type,
+
+                label: highlight.label,
+
+                tier: highlight.tier,
+
+                tierCode: highlight.tierCode,
+
+                status: highlight.status
+
+            }
+
+            : null
+
     };
+
 };
 
 module.exports = {
@@ -244,5 +371,7 @@ module.exports = {
     inferNextUpdate,
     mapTierLabel,
     summarizeAssignmentsForStudents,
-    formatRosterStudent
+    formatRosterStudent,
+    buildStudentInterventions,
+    pickPrimaryIntervention
 };

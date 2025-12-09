@@ -1,4 +1,22 @@
 const Joi = require('joi');
+const {
+    INTERVENTION_TYPE_KEYS,
+    INTERVENTION_TIER_CODES,
+    INTERVENTION_STATUSES
+} = require('../constants/mtss');
+
+const objectIdSchema = Joi.string().regex(/^[0-9a-fA-F]{24}$/);
+
+const interventionPayloadSchema = Joi.object({
+    type: Joi.string().valid(...INTERVENTION_TYPE_KEYS).required(),
+    tier: Joi.string().valid(...INTERVENTION_TIER_CODES).optional(),
+    status: Joi.string().valid(...INTERVENTION_STATUSES).optional(),
+    strategies: Joi.array().items(Joi.string()).optional(),
+    notes: Joi.string().allow('', null),
+    assignedMentor: objectIdSchema.allow(null),
+    updatedBy: objectIdSchema.allow(null),
+    updatedAt: Joi.date().optional()
+});
 
 // User validation schemas
 const userLoginSchema = Joi.object({
@@ -191,6 +209,15 @@ const mentorAssignmentUpdateSchema = Joi.object({
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
     endDate: Joi.date().optional(),
     notes: Joi.string().optional(),
+    metricLabel: Joi.string().allow('', null),
+    baselineScore: Joi.object({
+        value: Joi.number().optional(),
+        unit: Joi.string().allow('', null)
+    }).optional(),
+    targetScore: Joi.object({
+        value: Joi.number().optional(),
+        unit: Joi.string().allow('', null)
+    }).optional(),
     goals: Joi.array().items(Joi.object({
         description: Joi.string().required(),
         successCriteria: Joi.string().optional(),
@@ -199,7 +226,11 @@ const mentorAssignmentUpdateSchema = Joi.object({
     checkIns: Joi.array().items(Joi.object({
         date: Joi.date().optional(),
         summary: Joi.string().required(),
-        nextSteps: Joi.string().optional()
+        nextSteps: Joi.string().optional(),
+        value: Joi.number().optional(),
+        unit: Joi.string().allow('', null),
+        performed: Joi.boolean().optional(),
+        celebration: Joi.string().allow('', null)
     })).optional()
 });
 
@@ -214,7 +245,8 @@ const mtssStudentCreateSchema = Joi.object({
     className: Joi.string().max(120).optional(),
     joinAcademicYear: Joi.string().max(20).optional(),
     tags: Joi.array().items(Joi.string()).optional(),
-    notes: Joi.string().max(500).optional()
+    notes: Joi.string().max(500).optional(),
+    interventions: Joi.array().items(interventionPayloadSchema).optional()
 });
 
 const mtssStudentUpdateSchema = Joi.object({
@@ -228,7 +260,8 @@ const mtssStudentUpdateSchema = Joi.object({
     className: Joi.string().max(120).optional(),
     joinAcademicYear: Joi.string().max(20).optional(),
     tags: Joi.array().items(Joi.string()).optional(),
-    notes: Joi.string().max(500).optional()
+    notes: Joi.string().max(500).optional(),
+    interventions: Joi.array().items(interventionPayloadSchema).optional()
 });
 
 module.exports = {

@@ -36,6 +36,7 @@ const authenticate = async (req, res, next) => {
             unit: user.unit,
             jobPosition: user.jobPosition,
             googleId: user.googleId,
+            classes: user.classes || [],
             dashboardRole: dashboardAccess.effectiveRole,
             dashboardAccess
         };

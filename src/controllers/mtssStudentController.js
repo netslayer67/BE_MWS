@@ -3,8 +3,21 @@ const MTSSStudent = require('../models/MTSSStudent');
 const MentorAssignment = require('../models/MentorAssignment');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
-const { summarizeAssignmentsForStudents, formatRosterStudent, defaultProfile } = require('../utils/mtssStudentHelpers');
+const {
+    summarizeAssignmentsForStudents,
+    formatRosterStudent,
+    defaultProfile,
+    pickPrimaryIntervention
+} = require('../utils/mtssStudentHelpers');
 const { emitStudentsChanged } = require('../services/mtssRealtimeService');
+const { INTERVENTION_TYPE_KEYS, INTERVENTION_STATUSES } = require('../constants/mtss');
+const {
+    buildGradeFilterClauses,
+    buildClassFilterClauses,
+    deriveAllowedGradesForUser,
+    deriveAllowedClassNamesForUser,
+    deriveGradesForUnit
+} = require('../utils/mtssAccess');
 
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
 
@@ -34,6 +47,76 @@ const normalizeGender = (gender) => {
     return allowed.includes(normalized) ? normalized : 'other';
 };
 
+const TIER_CODES = ['tier1', 'tier2', 'tier3'];
+const STATUS_SET = new Set(INTERVENTION_STATUSES);
+const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
+
+const normalizeTierCode = (tier) => {
+    if (!tier) return 'tier1';
+    const normalized = tier.toString().trim().toLowerCase();
+    return TIER_CODES.includes(normalized) ? normalized : 'tier1';
+};
+
+const normalizeStatusValue = (status) => {
+    if (!status) return 'monitoring';
+    const normalized = status.toString().trim().toLowerCase();
+    return STATUS_SET.has(normalized) ? normalized : 'monitoring';
+};
+
+const normalizeInterventionEntry = (entry = {}) => {
+    const typeKey = entry.type ? entry.type.toString().trim().toUpperCase() : null;
+    if (!typeKey || !INTERVENTION_TYPE_KEYS.includes(typeKey)) return null;
+    const normalized = {
+        type: typeKey,
+        tier: normalizeTierCode(entry.tier),
+        status: normalizeStatusValue(entry.status),
+        strategies: Array.isArray(entry.strategies) ? entry.strategies.filter(Boolean) : [],
+        notes: normalizeValue(entry.notes),
+        updatedAt: entry.updatedAt ? new Date(entry.updatedAt) : new Date()
+    };
+
+    if (entry.assignedMentor && mongoose.Types.ObjectId.isValid(entry.assignedMentor)) {
+        normalized.assignedMentor = entry.assignedMentor;
+    }
+    if (entry.updatedBy && mongoose.Types.ObjectId.isValid(entry.updatedBy)) {
+        normalized.updatedBy = entry.updatedBy;
+    }
+    if (Array.isArray(entry.history)) {
+        normalized.history = entry.history
+            .map((record) => ({
+                tier: normalizeTierCode(record.tier),
+                status: normalizeStatusValue(record.status),
+                notes: normalizeValue(record.notes),
+                updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+                updatedBy: record.updatedBy && mongoose.Types.ObjectId.isValid(record.updatedBy)
+                    ? record.updatedBy
+                    : undefined
+            }))
+            .filter(Boolean);
+    }
+
+    return normalized;
+};
+
+const normalizeInterventions = (entries) => {
+    const map = new Map();
+    if (Array.isArray(entries)) {
+        entries.forEach((entry) => {
+            const normalized = normalizeInterventionEntry(entry);
+            if (normalized) {
+                map.set(normalized.type, normalized);
+            }
+        });
+    }
+    return INTERVENTION_TYPE_KEYS.map((typeKey) => map.get(typeKey) || {
+        type: typeKey,
+        tier: 'tier1',
+        status: 'monitoring',
+        strategies: [],
+        notes: ''
+    });
+};
+
 const sanitizeStudentPayload = (payload = {}) => {
     const sanitized = {
         name: normalizeValue(payload.name),
@@ -49,6 +132,10 @@ const sanitizeStudentPayload = (payload = {}) => {
         notes: normalizeValue(payload.notes)
     };
 
+    if (payload.interventions) {
+        sanitized.interventions = normalizeInterventions(payload.interventions);
+    }
+
     Object.keys(sanitized).forEach((key) => {
         if (sanitized[key] === undefined || sanitized[key] === null || sanitized[key] === '') {
             delete sanitized[key];
@@ -58,12 +145,32 @@ const sanitizeStudentPayload = (payload = {}) => {
     return sanitized;
 };
 
-const deriveGradesForUnit = (unit = '') => {
-    const normalized = unit.toLowerCase();
-    if (normalized === 'junior high') return ['Grade 7', 'Grade 8', 'Grade 9'];
-    if (normalized === 'elementary') return ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'];
-    if (normalized === 'kindergarten' || normalized === 'pelangi') return ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2', 'Kindergarten'];
-    return [];
+const applyViewerScope = (filter = {}, viewer = {}) => {
+    if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
+        return filter;
+    }
+
+    const viewerUnit = (viewer.unit || '').toLowerCase();
+    let gradeClauses = buildGradeFilterClauses(deriveAllowedGradesForUser(viewer));
+    const classClauses = buildClassFilterClauses(deriveAllowedClassNamesForUser(viewer));
+
+    const scopeClauses = [...classClauses, ...gradeClauses];
+    if (scopeClauses.length) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: scopeClauses });
+        return filter;
+    }
+
+    const unitGrades = deriveGradesForUnit(viewer.unit || '');
+    if (unitGrades.length) {
+        const unitGradeClauses = buildGradeFilterClauses(unitGrades);
+        if (unitGradeClauses.length) {
+            filter.$and = filter.$and || [];
+            filter.$and.push({ $or: unitGradeClauses });
+        }
+    }
+
+    return filter;
 };
 
 const buildFilter = (query = {}) => {
@@ -75,13 +182,17 @@ const buildFilter = (query = {}) => {
     }
 
     const gradeList = normalizeList(query.grade);
-    if (gradeList.length) {
-        filter.currentGrade = { $in: gradeList };
+    const gradeClauses = buildGradeFilterClauses(gradeList);
+    if (gradeClauses.length) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: gradeClauses });
     }
 
     const classList = normalizeList(query.className);
-    if (classList.length) {
-        filter.className = { $in: classList };
+    const classClauses = buildClassFilterClauses(classList);
+    if (classClauses.length) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: classClauses });
     }
 
     const genderList = normalizeList(query.gender).map((gender) => gender.toLowerCase());
@@ -91,8 +202,11 @@ const buildFilter = (query = {}) => {
 
     const unitGrades = deriveGradesForUnit(query.unit || '');
     if (unitGrades.length) {
-        const existing = filter.currentGrade ? filter.currentGrade.$in || [] : [];
-        filter.currentGrade = { $in: Array.from(new Set([...unitGrades, ...existing])) };
+        const unitGradeClauses = buildGradeFilterClauses(unitGrades);
+        if (unitGradeClauses.length) {
+            filter.$and = filter.$and || [];
+            filter.$and.push({ $or: unitGradeClauses });
+        }
     }
 
     if (query.search) {
@@ -108,11 +222,14 @@ const buildStudentSummary = (students = []) => {
     const interventionCounts = {};
 
     students.forEach((student) => {
-        const tier = student.tier || 'Tier 1';
+        const interventions = Array.isArray(student.interventions) ? student.interventions : [];
+        const focus = pickPrimaryIntervention(interventions);
+        const tier = focus?.tier || student.tier || 'Tier 1';
+        const type = focus?.label || student.type;
         tierCounts[tier] = (tierCounts[tier] || 0) + 1;
 
-        if (student.type) {
-            interventionCounts[student.type] = (interventionCounts[student.type] || 0) + 1;
+        if (type) {
+            interventionCounts[type] = (interventionCounts[type] || 0) + 1;
         }
     });
 
@@ -233,7 +350,7 @@ const listStudents = async (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
         const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
         const skip = (page - 1) * limit;
-        const filter = buildFilter(req.query);
+        const filter = applyViewerScope(buildFilter(req.query), req.user);
 
         const [students, total] = await Promise.all([
             MTSSStudent.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),

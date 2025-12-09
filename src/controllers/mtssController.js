@@ -5,6 +5,10 @@ const MentorAssignment = require('../models/MentorAssignment');
 const User = require('../models/User');
 const MTSSStudent = require('../models/MTSSStudent');
 const { emitAssignmentEvent } = require('../services/mtssRealtimeService');
+const {
+    deriveAllowedGradesForUser,
+    deriveAllowedClassNamesForUser
+} = require('../utils/mtssAccess');
 
 const TIER_ORDER = {
     tier1: 1,
@@ -383,6 +387,18 @@ const updateMentorAssignment = async (req, res) => {
             return sendError(res, 'Mentor assignment not found', 404);
         }
 
+        const isAdmin = isMTSSAdminRole(req.user.role);
+        const viewerId = req.user.id?.toString?.();
+        const isAssignedMentor = assignment.mentorId?.toString() === viewerId;
+
+        if (!isAdmin && !isAssignedMentor) {
+            return sendError(res, 'Only the assigned mentor or MTSS admin can update this assignment', 403);
+        }
+
+        if (Array.isArray(checkIns) && checkIns.length && !isAssignedMentor) {
+            return sendError(res, 'Only the assigned mentor can submit progress updates', 403);
+        }
+
         if (Array.isArray(focusAreas)) {
             const cleaned = focusAreas.map(area => area?.trim()).filter(Boolean);
             assignment.focusAreas = cleaned.length ? cleaned : ['Universal Supports'];
@@ -448,26 +464,6 @@ const getMyAssignedStudents = async (req, res) => {
     }
 };
 
-const deriveAllowedGradesForUser = (user = {}) => {
-    const grades = new Set();
-    (user.classes || []).forEach((cls) => {
-        if (cls?.grade) {
-            grades.add(cls.grade.toString().trim());
-        }
-    });
-    const unit = (user.unit || '').toLowerCase();
-    if (!grades.size && unit) {
-        if (unit === 'junior high') {
-            ['Grade 7', 'Grade 8', 'Grade 9'].forEach((grade) => grades.add(grade));
-        } else if (unit === 'elementary') {
-            ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'].forEach((grade) => grades.add(grade));
-        } else if (unit === 'kindergarten' || unit === 'pelangi') {
-            ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2'].forEach((grade) => grades.add(grade));
-        }
-    }
-    return Array.from(grades);
-};
-
 const listMentors = async (req, res) => {
     try {
         const { search, unit } = req.query;
@@ -497,15 +493,26 @@ const listMentors = async (req, res) => {
             .limit(limit)
             .lean();
 
-        const viewerIsPrincipal = req.user?.role === 'head_unit';
-        if (viewerIsPrincipal && !unit) {
+        const viewerIsScopedLeader = ['head_unit', 'teacher', 'se_teacher'].includes(req.user?.role);
+        if (viewerIsScopedLeader && !unit) {
             const allowedGrades = deriveAllowedGradesForUser(req.user);
+            const allowedClasses = deriveAllowedClassNamesForUser(req.user);
             mentors = mentors.filter((mentor) => {
                 const mentorGrades = deriveAllowedGradesForUser(mentor);
-                if (!allowedGrades.length || !mentorGrades.length) {
+                const mentorClasses = deriveAllowedClassNamesForUser(mentor);
+                const matchesGrade =
+                    allowedGrades.length && mentorGrades.length
+                        ? mentorGrades.some((grade) => allowedGrades.includes(grade))
+                        : false;
+                const matchesClass =
+                    allowedClasses.length && mentorClasses.length
+                        ? mentorClasses.some((cls) => allowedClasses.includes(cls))
+                        : false;
+                if (matchesGrade || matchesClass) return true;
+                if (!allowedGrades.length && !allowedClasses.length) {
                     return (mentor.unit || '').toLowerCase() === (req.user.unit || '').toLowerCase();
                 }
-                return mentorGrades.some((grade) => allowedGrades.includes(grade));
+                return false;
             });
         }
 
