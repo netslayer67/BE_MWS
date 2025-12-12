@@ -57,8 +57,8 @@ const getDashboardStats = async (req, res) => {
                 break;
             }
             case 'all': {
-                // Include the entire emotional wellness history
-                startDate = startOfDay(new Date(0));
+                // We'll determine earliest available check-in later
+                startDate = null;
                 endDate = endOfDay(now);
                 break;
             }
@@ -74,6 +74,17 @@ const getDashboardStats = async (req, res) => {
             const selectedDate = new Date(date);
             startDate = startOfDay(selectedDate);
             endDate = endOfDay(selectedDate);
+        }
+
+        // For "all" period without a specific date, start from earliest check-in
+        if (!date && period === 'all' && !startDate) {
+            const earliestCheckin = await EmotionalCheckin.findOne({}, 'date').sort({ date: 1 });
+            startDate = startOfDay(earliestCheckin?.date || now);
+        }
+
+        // Fallback safeguard
+        if (!startDate) {
+            startDate = startOfDay(now);
         }
 
         // Check cache first (skip if force refresh requested)
