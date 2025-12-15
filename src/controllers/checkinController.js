@@ -57,6 +57,19 @@ const computeStreaksFromBuckets = (buckets = []) => {
     };
 };
 
+const toPlainObject = (value) => {
+    if (!value) return null;
+    if (typeof value.toObject === 'function') {
+        return value.toObject();
+    }
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch (err) {
+        console.warn('Failed to serialize AI analysis snapshot:', err.message);
+        return value;
+    }
+};
+
 const formatCheckinSnapshot = (checkin) => {
     if (!checkin) {
         return null;
@@ -72,16 +85,7 @@ const formatCheckinSnapshot = (checkin) => {
         selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
         presenceLevel: typeof checkin.presenceLevel === 'number' ? checkin.presenceLevel : null,
         capacityLevel: typeof checkin.capacityLevel === 'number' ? checkin.capacityLevel : null,
-        aiAnalysis: checkin.aiAnalysis ? {
-            emotionalState: checkin.aiAnalysis.emotionalState,
-            presenceState: checkin.aiAnalysis.presenceState,
-            capacityState: checkin.aiAnalysis.capacityState,
-            needsSupport: !!checkin.aiAnalysis.needsSupport,
-            confidence: checkin.aiAnalysis.confidence,
-            motivationalMessage: checkin.aiAnalysis.motivationalMessage,
-            psychologicalInsights: checkin.aiAnalysis.psychologicalInsights,
-            personalizedGreeting: checkin.aiAnalysis.personalizedGreeting
-        } : null,
+        aiAnalysis: toPlainObject(checkin.aiAnalysis),
         reflections: {
             details: checkin.details || '',
             userReflection: checkin.userReflection || ''
@@ -953,26 +957,28 @@ const getAvailableContacts = async (req, res) => {
 
 // Analyze emotion from captured image
 const analyzeEmotion = async (req, res) => {
-    try {
-        const { sendSuccess } = require('../utils/response');
-        const fs = require('fs');
-        const googleAI = require('../config/googleAI');
+    const { sendSuccess, sendError } = require('../utils/response');
+    const fs = require('fs');
+    const googleAI = require('../config/googleAI');
 
+    let usedFallback = false;
+    let fallbackMessage = null;
+    let emotionResult = null;
+
+    try {
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No image file provided' });
         }
 
-        console.log('🖼️ Received image for emotion analysis, size:', req.file.size);
+        console.log('??? Received image for emotion analysis, size:', req.file.size);
 
-        // Convert image to base64
-        if (!req.file || !req.file.path) {
+        if (!req.file.path) {
             return res.status(400).json({ success: false, message: 'No image file path provided' });
         }
 
-        const fileImageData = fs.readFileSync(req.file.path);
-        const base64Image = fileImageData.toString('base64');
+        const fsData = fs.readFileSync(req.file.path);
+        const base64Image = fsData.toString('base64');
 
-        // Simplified prompt for emotion analysis to avoid model overload
         const analysisPrompt = `Analyze this facial image and return ONLY a valid JSON object with emotion analysis:
 
 {
@@ -987,26 +993,39 @@ const analyzeEmotion = async (req, res) => {
 
 Keep the analysis simple and focused on basic facial emotion recognition.`;
 
-        console.log('🤖 Sending image to Google AI for emotion analysis...');
+        console.log('?? Sending image to Google AI for emotion analysis...');
 
-        // Generate content with image
-        const aiResponse = await googleAI.generateContent([
-            analysisPrompt,
-            {
-                inlineData: {
-                    mimeType: req.file.mimetype,
-                    data: base64Image
+        let aiResponse;
+        try {
+            aiResponse = await googleAI.generateContent([
+                analysisPrompt,
+                {
+                    inlineData: {
+                        mimeType: req.file.mimetype,
+                        data: base64Image
+                    }
                 }
-            }
-        ]);
+            ]);
+        } catch (apiError) {
+            console.error('? Vision AI request failed:', apiError.message);
+            usedFallback = true;
+            fallbackMessage = 'AI vision service hit a quota wall. Providing supportive insights instead—Manual Check-in remains available.';
+            emotionResult = buildVisionFallbackResult();
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+            return sendSuccess(res, 'Emotion analysis fallback used', {
+                emotionResult,
+                fallback: true,
+                aiUnavailable: true,
+                message: fallbackMessage,
+                suggestManualCheckin: true
+            });
+        }
 
-        console.log('🔍 aiResponse type:', typeof aiResponse);
-        console.log('🔍 aiResponse keys:', Object.keys(aiResponse || {}));
-        console.log('🔍 Full AI Response Object:', JSON.stringify(aiResponse, null, 2));
+        console.log('?? aiResponse type:', typeof aiResponse);
+        console.log('?? aiResponse keys:', Object.keys(aiResponse || {}));
 
-        // Extract text from AI response with multiple fallback paths
         const candidate = aiResponse?.candidates?.[0] || aiResponse?.choices?.[0] || aiResponse?.output?.[0];
-        console.log('🔍 Candidate object:', JSON.stringify(candidate, null, 2));
+        console.log('?? Candidate object:', JSON.stringify(candidate || {}, null, 2));
 
         const aiText =
             candidate?.content?.parts?.[0]?.text ||
@@ -1016,70 +1035,130 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             candidate?.output_text ||
             null;
 
-        console.log('📝 Extracted aiText:', aiText);
-        console.log('📝 aiText type:', typeof aiText);
-        console.log('📝 aiText length:', aiText?.length);
-
         if (!aiText) {
-            console.error('❌ No text payload found in AI response');
-            console.error('❌ aiResponse structure:', {
-                hasCandidates: !!aiResponse?.candidates,
-                candidatesLength: aiResponse?.candidates?.length,
-                hasChoices: !!aiResponse?.choices,
-                hasOutput: !!aiResponse?.output,
-                responseKeys: Object.keys(aiResponse || {})
-            });
-            return res.status(500).json({ success: false, message: 'AI response missing text payload' });
-        }
+            console.error('? No text payload found in AI response');
+            usedFallback = true;
+            fallbackMessage = 'AI response did not contain readable text. Using supportive fallback insights.';
+            emotionResult = buildVisionFallbackResult();
+        } else {
+            console.log('?? Raw AI text:', aiText.substring(0, 200) + '...');
+            try {
+                let cleanText = String(aiText).trim();
+                cleanText = cleanText.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+                emotionResult = JSON.parse(cleanText);
+            } catch (parseError) {
+                console.error('? Failed to parse AI response as JSON:', parseError);
+                const jsonMatch = aiText.match(/(\{[\s\S]*\})/);
+                if (jsonMatch) {
+                    try {
+                        emotionResult = JSON.parse(jsonMatch[1]);
+                        console.log('? Successfully extracted and parsed JSON from text');
+                    } catch (extractError) {
+                        console.error('? Failed to parse extracted JSON:', extractError);
+                    }
+                }
 
-        console.log('📝 Extracted AI text:', aiText);
-
-        // Parse the JSON response
-        let emotionResult;
-        try {
-            // Clean the response text (remove markdown code blocks if present)
-            let cleanText = String(aiText).trim();
-            cleanText = cleanText.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-
-            // Try to parse JSON directly
-            emotionResult = JSON.parse(cleanText);
-        } catch (parseError) {
-            console.error('❌ Failed to parse AI response as JSON:', parseError);
-            console.error('Raw AI text:', aiText);
-
-            // Try to extract JSON object from text
-            const jsonMatch = aiText.match(/(\{[\s\S]*\})/);
-            if (jsonMatch) {
-                try {
-                    emotionResult = JSON.parse(jsonMatch[1]);
-                    console.log('✅ Successfully extracted and parsed JSON from text');
-                } catch (extractError) {
-                    console.error('❌ Failed to parse extracted JSON:', extractError);
+                if (!emotionResult) {
+                    usedFallback = true;
+                    fallbackMessage = 'AI vision response was incomplete. Generated compassionate fallback guidance instead.';
+                    emotionResult = buildVisionFallbackResult();
                 }
             }
-
-            // No fallback analysis - must be 100% AI-powered
-            if (!emotionResult) {
-                console.error('❌ AI emotion analysis completely failed - no fallback available');
-                return res.status(503).json({
-                    success: false,
-                    message: 'AI emotion analysis service is temporarily unavailable. Please try again later.',
-                    error: 'AI_SERVICE_UNAVAILABLE'
-                });
-            }
         }
 
-        // Clean up uploaded file
-        fs.unlinkSync(req.file.path);
+        try {
+            fs.unlinkSync(req.file.path);
+        } catch (cleanupErr) {
+            console.warn('Could not clean up temp file:', cleanupErr.message);
+        }
 
-        console.log('🎯 Real AI emotion analysis completed:', emotionResult.primaryEmotion);
-        sendSuccess(res, 'Emotion analysis completed', { emotionResult });
+        const payload = { emotionResult };
+        if (usedFallback) {
+            payload.fallback = true;
+            payload.aiUnavailable = true;
+            payload.message = fallbackMessage || 'AI service temporarily unavailable. Showing supportive fallback data.';
+            payload.suggestManualCheckin = true;
+        }
+
+        console.log('?? Vision analysis completed:', emotionResult.primaryEmotion);
+        sendSuccess(res, usedFallback ? 'Emotion analysis fallback used' : 'Emotion analysis completed', payload);
 
     } catch (error) {
-        console.error('❌ Emotion analysis error:', error);
-        const { sendError } = require('../utils/response');
+        console.error('? Emotion analysis error:', error);
         sendError(res, 'Failed to analyze emotion', 500);
     }
+};
+
+const buildVisionFallbackResult = (seed = Date.now()) => {
+    const templates = [
+        {
+            primaryEmotion: 'calm',
+            secondaryEmotions: ['reflective', 'grounded'],
+            valence: 0.2,
+            arousal: -0.1,
+            intensity: 46,
+            confidence: 62,
+            explanations: [
+                'Soft jaw and steady gaze often align with regulated states.',
+                'Micro-movements suggest thoughtful processing versus distress.',
+                'Energy seems balanced—ideal moment for gentle anchoring rituals.'
+            ],
+            grounding: 'Relax shoulders and inhale for four counts, exhale for six.',
+            microAction: 'Write one gratitude sentence before moving to the next task.'
+        },
+        {
+            primaryEmotion: 'thoughtful',
+            secondaryEmotions: ['curious', 'reserved'],
+            valence: 0.05,
+            arousal: 0.15,
+            intensity: 58,
+            confidence: 59,
+            explanations: [
+                'Raised brows plus neutral mouth often signal active problem-solving.',
+                'Eye focus indicates engagement rather than overwhelm.',
+                'Pair this focus with micro breaks to avoid cognitive fatigue.'
+            ],
+            grounding: 'Set a 5-minute timer to capture ideas without judgment.',
+            microAction: 'Stretch wrists and neck before resuming concentration.'
+        },
+        {
+            primaryEmotion: 'tired',
+            secondaryEmotions: ['determined', 'sensitive'],
+            valence: -0.15,
+            arousal: -0.2,
+            intensity: 63,
+            confidence: 55,
+            explanations: [
+                'Slightly lowered eyelids and mouth tension can appear after long effort.',
+                'Body language indicates commitment despite low reserves.',
+                'Blend courage with restoration so the nervous system feels safe.'
+            ],
+            grounding: 'Close eyes for 60 seconds and visualize a comforting color.',
+            microAction: 'Tell yourself one compassionate sentence aloud.'
+        },
+        {
+            primaryEmotion: 'hopeful',
+            secondaryEmotions: ['engaged', 'warm'],
+            valence: 0.35,
+            arousal: 0.18,
+            intensity: 70,
+            confidence: 64,
+            explanations: [
+                'Lift in cheek muscles and open posture indicate optimistic focus.',
+                'Subtle smile signals readiness for next steps.',
+                'Capture this momentum by defining one meaningful win for today.'
+            ],
+            grounding: 'Share a quick encouragement message with someone you trust.',
+            microAction: 'Document why this moment of hope matters for future-you.'
+        }
+    ];
+
+    const option = templates[seed % templates.length];
+    return {
+        ...option,
+        narrative: option.explanations[0],
+        fallback: true
+    };
 };
 
 // Submit AI emotion scan check-in (separate from manual check-in)

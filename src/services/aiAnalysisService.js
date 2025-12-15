@@ -26,9 +26,15 @@ class AIAnalysisService {
             };
         }
 
-        if (this.isInCooldown()) {
-            const message = this.getCooldownMessage();
-            throw new Error(message);
+        if (!googleAI.isAvailable()) {
+            const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'ai_unavailable');
+            cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
+            return {
+                ...fallbackResult,
+                fallback: true,
+                aiUnavailable: true,
+                message: 'AI service unavailable - using smart fallback insights.'
+            };
         }
 
         if (this.isInCooldown()) {
@@ -74,8 +80,14 @@ class AIAnalysisService {
             const { checkinData, cacheKey, startTime, resolve, reject } = this.requestQueue.shift();
 
             if (this.isInCooldown()) {
-                const cooldownError = new Error(this.getCooldownMessage());
-                reject(cooldownError);
+                const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'cooldown_active');
+                cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
+                resolve({
+                    ...fallbackResult,
+                    fallback: true,
+                    cooldownActive: true,
+                    cooldownMessage: this.getCooldownMessage()
+                });
                 continue;
             }
 
@@ -142,7 +154,13 @@ class AIAnalysisService {
                     continue;
                 }
 
-                reject(error);
+                const fallbackResult = this.generateRichFallbackResponse(checkinData, startTime, 'general_failure');
+                cacheService.setCheckinAnalysis(cacheKey, fallbackResult);
+                resolve({
+                    ...fallbackResult,
+                    fallback: true,
+                    message: error.message || 'AI analysis failed - fallback data provided'
+                });
             }
         }
 
@@ -590,39 +608,58 @@ IMPORTANT FOR PERSONAL GROWTH:
             // Ultra-motivational messages with gratitude and empowerment - NOW WITH VARIATIONS
             const messageVariations = {
                 sunny_positive: [
-                    `🌞 WOW! Your radiant energy is absolutely contagious!${personalMessage} Right now, take a moment to feel grateful for this beautiful state of being.You're not just happy - you're a walking blessing who makes the world brighter just by being yourself.Keep shining, superstar! ✨`,
-                    `🌞 Your sunny disposition is like a beacon of pure joy!${personalMessage} Feel the gratitude for this incredible energy you bring to every moment.You're not just feeling good - you're SPREADING goodness everywhere you go! What a beautiful gift you are! ☀️`,
-                    `🌞 BRILLIANT! Your positive energy is absolutely magnetic!${personalMessage} Take a deep breath and feel grateful for this wonderful state.You're not just happy - you're a source of light and warmth for everyone around you! Keep radiating that beautiful energy! 🌟`
+                    `?? WOW! Your radiant energy is absolutely contagious!${personalMessage} Right now, take a moment to feel grateful for this beautiful state of being.You're not just happy - you're a walking blessing who makes the world brighter just by being yourself.Keep shining, superstar! ?`,
+                    `?? Your sunny disposition is like a beacon of pure joy!${personalMessage} Feel the gratitude for this incredible energy you bring to every moment.You're not just feeling good - you're SPREADING goodness everywhere you go! What a beautiful gift you are! ??`,
+                    `?? BRILLIANT! Your positive energy is absolutely magnetic!${personalMessage} Take a deep breath and feel grateful for this wonderful state.You're not just happy - you're a source of light and warmth for everyone around you! Keep radiating that beautiful energy! ??`
+                ],
+                steady_positive: [
+                    `?? That calm confidence you're carrying is such a gift!${personalMessage} Appreciate how grounded and steady you feel right now—this balance is something you've cultivated with care.`,
+                    `?? Your steady glow is inspiring!${personalMessage} Take pride in this quiet strength; you're showing that consistency can feel just as powerful as fireworks.`,
+                    `?? What a beautifully composed energy you bring today!${personalMessage} Savor this steady momentum—it proves how aligned your mind and heart are right now.`
                 ],
                 rainbow_positive: [
-                    `🌈 Oh my goodness, what a spectacular rainbow of joy you're radiating!${personalMessage} Each color in your emotional spectrum is a testament to your incredible resilience and depth. Feel the gratitude for this moment of beauty - YOU created this! You're absolutely magnificent! 💖`,
-                    `🌈 What a stunning display of emotional beauty you're showing!${personalMessage} Your rainbow of feelings represents such depth and wisdom. Feel grateful for this colorful journey - you're painting the world with your unique light! What a masterpiece you are! 🎨`,
-                    `🌈 INCREDIBLE! Your emotional rainbow is absolutely breathtaking!${personalMessage} Each hue tells a story of your strength and growth.Feel the gratitude for this beautiful spectrum - you're not just experiencing emotions, you're creating art with them! 🌈✨`
+                    `?? Oh my goodness, what a spectacular rainbow of joy you're radiating!${personalMessage} Each color in your emotional spectrum is a testament to your incredible resilience and depth. Feel the gratitude for this moment of beauty - YOU created this! You're absolutely magnificent! ??`,
+                    `?? What a stunning display of emotional beauty you're showing!${personalMessage} Your rainbow of feelings represents such depth and wisdom. Feel grateful for this colorful journey - you're painting the world with your unique light! What a masterpiece you are! ??`,
+                    `?? INCREDIBLE! Your emotional rainbow is absolutely breathtaking!${personalMessage} Each hue tells a story of your strength and growth.Feel the gratitude for this beautiful spectrum - you're not just experiencing emotions, you're creating art with them! ???`
                 ],
                 challenging: [
-                    `💪 Listen to me: You are STRONGER than any storm that rages around you!${personalMessage} This tough moment ? It's just weather passing through. Feel deep gratitude for your courage in facing it head-on. You're building unbreakable strength, and I am so incredibly proud of you! You've overcome harder things before, and you'll triumph again! 🌟`,
-                    `💪 You possess an inner strength that's absolutely remarkable!${personalMessage} These challenging feelings? They're temporary clouds in your sky.Feel grateful for your resilience - you're not just surviving, you're growing stronger with every breath! What a warrior you are! ⚔️`,
-                    `💪 Your courage in facing these emotions is truly heroic!${personalMessage} Remember that every storm eventually passes, and you're building character that will serve you beautifully. Feel the gratitude for your bravery - you're stronger than you know! 💪🌟`
+                    `?? Listen to me: You are STRONGER than any storm that rages around you!${personalMessage} This tough moment ? It's just weather passing through. Feel deep gratitude for your courage in facing it head-on. You're building unbreakable strength, and I am so incredibly proud of you! You've overcome harder things before, and you'll triumph again! ??`,
+                    `?? You possess an inner strength that's absolutely remarkable!${personalMessage} These challenging feelings? They're temporary clouds in your sky.Feel grateful for your resilience - you're not just surviving, you're growing stronger with every breath! What a warrior you are! ??`,
+                    `?? Your courage in facing these emotions is truly heroic!${personalMessage} Remember that every storm eventually passes, and you're building character that will serve you beautifully. Feel the gratitude for your bravery - you're stronger than you know! ????`
                 ],
                 tired_overwhelmed: [
-                    `😴 Sweet friend, your body and spirit are whispering 'rest' - and that's wisdom speaking!${personalMessage} Feel immense gratitude for all you've accomplished today.You're not weak for needing rest; you're wise for honoring your limits.Tomorrow brings fresh strength, and you're absolutely capable of amazing things! 💤✨`,
-                    `😴 Your wisdom in recognizing when to rest is absolutely beautiful!${personalMessage} Feel grateful for everything you've achieved - it's okay to pause and recharge. You're not stopping, you're strategically refueling for even greater accomplishments! What smart self-care! 🛌`,
-                    `😴 How wise you are to listen to your body's signals!${personalMessage} Feel deep gratitude for your accomplishments today. Rest isn't weakness - it's your superpower for sustainable strength. You're absolutely capable of amazing things tomorrow! 💤🌙`
+                    `?? Sweet friend, your body and spirit are whispering 'rest' - and that's wisdom speaking!${personalMessage} Feel immense gratitude for all you've accomplished today.You're not weak for needing rest; you're wise for honoring your limits.Tomorrow brings fresh strength, and you're absolutely capable of amazing things! ???`,
+                    `?? Your wisdom in recognizing when to rest is absolutely beautiful!${personalMessage} Feel grateful for everything you've achieved - it's okay to pause and recharge. You're not stopping, you're strategically refueling for even greater accomplishments! What smart self-care! ??`,
+                    `?? How wise you are to listen to your body's signals!${personalMessage} Feel deep gratitude for your accomplishments today. Rest isn't weakness - it's your superpower for sustainable strength. You're absolutely capable of amazing things tomorrow! ????`
                 ],
                 lonely_sad: [
-                    `💙 Oh precious heart, your feelings are so valid, and you're so incredibly loved!${personalMessage} Take a moment to feel grateful for the connections in your life, even the quiet ones. You're never truly alone - your spirit touches so many lives. Keep reaching out; you're worthy of deep, beautiful connections! 🤗`,
-                    `💙 Your heart is so precious and worthy of all the love in the world!${personalMessage} Feel grateful for the quiet strength within you. Even in stillness, you're connected to something much larger. You're not alone - you're deeply loved and cherished! 💙🤗`,
-                    `💙 What a beautiful, sensitive heart you have!${personalMessage} Feel the gratitude for your capacity to feel deeply. Your emotions connect you to the human experience in meaningful ways. You're worthy of love, support, and beautiful connections! 💙🌹`
+                    `?? Oh precious heart, your feelings are so valid, and you're so incredibly loved!${personalMessage} Take a moment to feel grateful for the connections in your life, even the quiet ones. You're never truly alone - your spirit touches so many lives. Keep reaching out; you're worthy of deep, beautiful connections! ??`,
+                    `?? Your heart is so precious and worthy of all the love in the world!${personalMessage} Feel grateful for the quiet strength within you. Even in stillness, you're connected to something much larger. You're not alone - you're deeply loved and cherished! ????`,
+                    `?? What a beautiful, sensitive heart you have!${personalMessage} Feel the gratitude for your capacity to feel deeply. Your emotions connect you to the human experience in meaningful ways. You're worthy of love, support, and beautiful connections! ????`
+                ],
+                creative_charge: [
+                    `?? That creative spark of yours is electric!${personalMessage} Honor the ideas flowing through you—they're evidence of your brave, imaginative spirit.`,
+                    `?? Your imagination is wide awake today!${personalMessage} Lean into that momentum; you're crafting something uniquely yours and that's thrilling.`,
+                    `?? What a brilliant creative pulse you're feeling!${personalMessage} Capture even the smallest idea—it could be the seed of something extraordinary.`
+                ],
+                default: [
+                    `? Every single emotion you experience is a precious part of your beautiful journey!${personalMessage} Feel deep gratitude for your courage in checking in with yourself. You're not just existing - you're consciously growing, healing, and becoming more authentically YOU. That's absolutely magical! ??`,
+                    `? Thank you for honoring your inner world today.${personalMessage} Your willingness to notice and name your feelings is transforming you from the inside out.`,
+                    `? What a courageous heart you have.${personalMessage} Showing up for yourself like this is proof that you are committed to living with intention and grace.`,
+                    `? Your emotional honesty is breathtaking.${personalMessage} Keep listening inward—this kind of awareness becomes a compass for an aligned, meaningful life.`
                 ]
             };
+
 
             // Select message based on conditions with randomization
             let messageKey = 'default';
             if (weatherType === 'sunny' && hasPositiveMoods) messageKey = 'sunny_positive';
             else if (weatherType === 'rainbow' && hasPositiveMoods) messageKey = 'rainbow_positive';
+            else if (hasPositiveMoods) messageKey = 'steady_positive';
             else if (hasChallengingMoods && capacityLevel <= 5) messageKey = 'challenging';
             else if (moods.includes('tired') || moods.includes('overwhelmed')) messageKey = 'tired_overwhelmed';
             else if (moods.includes('lonely') || moods.includes('sad')) messageKey = 'lonely_sad';
+            else if (moods.includes('creative') || moods.includes('curious')) messageKey = 'creative_charge';
 
             const variations = messageVariations[messageKey] || messageVariations.default || [
                 `✨ Every single emotion you experience is a precious part of your beautiful journey!${personalMessage} Feel deep gratitude for your courage in checking in with yourself. You're not just existing - you're consciously growing, healing, and becoming more authentically YOU. That's absolutely magical! 🌸`
@@ -736,6 +773,7 @@ IMPORTANT FOR PERSONAL GROWTH:
         const weather = checkinData.weatherType || 'unknown';
 
         const emotionalHighlights = this.buildEmotionalHighlights(moods, weather, checkinData.details, seed);
+        const emotionalStoryline = this.buildEmotionalStoryline(moods, weather, checkinData.details, seed);
         const recommendedRituals = this.buildRecommendedRituals(moods, weather, seed);
         const microHabits = this.buildMicroHabits(seed);
         const supportRecommendations = this.buildSupportRecommendations(checkinData.supportContact, seed);
@@ -746,6 +784,14 @@ IMPORTANT FOR PERSONAL GROWTH:
         const moodPulse = this.buildMoodPulseInsights(moods, seed);
         const compassionateCheckpoints = this.buildCompassionateCheckpoints(seed);
         const breathPatterns = this.buildBreathPatterns(seed);
+        const nervousSystemSupports = this.buildNervousSystemSupports(seed, checkinData.presenceLevel, checkinData.capacityLevel);
+        const focusAnchors = this.buildFocusAnchors(seed);
+        const trendSignals = this.buildTrendSignals(moods, weather, checkinData.historicalPatterns, seed);
+        const restCompass = this.buildRestCompass(seed, checkinData.capacityLevel);
+        const readinessMatrix = this.buildReadinessMatrix(checkinData.presenceLevel, checkinData.capacityLevel, seed);
+        const supportCompass = this.buildSupportCompass(checkinData, emotionalStoryline, readinessMatrix, seed);
+        const displayHints = this.buildDisplayHints(emotionalStoryline, energyForecast, readinessMatrix, weather, seed);
+        const insightChips = this.buildInsightChips(moods, weather, seed);
 
         const summary = this.buildFallbackSummary(moods, weather, checkinData.details);
 
@@ -772,6 +818,15 @@ IMPORTANT FOR PERSONAL GROWTH:
             moodPulse,
             compassionateCheckpoints,
             breathPatterns,
+            nervousSystemSupports,
+            focusAnchors,
+            trendSignals,
+            restCompass,
+            emotionalStoryline,
+            readinessMatrix,
+            supportCompass,
+            displayHints,
+            insightChips,
             recommendations: structuredRecommendations,
             metadata: {
                 generatedBy: 'fallback_engine',
@@ -782,6 +837,167 @@ IMPORTANT FOR PERSONAL GROWTH:
         };
     }
 
+    buildEmotionalStoryline(moods, weather, details, seed) {
+        const defaultArc = {
+            title: 'Steady Awareness',
+            chapter: 'Noticing subtle shifts',
+            narrative: 'You are tracking your inner climate with honesty, which creates space for calm adjustments.',
+            arc: 'stabilizing',
+            inflection: 'gentle',
+            confidence: 78,
+            colorTone: 'amber'
+        };
+
+        if (!moods?.length && !weather && !details) {
+            return defaultArc;
+        }
+
+        const anchors = [
+            { arc: 'ascending', tone: 'emerald', label: 'Momentum Rising' },
+            { arc: 'stabilizing', tone: 'amber', label: 'Holding Ground' },
+            { arc: 'softening', tone: 'rose', label: 'Gentle Recovery' },
+            { arc: 'recharging', tone: 'indigo', label: 'Quiet Restoration' }
+        ];
+        const anchor = this.rotateArray(anchors, seed)[0];
+
+        const primaryMood = moods?.[0] || 'calm curiosity';
+        const narrative = details
+            ? `Your note "${details.slice(0, 140)}" reads like a page from a reflective journal.`
+            : `Leaning into ${primaryMood} while picturing ${weather || 'neutral skies'} shows real emotional literacy.`;
+
+        return {
+            title: anchor.label,
+            chapter: `Chapter: ${primaryMood} under ${weather || 'open skies'}`,
+            narrative,
+            arc: anchor.arc,
+            inflection: primaryMood,
+            confidence: 72 + (seed % 17),
+            colorTone: anchor.tone
+        };
+    }
+
+    buildReadinessMatrix(presenceLevel = 5, capacityLevel = 5, seed = 1) {
+        const presenceScore = Number(presenceLevel) || 0;
+        const capacityScore = Number(capacityLevel) || 0;
+        const overall = Math.round(((presenceScore + capacityScore) / 20) * 100);
+
+        const lane = overall >= 80 ? 'glide'
+            : overall >= 60 ? 'steady'
+                : overall >= 40 ? 'sensitive'
+                    : 'repair';
+
+        const signals = [
+            {
+                label: 'Focus Lane',
+                status: presenceScore >= 7 ? 'clear' : presenceScore >= 4 ? 'foggy' : 'dense',
+                idea: presenceScore >= 6 ? 'Leverage clear hours for meaningful work.'
+                    : 'Protect your first 30 minutes with a ritual before engaging others.'
+            },
+            {
+                label: 'Energy Lane',
+                status: capacityScore >= 7 ? 'charged' : capacityScore >= 4 ? 'oscillating' : 'drained',
+                idea: capacityScore >= 6
+                    ? 'Channel surplus energy into creative or relational work.'
+                    : 'Schedule one non-negotiable rest pocket today.'
+            }
+        ];
+
+        return {
+            presenceScore,
+            capacityScore,
+            overallReadiness: overall,
+            readinessLane: lane,
+            signals: this.rotateArray(signals, seed)
+        };
+    }
+
+    buildSupportCompass(checkinData, storyline, readinessMatrix, seed) {
+        const needsSupport = readinessMatrix.overallReadiness < 55 ||
+            readinessMatrix.signals.some(sig => sig.status === 'dense' || sig.status === 'drained');
+
+        const allies = [
+            'Peer ally',
+            'Mentor/coach',
+            'Lead teacher',
+            'People operations',
+            'Trusted friend'
+        ];
+
+        return {
+            needsSupport,
+            supportLevel: needsSupport ? 'active' : 'monitor',
+            suggestedAllies: this.rotateArray(allies, seed).slice(0, 2),
+            message: needsSupport
+                ? 'Signal a quick check-in with someone on your support list; shared regulation accelerates recovery.'
+                : 'Keep your circle updated even while things feel steady—consistency builds trust.',
+            storylineContext: storyline?.title
+        };
+    }
+
+    buildDisplayHints(storyline, energyForecast, readinessMatrix, weather, seed) {
+        const baseThemes = [
+            {
+                name: 'aurora',
+                gradientCss: 'linear-gradient(135deg, rgba(253, 242, 248, 0.9) 0%, rgba(224, 242, 254, 0.85) 47%, rgba(237, 233, 254, 0.9) 100%)',
+                glassColor: 'rgba(255, 255, 255, 0.85)',
+                borderColor: 'rgba(255, 255, 255, 0.35)',
+                accent: '#f43f5e',
+                mood: 'warming'
+            },
+            {
+                name: 'lilac-dawn',
+                gradientCss: 'linear-gradient(135deg, rgba(245, 243, 255, 0.92) 0%, rgba(224, 242, 254, 0.85) 55%, rgba(253, 242, 248, 0.88) 100%)',
+                glassColor: 'rgba(250, 250, 255, 0.82)',
+                borderColor: 'rgba(99, 102, 241, 0.35)',
+                accent: '#6366f1',
+                mood: 'balancing'
+            },
+            {
+                name: 'serene-mint',
+                gradientCss: 'linear-gradient(135deg, rgba(236, 252, 203, 0.9) 0%, rgba(224, 242, 254, 0.8) 42%, rgba(254, 249, 195, 0.85) 100%)',
+                glassColor: 'rgba(255, 255, 255, 0.88)',
+                borderColor: 'rgba(16, 185, 129, 0.3)',
+                accent: '#10b981',
+                mood: 'soothing'
+            }
+        ];
+
+        const theme = this.rotateArray(baseThemes, seed)[0];
+
+        return {
+            theme: theme.name,
+            gradientCss: theme.gradientCss,
+            glassClass: null,
+            glassColor: theme.glassColor,
+            borderColor: theme.borderColor,
+            accentColor: theme.accent,
+            density: readinessMatrix.overallReadiness >= 70 ? 'airy' : readinessMatrix.overallReadiness >= 45 ? 'balanced' : 'cozy',
+            badges: [
+                storyline?.title,
+                weather ? weather.replace(/-/g, ' ') : energyForecast.descriptor
+            ].filter(Boolean).slice(0, 3),
+            animationAnchor: storyline?.arc === 'ascending' ? 'fade-up' : 'fade-in',
+            moodIntent: theme.mood
+        };
+    }
+
+    buildInsightChips(moods, weather, seed) {
+        const chips = [];
+        if (moods?.length) {
+            chips.push(...moods.slice(0, 3).map(m => ({ label: m, type: 'mood' })));
+        }
+        if (weather) {
+            chips.push({ label: weather, type: 'weather' });
+        }
+        const extras = [
+            { label: 'micro-rest ready', type: 'ritual' },
+            { label: 'pattern tracking', type: 'trend' },
+            { label: 'kindness quota', type: 'self-care' },
+            { label: 'signal honest', type: 'reflection' }
+        ];
+        chips.push(...this.rotateArray(extras, seed).slice(0, 2));
+        return chips;
+    }
     buildFallbackSummary(moods, weather, details = '') {
         const moodText = moods.length > 0
             ? `You are navigating feelings of ${moods.join(', ')}`
@@ -851,9 +1067,25 @@ IMPORTANT FOR PERSONAL GROWTH:
             {
                 name: 'Focus Ritual',
                 duration: '10 minutes',
-                description: 'Break work into a “sprint + soothe” cycle: 8 minutes focused effort, followed by 2 minutes of grounding.'
+                description: 'Break work into a "sprint + soothe" cycle: 8 minutes focused effort, followed by 2 minutes of grounding.'
+            },
+            {
+                name: 'Sensory Reset Walk',
+                duration: '7 minutes',
+                description: 'Visit the nearest window or outdoor spot and identify five colors or textures. Let your breath follow what you notice.'
+            },
+            {
+                name: 'Mindful Beverage Ceremony',
+                duration: '5 minutes',
+                description: 'Prepare tea, coffee, or water slowly. Notice aroma, warmth, and taste as a devotion to slowing your nervous system.'
+            },
+            {
+                name: 'Gratitude Voice Memo',
+                duration: '3 minutes',
+                description: 'Record a brief memo thanking future-you for something you are doing today. Replay later when you need encouragement.'
             }
         ];
+
 
         return this.rotateArray(rituals, seed).slice(0, 3);
     }
@@ -864,9 +1096,13 @@ IMPORTANT FOR PERSONAL GROWTH:
             'Write one sentence of appreciation about yourself on a sticky note.',
             'Step outside for 120 seconds and simply observe the horizon.',
             'Use a colored highlighter to mark moments of hope in your notes.',
-            'Adopt a “one-tab” rule for 15 minutes to reduce cognitive load.',
-            'Queue a song that matches your mood and breathe with the rhythm.'
+            'Adopt a "one-tab" rule for 15 minutes to reduce cognitive load.',
+            'Queue a song that matches your mood and breathe with the rhythm.',
+            'Stretch your wrists and jaw every time you send three messages.',
+            'Replace doom-scroll breaks with one photo from your happy album.',
+            'Stack gratitude onto an existing habit—say thank you each time you wash your hands.'
         ];
+
 
         return this.rotateArray(habits, seed).slice(0, 4);
     }
@@ -875,8 +1111,11 @@ IMPORTANT FOR PERSONAL GROWTH:
         const baseSuggestions = [
             'Share a low-stakes update to maintain relational warmth.',
             'Ask specifically for listening, advice, or accountability to get the support you need.',
-            'Consider scheduling a shared mindful moment—two minutes of silence together can be grounding.'
+            'Consider scheduling a shared mindful moment-two minutes of silence together can be grounding.',
+            'Send a "just thinking of you" note to remind both of you that connection is alive.',
+            'Trade a playlist or podcast episode to spark conversation from a gentle place.'
         ];
+
 
         if (supportContact) {
             baseSuggestions.unshift(`Reach out to ${supportContact} with one sentence about how you truly are—authenticity builds deeper support.`);
@@ -890,10 +1129,13 @@ IMPORTANT FOR PERSONAL GROWTH:
             'What is one gentle truth I am willing to acknowledge about today?',
             'Which emotion feels loudest, and what message might it be sending?',
             'Where in my body is my stress or hope sitting right now?',
-            'What would “2% more ease” look like in the next hour?',
+            'What would "2% more ease" look like in the next hour?',
             'Who or what reminded me that I am not alone?',
-            'If I could name today’s chapter, what would it be called and why?'
+            'If I could name today\'s chapter, what would it be called and why?',
+            'When did I feel even a tiny spark of joy, curiosity, or relief today?',
+            'What support would future-me thank me for requesting in this moment?'
         ];
+
 
         return this.rotateArray(prompts, seed).slice(0, 4);
     }
@@ -905,8 +1147,11 @@ IMPORTANT FOR PERSONAL GROWTH:
             'Name five things you can see, four you can touch, three you can hear, two you can smell, one you can taste.',
             'Hold a warm mug with both hands and focus on the sensation.',
             'Walk barefoot indoors for one minute to reconnect with the present.',
-            'Trace the outline of your hand slowly while repeating an affirmation.'
+            'Trace the outline of your hand slowly while repeating an affirmation.',
+            'Place one hand on your chest, one on your stomach, and hum softly to vibrate calm through your body.',
+            'Rinse your wrists under cool water and imagine it carrying away static thoughts.'
         ];
+
 
         return this.rotateArray(practices, seed).slice(0, 3);
     }
@@ -918,8 +1163,11 @@ IMPORTANT FOR PERSONAL GROWTH:
             'Progress can be microscopic and still meaningful.',
             'Every breath is a quiet vote for my well-being.',
             'I can be both a work in progress and worthy of kindness.',
-            'I nurture others by remembering to nurture myself.'
+            'I nurture others by remembering to nurture myself.',
+            'Even my pauses are purposeful.',
+            'My feelings are information, not instructions.'
         ];
+
 
         return this.rotateArray(affirmations, seed).slice(0, 3);
     }
@@ -930,14 +1178,16 @@ IMPORTANT FOR PERSONAL GROWTH:
             : avg >= 5 ? 'steady'
                 : avg >= 3 ? 'sensitive'
                     : 'delicate';
-
         const tips = [
             'Honor micro-rests between tasks to preserve momentum.',
             'Alternate focused work with sensory breaks (sound, scent, or touch).',
             'Choose one task to simplify or delegate to create breathing space.',
             'Schedule a five-minute ritual to celebrate small completions.',
-            'Invite natural light or music to nudge your nervous system toward calm activation.'
+            'Invite natural light or music to nudge your nervous system toward calm activation.',
+            'Pair hydration with two shoulder rolls to release static energy.',
+            'Color-code your to-dos by effort so you can match energy to the right item.'
         ];
+
 
         return {
             descriptor,
@@ -967,11 +1217,13 @@ IMPORTANT FOR PERSONAL GROWTH:
     buildCompassionateCheckpoints(seed) {
         const checkpoints = [
             'Pause before lunch to acknowledge one thing you handled with courage.',
-            'At 3 PM, ask yourself “What would make the rest of the day 10% kinder?”',
-            'Before bedtime, write down a thought you’re releasing.',
+            'At 3 PM, ask yourself "What would make the rest of the day 10% kinder?"',
+            'Before bedtime, write down a thought you are releasing.',
             'Send a quick appreciation message to someone who crossed your mind today.',
-            'Celebrate one boundary you protected, even if tiny.'
+            'Celebrate one boundary you protected, even if tiny.',
+            'Choose a mantra for the evening commute or wind-down ritual and repeat it three times.'
         ];
+
 
         return this.rotateArray(checkpoints, seed).slice(0, 3);
     }
@@ -992,11 +1244,116 @@ IMPORTANT FOR PERSONAL GROWTH:
             },
             {
                 name: 'Box Breath with Intention',
-                description: 'On each side of the box, whisper a supportive word: inhale “calm”, hold “safe”, exhale “release”, hold “renew”.'
+                description: 'On each side of the box, whisper a supportive word: inhale "calm", hold "safe", exhale "release", hold "renew".'
+            },
+            {
+                name: 'Stair-Step Breath',
+                description: 'Take two short inhales through the nose, one long exhale through the mouth to regulate alertness without overwhelm.'
             }
         ];
 
+
         return this.rotateArray(patterns, seed).slice(0, 2);
+    }
+
+    buildNervousSystemSupports(seed, presence = 5, capacity = 5) {
+        const tone = (Number(presence) + Number(capacity)) / 2 >= 6 ? 'steady' : 'tender';
+        const supports = [
+            {
+                title: 'Temperature Reset',
+                prompt: 'Splash cool water on your wrists or place a warm pack on your chest to remind your body it is safe.'
+            },
+            {
+                title: 'Sensory Anchor',
+                prompt: 'Choose a grounding object (stone, fabric, ring) and describe its texture aloud for 30 seconds.'
+            },
+            {
+                title: 'Auditory Hug',
+                prompt: 'Play a 60-second track of rainfall or white noise and match your breath to the sound.'
+            },
+            {
+                title: 'Vagus Tap',
+                prompt: 'Gently tap along your collarbone while breathing slowly to stimulate calm.'
+            }
+        ];
+
+        if (tone === 'steady') {
+            supports.push({
+                title: 'Momentum Breath',
+                prompt: 'Take three energizing breaths—in through the nose, out with a sigh—before re-entering focused work.'
+            });
+        } else {
+            supports.push({
+                title: 'Comfort Visualization',
+                prompt: 'Picture a safe place in detail (lighting, scent, sounds) and breathe there for five inhales.'
+            });
+        }
+
+        return this.rotateArray(supports, seed).slice(0, 3);
+    }
+
+    buildFocusAnchors(seed) {
+        const anchors = [
+            'Set a 15-minute timer labeled “move one pebble” and work solely on a single micro-task.',
+            'Write the next step on a sticky note and place it at eye level—physical cues cut through fog.',
+            'Use the “read aloud” feature on a doc to convert visual fatigue into auditory focus.',
+            'Swap to a standing or walking call for your next meeting to inject kinesthetic energy.',
+            'Try the 3-2-1 method: name three priorities, two stretch goals, one thing you’ll intentionally postpone.'
+        ];
+
+        return this.rotateArray(anchors, seed).slice(0, 3);
+    }
+
+    buildTrendSignals(moods, weather, history = {}, seed) {
+        const patterns = history?.patternAnalysis || 'You are building a meaningful archive of emotional awareness.';
+        const signals = [
+            {
+                label: 'Mood Arc',
+                observation: moods.length
+                    ? `Recent check-ins show ${moods.slice(0, 3).join(', ')} surfacing often—track what precedes each one.`
+                    : 'Even recording “not sure” becomes valuable data; absence of clarity is still a signal.',
+                action: 'Note the time of day for the next few entries to see if rhythm influences perception.'
+            },
+            {
+                label: 'Weather Echo',
+                observation: weather && weather !== 'unknown'
+                    ? `Your ${weather} metaphor is appearing again; it might be a personal shorthand for a specific nervous-system state.`
+                    : 'No weather metaphor was chosen, which could indicate emotional fatigue—plan for softer check-ins.',
+                action: 'Pair your metaphor with a short note on body sensations to deepen your pattern library.'
+            },
+            {
+                label: 'Baseline Whisper',
+                observation: patterns,
+                action: 'Celebrate one micro-choice that keeps you tethered when signals fluctuate.'
+            }
+        ];
+
+        return this.rotateArray(signals, seed).slice(0, 2);
+    }
+
+    buildRestCompass(seed, capacityLevel = 5) {
+        const level = Number(capacityLevel) || 0;
+        const tiers = level >= 7 ? 'maintenance' : level >= 4 ? 'repair' : 'rescue';
+        const options = {
+            maintenance: [
+                'Block a protected evening for playful downtime—no productivity allowed.',
+                'Schedule a “lights down” reminder 30 minutes earlier tonight to signal calm.'
+            ],
+            repair: [
+                'Try a 20-minute afternoon lie-down (eyes closed, no phone) to repay sleep debt.',
+                'Eat something warm and grounding before bed (soup, tea, or warm milk).'
+            ],
+            rescue: [
+                'Ask someone you trust to help with one obligation so you can sleep without guilt.',
+                'If nights are restless, pencil in a 15-minute nap or meditation break tomorrow.'
+            ]
+        };
+
+        const choices = options[tiers];
+        return {
+            mode: tiers,
+            suggestions: this.rotateArray(choices, seed).slice(0, 2)
+        };
     }
 
     calculateResilienceScore(checkinData, seed) {
@@ -1021,13 +1378,15 @@ IMPORTANT FOR PERSONAL GROWTH:
     }
 
     createSeed(checkinData) {
+        const dateBucket = new Date().toISOString().slice(0, 10);
         const content = [
             checkinData.weatherType,
             ...(checkinData.selectedMoods || []),
             checkinData.presenceLevel,
             checkinData.capacityLevel,
             checkinData.details,
-            checkinData.supportContact
+            checkinData.supportContact,
+            dateBucket
         ].join('|');
 
         let hash = 0;
@@ -1083,6 +1442,34 @@ IMPORTANT FOR PERSONAL GROWTH:
 
 // Generate personalized greeting based on emotional check-in data
 const generatePersonalizedGreeting = async (checkinData, aiAnalysis) => {
+    const moodsList = Array.isArray(checkinData.selectedMoods)
+        ? checkinData.selectedMoods.filter(Boolean)
+        : [];
+    const joinedMoods = moodsList.length ? moodsList.join(', ') : 'not specified';
+
+    const buildLocalGreeting = () => {
+        const seeds = [
+            'gentle star',
+            'radiant spirit',
+            'brave heart',
+            'kind soul',
+            'wise friend'
+        ];
+        const descriptor = moodsList[0] || aiAnalysis?.emotionalState || 'beautiful soul';
+        const seedIndex = (descriptor.length + (Number(checkinData.presenceLevel) || 0)) % seeds.length;
+        const templates = [
+            `Welcome back, ${seeds[seedIndex]} ?`,
+            `Hello, ${descriptor} ✨`,
+            `Good to see you, ${seeds[(seedIndex + 1) % seeds.length]}!`,
+            `Hey there, ${descriptor}!`
+        ];
+        return templates[seedIndex % templates.length];
+    };
+
+    if (!process.env.GOOGLE_AI_API_KEY) {
+        return buildLocalGreeting();
+    }
+
     try {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
@@ -1093,7 +1480,7 @@ You are an empathetic AI wellness coach. Based on this emotional check-in data, 
 
 Emotional State: ${aiAnalysis.emotionalState}
 Weather Type: ${checkinData.weatherType}
-Selected Moods: ${checkinData.selectedMoods.join(', ')}
+Selected Moods: ${joinedMoods}
 Presence Level: ${checkinData.presenceLevel}/10
 Capacity Level: ${checkinData.capacityLevel}/10
 Details: ${checkinData.details || 'No additional details provided'}
@@ -1106,23 +1493,20 @@ The greeting should be:
 - End with appropriate emoji if it fits naturally
 
 Examples:
-- "Hello, beautiful soul 🌞"
-- "Welcome, brave heart 💪"
-- "Good to see you ✨"
-- "Hello, gentle spirit 💙"
+- "Hello, beautiful soul ??"
+- "Welcome, brave heart ??"
+- "Good to see you ?"
+- "Hello, gentle spirit ??"
 
 Create one short, personalized greeting:`;
 
         const result = await model.generateContent(prompt);
         const greeting = result.response.text().trim();
-
-        // Clean up the response (remove quotes, extra whitespace)
         return greeting.replace(/^["']|["']$/g, '').trim();
 
     } catch (error) {
         console.error('Error generating personalized greeting:', error);
-        // Fallback to a generic but warm greeting
-        return "Welcome back, wonderful you! ✨";
+        return buildLocalGreeting();
     }
 };
 
