@@ -35,6 +35,11 @@ const normalizeGradeLabel = (value = '') => {
     const raw = value.toString().trim();
     const lower = raw.toLowerCase();
 
+    const gradesMatch = raw.match(/grades\s*(\d+)/i);
+    if (gradesMatch) {
+        return `Grade ${gradesMatch[1]}`.trim();
+    }
+
     const gradeMatch = raw.match(/grade\s*\d+/i);
     if (gradeMatch) {
         return gradeMatch[0].replace(/grade/i, 'Grade').replace(/\s+/g, ' ').trim();
@@ -48,6 +53,22 @@ const normalizeGradeLabel = (value = '') => {
     }
 
     return raw;
+};
+
+const expandGradeLabels = (grades = []) => {
+    const expanded = [];
+    grades
+        .map(normalizeGradeLabel)
+        .filter(Boolean)
+        .forEach((label) => {
+            const unitGrades = deriveGradesForUnit(label);
+            if (unitGrades.length) {
+                unitGrades.forEach((entry) => expanded.push(entry));
+            } else {
+                expanded.push(label);
+            }
+        });
+    return expanded;
 };
 
 const buildGradeRegex = (grade = '') => {
@@ -88,11 +109,8 @@ const buildGradeRegex = (grade = '') => {
 
 const buildGradeFilterClauses = (grades = []) => {
     const clauses = [];
-    grades
-        .map(normalizeGradeLabel)
-        .filter(Boolean)
-        .forEach((grade) => {
-            const regex = buildGradeRegex(grade);
+    expandGradeLabels(grades).forEach((grade) => {
+        const regex = buildGradeRegex(grade);
             if (Array.isArray(regex)) {
                 regex.forEach((entry) => clauses.push({ currentGrade: entry }));
             } else if (regex) {

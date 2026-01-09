@@ -208,7 +208,7 @@ const mentorAssignmentUpdateSchema = Joi.object({
     focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
     endDate: Joi.date().optional(),
-    notes: Joi.string().optional(),
+    notes: Joi.string().optional().allow(''),
     metricLabel: Joi.string().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),
@@ -225,8 +225,8 @@ const mentorAssignmentUpdateSchema = Joi.object({
     })).optional(),
     checkIns: Joi.array().items(Joi.object({
         date: Joi.date().optional(),
-        summary: Joi.string().required(),
-        nextSteps: Joi.string().optional(),
+        summary: Joi.string().trim().required(),
+        nextSteps: Joi.string().allow('', null).optional(),
         value: Joi.number().optional(),
         unit: Joi.string().allow('', null),
         performed: Joi.boolean().optional(),

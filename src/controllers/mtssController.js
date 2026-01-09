@@ -276,10 +276,14 @@ const sanitizeScorePayload = (score = {}) => {
 
 const sanitizeCheckIn = (checkIn = {}) => {
     const parsedValue = Number(checkIn.value);
+    const summary = typeof checkIn.summary === 'string' ? checkIn.summary.trim() : checkIn.summary;
+    const nextSteps = typeof checkIn.nextSteps === 'string' ? checkIn.nextSteps.trim() : checkIn.nextSteps;
+    const candidateDate = checkIn.date ? new Date(checkIn.date) : new Date();
+    const safeDate = Number.isNaN(candidateDate.getTime()) ? new Date() : candidateDate;
     return {
-        date: checkIn.date || new Date(),
-        summary: checkIn.summary,
-        nextSteps: checkIn.nextSteps,
+        date: safeDate,
+        summary: summary || 'Progress update',
+        nextSteps: nextSteps || undefined,
         value: Number.isFinite(parsedValue) ? parsedValue : undefined,
         unit: checkIn.unit ? checkIn.unit.toString().trim().toLowerCase() : undefined,
         performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
