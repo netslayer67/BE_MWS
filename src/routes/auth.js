@@ -3,6 +3,7 @@ const router = express.Router();
 const passport = require('../config/googleOAuth');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const UserStudent = require('../models/UserStudent');
 const { sendSuccess, sendError } = require('../utils/response');
 const { buildDashboardAccessProfile, hasDashboardAccess } = require('../utils/accessControl');
 
@@ -31,7 +32,8 @@ router.get('/google/callback',
             console.log('✅ Google OAuth successful for user:', req.user.email);
 
             // Validate user exists in database and get authoritative user data
-            const dbUser = await User.findById(req.user._id).select('-password -googleProfile');
+            const userModel = req.user?.constructor?.modelName === 'UserStudent' ? UserStudent : User;
+            const dbUser = await userModel.findById(req.user._id).select('-password -googleProfile');
 
             if (!dbUser) {
                 console.error('❌ User not found in database after OAuth:', req.user.email);
@@ -83,6 +85,10 @@ router.get('/google/callback',
                 unit: dbUser.unit,
                 jobPosition: dbUser.jobPosition,
                 employeeId: dbUser.employeeId,
+                currentGrade: dbUser.currentGrade,
+                className: dbUser.className,
+                nickname: dbUser.nickname,
+                joinAcademicYear: dbUser.joinAcademicYear,
                 lastLogin: dbUser.lastLogin,
                 isActive: dbUser.isActive,
                 emailVerified: dbUser.emailVerified,
@@ -95,7 +101,8 @@ router.get('/google/callback',
 
             // Redirect to frontend with validated user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}`;
+            const redirectTarget = dbUser.role === 'student' ? '/emotional-checkin' : '/support-hub';
+            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
 
             const oauthUserForLogging = {
                 ...dbUser.toObject(),
@@ -124,10 +131,16 @@ router.get('/google/callback',
 router.post('/login', require('../middleware/validation').validate(require('../utils/validationSchemas').userLoginSchema), async (req, res) => {
     try {
         const { email, password } = req.body;
-        const User = require('../models/User');
+        const normalizedEmail = String(email || '').trim().toLowerCase();
 
-        // Find user by email
-        const user = await User.findOne({ email }).select('+password');
+        // Find user by email (staff first, then students)
+        let user = await User.findOne({ email: normalizedEmail }).select('+password');
+        let userModel = User;
+        if (!user) {
+            user = await UserStudent.findOne({ email: normalizedEmail }).select('+password');
+            userModel = UserStudent;
+        }
+
         if (!user) {
             return sendError(res, 'Invalid credentials', 401);
         }
@@ -139,7 +152,7 @@ router.post('/login', require('../middleware/validation').validate(require('../u
         }
 
         // Update last login
-        await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
+        await userModel.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
         // Generate JWT token
         const jwt = require('jsonwebtoken');
@@ -167,6 +180,10 @@ router.post('/login', require('../middleware/validation').validate(require('../u
                 unit: user.unit,
                 jobLevel: user.jobLevel,
                 jobPosition: user.jobPosition,
+                currentGrade: user.currentGrade,
+                className: user.className,
+                nickname: user.nickname,
+                joinAcademicYear: user.joinAcademicYear,
                 dashboardAccess,
                 dashboardRole: dashboardAccess.effectiveRole
             },
@@ -196,7 +213,8 @@ router.post('/logout', (req, res) => {
 router.get('/me', require('../middleware/auth').authenticate, async (req, res) => {
     try {
         // Fetch fresh user data from database for security
-        const user = await User.findById(req.user.id).select('-password -googleProfile');
+        const userModel = req.user.role === 'student' ? UserStudent : User;
+        const user = await userModel.findById(req.user.id).select('-password -googleProfile');
 
         if (!user) {
             console.error('❌ User not found in /auth/me endpoint:', req.user.id);

@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const User = require('../models/User');
+const UserStudent = require('../models/UserStudent');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -68,6 +70,94 @@ const toPlainObject = (value) => {
         console.warn('Failed to serialize AI analysis snapshot:', err.message);
         return value;
     }
+};
+
+const normalizeTextValue = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+
+const normalizeSpaces = (value = '') => value.replace(/\s+/g, ' ').trim();
+
+const normalizeGradeValue = (value) => {
+    const normalized = normalizeSpaces(normalizeTextValue(value));
+    if (!normalized) return '';
+    if (normalized.startsWith('kindy')) return 'kindergarten';
+    if (normalized.startsWith('kindergarten')) return 'kindergarten';
+    return normalized;
+};
+
+const normalizeClassValue = (value) => {
+    if (!value) return '';
+    const hasApostrophe = /[’']/.test(value);
+    let normalized = normalizeSpaces(normalizeTextValue(value))
+        .replace(/[’']/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (hasApostrophe) {
+        normalized = normalized.replace(/\s+s$/, '');
+    }
+    return normalized;
+};
+
+const splitClassLabel = (value = '') => {
+    const cleaned = normalizeSpaces(String(value || ''));
+    if (!cleaned) {
+        return { grade: '', className: '' };
+    }
+    const parts = cleaned.split('-').map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+        return {
+            grade: parts[0],
+            className: parts.slice(1).join(' - ')
+        };
+    }
+    return {
+        grade: '',
+        className: cleaned
+    };
+};
+
+const buildTeacherClassScopes = (classes = []) => {
+    if (!Array.isArray(classes)) return [];
+    return classes
+        .map((assignment = {}) => {
+            const grade = normalizeGradeValue(assignment.grade || '');
+            const className = normalizeClassValue(assignment.className || '');
+            const isKindergarten = grade === 'kindergarten';
+            const isHomeroom = className === 'homeroom';
+            return {
+                grade,
+                className,
+                isKindergarten,
+                isHomeroom
+            };
+        })
+        .filter((scope) => scope.grade || scope.className);
+};
+
+const studentMatchesTeacherScopes = (student, scopes = []) => {
+    if (!student || !Array.isArray(scopes) || scopes.length === 0) {
+        return false;
+    }
+    const studentGrade = normalizeGradeValue(student.currentGrade || '');
+    const classParts = splitClassLabel(student.className || '');
+    const studentClass = normalizeClassValue(classParts.className || student.className || '');
+
+    return scopes.some((scope) => {
+        if (scope.isKindergarten) {
+            return scope.className && studentClass && scope.className === studentClass;
+        }
+        if (scope.className && !scope.isHomeroom) {
+            return scope.grade && studentGrade === scope.grade && studentClass && studentClass === scope.className;
+        }
+        return scope.grade && studentGrade === scope.grade;
+    });
+};
+
+const findAnyUserById = async (userId, select) => {
+    if (!userId) return null;
+    const student = await UserStudent.findById(userId).select(select);
+    if (student) return student;
+    return User.findById(userId).select(select);
 };
 
 const formatCheckinSnapshot = (checkin) => {
@@ -542,7 +632,7 @@ const submitCheckin = async (req, res) => {
 
         if (io) {
             // Get user name for notification
-            const user = await User.findById(checkin.userId).select('name');
+            const user = await findAnyUserById(checkin.userId, 'name');
 
             // Emit to all dashboard clients
             io.emit('dashboard:new-checkin', {
@@ -577,7 +667,7 @@ const submitCheckin = async (req, res) => {
                 console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
 
                 // Get user details
-                const user = await User.findById(checkin.userId).select('name role department');
+                const user = await findAnyUserById(checkin.userId, 'name role department');
                 const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
 
                 console.log('👤 User details:', { name: user?.name, role: user?.role, department: user?.department });
@@ -673,7 +763,7 @@ const submitCheckin = async (req, res) => {
         }
 
         // Get user name for the response
-        const user = await User.findById(checkin.userId).select('name');
+        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'Emotional check-in submitted successfully', {
             checkin: {
@@ -727,9 +817,14 @@ const getTodayCheckin = async (req, res) => {
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
+        let resolvedUser = populatedCheckin.userId;
+        if (!resolvedUser) {
+            resolvedUser = await findAnyUserById(checkin.userId, 'name');
+        }
+
         const checkinWithName = {
             ...populatedCheckin.toObject(),
-            name: populatedCheckin.userId?.name || 'Staff Member'
+            name: resolvedUser?.name || 'Student'
         };
 
         sendSuccess(res, 'Today\'s check-in retrieved', { checkin: checkinWithName });
@@ -806,9 +901,14 @@ const getCheckinResults = async (req, res) => {
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
+        let resolvedUser = populatedCheckin.userId;
+        if (!resolvedUser) {
+            resolvedUser = await findAnyUserById(checkin.userId, 'name');
+        }
+
         const checkinWithName = {
             ...populatedCheckin.toObject(),
-            name: populatedCheckin.userId?.name || 'Staff Member'
+            name: resolvedUser?.name || 'Student'
         };
 
         sendSuccess(res, 'Check-in results retrieved', { checkin: checkinWithName });
@@ -838,8 +938,7 @@ const getCheckinHistory = async (req, res) => {
             if (!isSelf && !elevated) {
                 if (req.user.role === 'head_unit') {
                     // Head Unit: only within same unit/department
-                    const User = require('../models/User');
-                    const target = await User.findById(requestedUserId).select('unit department');
+                    const target = await findAnyUserById(requestedUserId, 'unit department');
                     const unit = req.user.unit || req.user.department;
                     if (!target || (target.unit !== unit && target.department !== unit)) {
                         return sendError(res, 'Access denied for this user\'s history', 403);
@@ -873,18 +972,112 @@ const getCheckinHistory = async (req, res) => {
             .sort({ date: -1, submittedAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('userId', 'name email role department unit')
             .populate('supportContactUserId', 'name role department');
 
         const pagination = getPaginationInfo(page, limit, total);
+        const resolvedCheckins = [];
+        for (const checkin of checkins) {
+            const user = await findAnyUserById(checkin.userId, 'name email role department unit');
+            const normalized = checkin.toObject();
+            normalized.userId = user || checkin.userId;
+            resolvedCheckins.push(normalized);
+        }
 
         sendSuccess(res, 'Check-in history retrieved', {
-            checkins,
+            checkins: resolvedCheckins,
             pagination
         });
     } catch (error) {
         console.error('Get check-in history error:', error);
         sendError(res, 'Failed to get check-in history', 500);
+    }
+};
+
+const getTeacherDailyCheckins = async (req, res) => {
+    try {
+        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const { sendSuccess, sendError } = require('../utils/response');
+
+        const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
+        if (!teacherScopes.length) {
+            return sendError(res, 'No classroom assignments found for this teacher', 403);
+        }
+
+        const dateParam = req.query.date ? new Date(req.query.date) : new Date();
+        if (Number.isNaN(dateParam.getTime())) {
+            return sendError(res, 'Invalid date format', 400);
+        }
+
+        const startDate = new Date(dateParam);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(dateParam);
+        endDate.setHours(23, 59, 59, 999);
+
+        const students = await UserStudent.find({
+            role: 'student',
+            isActive: true
+        }).select('name email nickname currentGrade className');
+
+        const scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+        const studentIds = scopedStudents.map((student) => student._id);
+
+        if (!studentIds.length) {
+            return sendSuccess(res, 'No students matched your class assignments', {
+                date: startDate.toISOString(),
+                stats: {
+                    totalStudents: 0,
+                    submittedToday: 0,
+                    notSubmitted: 0,
+                    needsSupport: 0
+                },
+                students: []
+            });
+        }
+
+        const checkins = await EmotionalCheckin.find({
+            userId: { $in: studentIds },
+            date: { $gte: startDate, $lte: endDate }
+        }).sort({ date: -1, submittedAt: -1 });
+
+        const checkinMap = new Map();
+        const needsSupportSet = new Set();
+        checkins.forEach((checkin) => {
+            const key = checkin.userId.toString();
+            if (!checkinMap.has(key)) {
+                checkinMap.set(key, checkin);
+                if (checkin.aiAnalysis?.needsSupport) {
+                    needsSupportSet.add(key);
+                }
+            }
+        });
+
+        const studentsPayload = scopedStudents.map((student) => {
+            const checkin = checkinMap.get(student._id.toString());
+            return {
+                id: student._id,
+                name: student.name,
+                email: student.email,
+                nickname: student.nickname,
+                currentGrade: student.currentGrade,
+                className: student.className,
+                checkin: checkin ? formatCheckinSnapshot(checkin) : null
+            };
+        });
+
+        sendSuccess(res, 'Teacher daily check-ins retrieved', {
+            date: startDate.toISOString(),
+            stats: {
+                totalStudents: scopedStudents.length,
+                submittedToday: checkinMap.size,
+                notSubmitted: scopedStudents.length - checkinMap.size,
+                needsSupport: needsSupportSet.size
+            },
+            students: studentsPayload
+        });
+    } catch (error) {
+        console.error('Get teacher daily checkins error:', error);
+        const { sendError } = require('../utils/response');
+        sendError(res, 'Failed to load teacher daily checkins', 500);
     }
 };
 
@@ -1313,7 +1506,7 @@ const submitAICheckin = async (req, res) => {
         cacheService.invalidateDashboardCache();
 
         if (io) {
-            const user = await User.findById(checkin.userId).select('name');
+            const user = await findAnyUserById(checkin.userId, 'name');
             io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
@@ -1333,7 +1526,7 @@ const submitAICheckin = async (req, res) => {
                 console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
 
                 // Get user details
-                const user = await User.findById(checkin.userId).select('name role department');
+                const user = await findAnyUserById(checkin.userId, 'name role department');
                 const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
 
                 if (user && supportContact) {
@@ -1390,7 +1583,7 @@ const submitAICheckin = async (req, res) => {
             };
         }
 
-        const user = await User.findById(checkin.userId).select('name');
+        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'AI emotion check-in submitted successfully', {
             checkin: {
@@ -1587,6 +1780,7 @@ module.exports = {
     getTodayCheckinStatus,
     getCheckinResults,
     getCheckinHistory,
+    getTeacherDailyCheckins,
     getAvailableContacts,
     analyzeEmotion,
     updateUserEmotionalPatterns

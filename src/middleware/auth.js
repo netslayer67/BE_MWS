@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const UserStudent = require('../models/UserStudent');
 const { sendError } = require('../utils/response');
 const { buildDashboardAccessProfile } = require('../utils/accessControl');
 
@@ -18,7 +19,13 @@ const authenticate = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         // Check if user exists and is active
-        const user = await User.findById(decoded.userId);
+        let user = null;
+        if (decoded.role === 'student') {
+            user = await UserStudent.findById(decoded.userId);
+        }
+        if (!user) {
+            user = await User.findById(decoded.userId);
+        }
         if (!user || !user.isActive) {
             return sendError(res, 'User not found or inactive', 401);
         }
@@ -37,6 +44,10 @@ const authenticate = async (req, res, next) => {
             jobPosition: user.jobPosition,
             googleId: user.googleId,
             classes: user.classes || [],
+            currentGrade: user.currentGrade,
+            className: user.className,
+            nickname: user.nickname,
+            joinAcademicYear: user.joinAcademicYear,
             dashboardRole: dashboardAccess.effectiveRole,
             dashboardAccess
         };
@@ -78,6 +89,7 @@ const requireSuperAdmin = authorize('superadmin', 'directorate');
 
 // Staff and teacher access (for their own data) - now includes student for Google OAuth users
 const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit');
+const requireTeacherAccess = authorize('teacher', 'se_teacher');
 
 // Any authenticated user
 const requireAuthenticated = (req, res, next) => {
@@ -94,5 +106,6 @@ module.exports = {
     requireMTSSAdmin,
     requireSuperAdmin,
     requireStaffOrTeacher,
+    requireTeacherAccess,
     requireAuthenticated
 };

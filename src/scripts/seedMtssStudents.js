@@ -111,7 +111,7 @@ Keenan Ilario Fahryan	Keenan	Male	Active	keenan@millennia21.id	Grade 2	Grade 2 -
 Arjuna Ghibran Barakatillah	Argi	Male	Active	arjuna@millennia21.id	Grade 2	Grade 2 - Fireworks	2022/2023
 Ayska Raffasya Zen	Ayska	Female	Active	ayska.raffasya@millennia21.id	Grade 2	Grade 2 - Skyrocket	2024/2025
 Irvine Airlangga Raharjo	Irvine	Male	Active	irvine@millennia21.id	Grade 2	Grade 2 - Skyrocket	2022/2023
-Kareem Muhammad Noer	Kareem	Male	Active		Grade 2	Grade 2 - Skyrocket	2024/2025
+Kareem Muhammad Noer	Kareem	Male	Active	kareem.mohammad@millennia21.id	Grade 2	Grade 2 - Skyrocket	2024/2025
 Arjuno Rakha Bramastara	Juno	Male	Active	arjuno.rakha@millennia21.id	Grade 2	Grade 2 - Skyrocket	2024/2025
 Garwita Hayu Kinara	Kinara	Female	Active	garwita.hayu@millennia21.id	Grade 2	Grade 2 - Skyrocket	2024/2025
 Raisya Putri Nurdiana	Raisya	Female	Active	raisya.putri@millennia21.id	Grade 2	Grade 2 - Skyrocket	2024/2025
@@ -395,7 +395,7 @@ Mochammad Utsman Aymar	Utsman	Male	Active	mochammad.utsman@millennia21.id	Kinder
 Keola Zeeva Wardana	Keola	Female	Active	keola.zeeva@millennia21.id	Kindergarten K2	Kindergarten - Milky Way	2024/2025
 Arin Haqqa Fiddini	Arin	Female	Active	arin@millennia21.id	Kindergarten K2	Kindergarten - Starlight	2023/2024
 Aleysia Cyra Shakila	Cyra	Female	Active	aleysia.cyra@millennia21.id	Kindergarten K2	Kindergarten - Milky Way	2024/2025
-Senara Hanna Iori	Senara	Female	Active		Kindergarten K2	Kindergarten - Starlight	2025/2026
+Senara Hanna Iori	Senara	Female	Active	senara@millennia21.id	Kindergarten K2	Kindergarten - Starlight	2025/2026
 Kelshanina Zeline Queenara Sulaiman	Zeline	Female	Active	k.sulaiman@millennia21.id	Kindergarten K2	Kindergarten - Milky Way	2025/2026
 Keanussa Alnara Maulana	Kean	Male	Active	keanussa.alnara@millenia21.id	Kindergarten K2	Kindergarten - Starlight	2024/2025
 Keenan Miles Situngkir	Keenan	Male	Active	keenan.miles@millennia21.id	Kindergarten K2	Kindergarten - Bear Paw	2024/2025
@@ -420,6 +420,7 @@ Sanvi Gia Hosea	Gia 	Female	Active	sanvi.hosea@millennia21.id	Kindergarten Pre-K
 `;
 
 const sanitizeValue = (value = '') => value.replace(/^"|"$/g, '').trim();
+const isMissing = (value) => value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
 
 const parseRow = (row) => {
     if (!row || !row.trim()) {
@@ -463,7 +464,22 @@ const upsertStudent = async (student) => {
     const existing = await MTSSStudent.findOne(filter);
 
     if (existing) {
-        await MTSSStudent.updateOne({ _id: existing._id }, student);
+        const updates = {};
+        Object.entries(student).forEach(([key, value]) => {
+            if (!isMissing(value) && isMissing(existing[key])) {
+                updates[key] = value;
+            }
+        });
+
+        if (isMissing(existing.username) && !isMissing(student.nickname)) {
+            updates.username = student.nickname;
+        }
+
+        if (!Object.keys(updates).length) {
+            return 'skipped';
+        }
+
+        await MTSSStudent.updateOne({ _id: existing._id }, { $set: updates });
         return 'updated';
     }
 
@@ -489,14 +505,16 @@ const seed = async () => {
         console.log(`Connected to MongoDB. Upserting ${students.length} students...`);
         let created = 0;
         let updated = 0;
+        let skipped = 0;
 
         for (const student of students) {
             const result = await upsertStudent(student);
             if (result === 'created') created += 1;
-            else updated += 1;
+            else if (result === 'updated') updated += 1;
+            else skipped += 1;
         }
 
-        console.log(`MTSS students seeding complete. Created: ${created}, Updated: ${updated}`);
+        console.log(`MTSS students seeding complete. Created: ${created}, Updated: ${updated}, Skipped: ${skipped}`);
     } catch (error) {
         console.error('Failed seeding MTSS students:', error);
     } finally {
