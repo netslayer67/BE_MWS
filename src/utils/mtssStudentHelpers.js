@@ -8,6 +8,14 @@ const STATUS_LABELS = {
 };
 
 const STATUS_PRIORITY = { active: 4, paused: 3, completed: 2, closed: 1 };
+const TIER_PRIORITY = {
+    'Tier 1': 1,
+    'Tier 2': 2,
+    'Tier 3': 3,
+    tier1: 1,
+    tier2: 2,
+    tier3: 3
+};
 
 const slugifyValue = (value = '') =>
     value
