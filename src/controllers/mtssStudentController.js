@@ -10,7 +10,7 @@ const {
     pickPrimaryIntervention
 } = require('../utils/mtssStudentHelpers');
 const { emitStudentsChanged } = require('../services/mtssRealtimeService');
-const { INTERVENTION_TYPE_KEYS, INTERVENTION_STATUSES } = require('../constants/mtss');
+const { INTERVENTION_TYPES, INTERVENTION_TYPE_KEYS, INTERVENTION_STATUSES } = require('../constants/mtss');
 const {
     buildGradeFilterClauses,
     buildClassFilterClauses,
@@ -50,6 +50,26 @@ const normalizeGender = (gender) => {
 const TIER_CODES = ['tier1', 'tier2', 'tier3'];
 const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
+const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
+const FOCUS_TYPE_MATCHERS = [
+    { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
+    { key: 'BEHAVIOR', pattern: /behavior|behaviour|conduct|discipline/i },
+    { key: 'MATH', pattern: /math|mathematics|numeracy|algebra|geometry/i },
+    { key: 'ENGLISH', pattern: /english|ela|literacy|reading|writing|fluency/i },
+    { key: 'SEL', pattern: /sel|social|emotional|wellbeing|well-being/i }
+];
+
+const normalizeFocusArea = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const resolveInterventionTypeKey = (focusArea) => {
+    const cleaned = normalizeFocusArea(focusArea);
+    if (!cleaned) return 'SEL';
+    const upper = cleaned.toUpperCase();
+    if (INTERVENTION_TYPE_KEYS.includes(upper)) return upper;
+    const lower = cleaned.toLowerCase();
+    const match = FOCUS_TYPE_MATCHERS.find((entry) => entry.pattern.test(lower));
+    return match ? match.key : 'SEL';
+};
 
 const normalizeTierCode = (tier) => {
     if (!tier) return 'tier1';
@@ -370,7 +390,7 @@ const listStudents = async (req, res) => {
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
                   .populate('mentorId', 'name email username jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
                   .lean()
             : [];
 
@@ -415,7 +435,7 @@ const getStudent = async (req, res) => {
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -429,6 +449,71 @@ const getStudent = async (req, res) => {
             const mentorList = mentors.get(gradeLabel) || [];
             payload = formatRosterStudent(student, buildFallbackSummary(mentorList));
         }
+
+        // Build intervention details with progress data for each assignment
+        const interventionDetails = assignments.map(assignment => {
+            const focusArea = normalizeFocusArea(
+                assignment.focusAreas?.[0] ||
+                assignment.strategyName ||
+                assignment.monitoringMethod
+            );
+            const typeKey = resolveInterventionTypeKey(focusArea);
+            const meta = INTERVENTION_TYPE_META.get(typeKey) || INTERVENTION_TYPE_META.get('SEL');
+            const checkIns = assignment.checkIns || [];
+            const lastCheckIn = checkIns[checkIns.length - 1];
+            const firstCheckIn = checkIns[0];
+
+            // Build chart data from check-ins
+            const chart = checkIns.map((checkIn, idx) => ({
+                label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                date: checkIn.date,
+                reading: checkIn.value ?? 0,
+                goal: assignment.targetScore?.value || 100,
+                value: checkIn.value ?? 0
+            }));
+
+            // Build history from check-ins
+            const history = checkIns.slice().reverse().map(checkIn => ({
+                date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                notes: checkIn.summary || checkIn.nextSteps || 'Check-in recorded',
+                score: checkIn.value,
+                celebration: checkIn.celebration
+            }));
+
+            return {
+                id: assignment._id,
+                type: typeKey,
+                label: meta?.label || focusArea || 'SEL',
+                focusArea: focusArea || meta?.label || null,
+                tier: assignment.tier,
+                tierLabel: assignment.tier === 'tier3' ? 'Tier 3' : assignment.tier === 'tier2' ? 'Tier 2' : 'Tier 1',
+                status: assignment.status,
+                strategyName: assignment.strategyName || focusArea || null,
+                strategyId: assignment.strategyId || null,
+                duration: assignment.duration || null,
+                monitoringMethod: assignment.monitoringMethod || null,
+                monitoringFrequency: assignment.monitoringFrequency || null,
+                mentor: assignment.mentorId?.name || 'MTSS Mentor',
+                mentorEmail: assignment.mentorId?.email || null,
+                startDate: assignment.startDate,
+                endDate: assignment.endDate,
+                baseline: assignment.baselineScore?.value ?? firstCheckIn?.value ?? null,
+                current: lastCheckIn?.value ?? null,
+                target: assignment.targetScore?.value ?? null,
+                progressUnit: assignment.metricLabel || 'score',
+                progress: assignment.targetScore?.value && lastCheckIn?.value
+                    ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
+                    : 0,
+                checkInsCount: checkIns.length,
+                chart,
+                history,
+                goals: assignment.goals || [],
+                notes: assignment.notes
+            };
+        });
+
+        // Add interventionDetails to payload
+        payload.interventionDetails = interventionDetails;
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

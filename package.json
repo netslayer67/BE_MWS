@@ -9,9 +9,14 @@
     "dev": "nodemon src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:mtss": "jest mtss-grade7-helix.test.js --verbose",
+    "test:mtss:watch": "jest mtss-grade7-helix.test.js --watch",
     "test:cypress": "cypress run --e2e",
+    "test:cypress:mtss": "cypress run --e2e --spec cypress/e2e/mtss-grade7-helix.cy.js",
+    "test:cypress:mtss:open": "cypress open --e2e --browser chrome",
     "seed": "node src/scripts/seedUsersFromData.js",
     "seed:mtss": "node src/scripts/seedMtssData.js",
+    "seed:mtss-helix": "node src/scripts/seedMtssGrade7HelixComplete.js",
     "import:legacy-checkins": "node src/scripts/importLegacyCheckins.js"
   },
   "keywords": [

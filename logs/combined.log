@@ -19154,3 +19154,821 @@
 {"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-15T01:03:45.888Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"}
 {"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-15T01:03:52.488Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"}
 {"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-15T01:03:52.621Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:01:31.362Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:01:31.388Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:03:03.565Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:03:03.591Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:04:39.150Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:04:39.177Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:10:01.171Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:10:01.198Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:12:13.454Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:12:13.482Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:13:08.960Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:13:08.986Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:13:31.027Z"}
+{"code":"ECONNREFUSED","error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.6imqddn.mongodb.net","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:13:31.053Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:04.618Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:05.502Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:05.503Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:55.397Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:56.219Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T02:15:56.220Z"}
+{"error":"Could not connect to any servers in your MongoDB Atlas cluster. One common reason is that you're trying to access the database from an IP that isn't whitelisted. Make sure your current IP address is on your Atlas cluster's IP whitelist: https://www.mongodb.com/docs/atlas/security-whitelist/","level":"error","message":"❌ Database connection failed:","mongodbUri":"Set","service":"integra-learn-backend","timestamp":"2026-01-19T02:16:10.422Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:54.952Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:55.241Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:55.883Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:55.883Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.000Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.001Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.001Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.003Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.003Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.004Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T02:18:56.004Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-19T02:23:54.436Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:29.251Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.149Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.406Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.407Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.909Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.909Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.909Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.911Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.912Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.912Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T03:54:30.912Z"}
+{"level":"warn","message":"⚠️ MongoDB disconnected","service":"integra-learn-backend","timestamp":"2026-01-19T04:25:34.051Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T04:45:32.053Z"}
+{"level":"info","message":"🔄 MongoDB reconnected","service":"integra-learn-backend","timestamp":"2026-01-19T04:45:38.865Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T04:47:03.763Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:50.909Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:51.816Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.075Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.076Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.609Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.610Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.610Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.612Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.612Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.612Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:22:52.612Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:23:59.163Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:23:59.991Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:00.280Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:00.280Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.052Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.053Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.053Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.055Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.056Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.056Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:01.056Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:27.711Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.003Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.535Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.535Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.956Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.956Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.956Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.958Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.958Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.958Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:24:28.959Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-19T06:29:37.681Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:30:59.259Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:00.119Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:00.366Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:00.366Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.060Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.061Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.061Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.063Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.063Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.063Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:31:01.063Z"}
+{"ip":"::1","level":"info","message":"POST /api/v1/auth/login","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:10.280Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:12.849Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:12.851Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:22.297Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:22.424Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:22.425Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:41.568Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:41.751Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:35:41.753Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:47.047Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:47.353Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:47.910Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:47.911Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.329Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.330Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.330Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.332Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.332Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.332Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:48.332Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:59.295Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:38:59.575Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.168Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.169Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.470Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.471Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.471Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.472Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.472Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.473Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:00.473Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:47.829Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:47.938Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:39:47.940Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:07.977Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:13.849Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:14.696Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:14.985Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:14.986Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.394Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.395Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.395Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.397Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.397Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.397Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:15.397Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:20.656Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:20.763Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:20.765Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:48.036Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:48.092Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:55.960Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:56.009Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:57.790Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:40:57.843Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-19T06:41:08.135Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-19T06:41:20.313Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:43.077Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:43.661Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:43.927Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:43.927Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.487Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.488Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.488Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.490Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.490Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.490Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:44.490Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:48.414Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:48.421Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:51.483Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:51.603Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:42:51.605Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T06:45:05.868Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:45:06.013Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:45:06.014Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-19T06:45:39.800Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:46:52.357Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:46:52.359Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-19T06:47:05.621Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T06:49:48.594Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T06:49:48.595Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:49:50.539Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T06:49:50.608Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:55.727Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.023Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.534Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.535Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.866Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.867Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.867Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.869Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.869Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.869Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:54:56.870Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:12.457Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.048Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.478Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.479Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.720Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.720Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.720Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.722Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.722Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.722Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:13.722Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:28.283Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:28.563Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.112Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.113Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.243Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.244Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.244Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.245Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.246Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.246Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:29.246Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:51.419Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:51.707Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.262Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.262Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.584Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.585Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.585Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.586Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.587Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.587Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T06:57:52.587Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T06:59:59.782Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.061Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.691Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.692Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.946Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.946Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.946Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.947Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.948Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.948Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T07:00:00.948Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:07.429Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:08.289Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:08.550Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:08.551Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.221Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.221Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.221Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.223Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.223Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.223Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:09.224Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:51.689Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:51.979Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.514Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.515Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.744Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.744Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.744Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.746Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.746Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.747Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T07:02:52.747Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-19T07:10:09.180Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:02.038Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:03.018Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.770Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.771Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.771Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.773Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.774Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.774Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:04.774Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:08.729Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:08.730Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:17.908Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:18.967Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:18.968Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:19.338Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.392Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.392Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.393Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.394Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.395Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.395Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:21.395Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:42.296Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:42.571Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:42.572Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-19T15:48:59.347Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-19T15:51:20.730Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-19T15:51:20.732Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T15:51:22.504Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-19T15:51:22.589Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:48.695Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:49.557Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:49.837Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:49.838Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.343Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.344Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.344Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.346Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.346Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.346Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-19T15:56:50.346Z"}
+{"level":"info","message":"🔄 MongoDB reconnected","service":"integra-learn-backend","timestamp":"2026-01-20T08:28:26.532Z"}
+{"level":"info","message":"🔄 MongoDB reconnected","service":"integra-learn-backend","timestamp":"2026-01-20T08:28:26.533Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:51.627Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:52.494Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:52.747Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:52.747Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.240Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.241Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.241Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.243Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.243Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.243Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T08:49:53.244Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:00.826Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:01.122Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:01.669Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:01.670Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.806Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.806Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.806Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.806Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.807Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.807Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.807Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.808Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.809Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.809Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:05.809Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:13.796Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:14.077Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:14.078Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:18.683Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:18.840Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:18.842Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T08:50:27.154Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:54.108Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:54.389Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:54.935Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:54.935Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.304Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.305Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.305Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.306Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.306Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.306Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.306Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.308Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.308Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.308Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T08:56:59.308Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:43.352Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:43.637Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:44.182Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:44.183Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.537Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.537Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.537Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.537Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.538Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.538Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.538Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.540Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.540Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.540Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T09:17:48.541Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:06.683Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:06.968Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:07.540Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:07.541Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.636Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.636Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.636Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.636Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.636Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.637Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.637Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.638Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.639Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.639Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T09:18:11.639Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:01.041Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:08.567Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:09.418Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:09.762Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:09.762Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.314Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.314Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.314Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.315Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.315Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.315Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.315Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.317Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.317Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.317Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T09:20:14.317Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T09:31:17.635Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T09:31:18.492Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T09:31:18.753Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T09:31:18.753Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:13.181Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.025Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.364Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.365Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.758Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.759Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.759Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.761Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.762Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.762Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:14.762Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:21.515Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:21.804Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:22.328Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:22.328Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.462Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.462Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.462Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.463Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.463Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.463Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.463Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.465Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.465Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.465Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:26.465Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:50.497Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:54.068Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T03:55:54.071Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T03:56:10.412Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:13.877Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:14.765Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:15.074Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:15.075Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.677Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.677Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.678Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.678Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.678Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.678Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.678Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.680Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.680Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.680Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:19.681Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T04:00:35.288Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:36.541Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:37.390Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:37.653Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:37.654Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.239Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.239Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.239Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.241Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.241Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.241Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T06:31:38.241Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:32:04.061Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:32:50.340Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:33:05.238Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:34:15.739Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:34:15.837Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:34:32.131Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:38:53.371Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:38:53.534Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-20T06:39:25.484Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:25.736Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:26.020Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:26.602Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:26.603Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.924Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.924Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.925Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.925Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.925Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.925Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.925Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.927Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.927Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.927Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:30.927Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:44.106Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:44.335Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:54.776Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:40:54.780Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:41:18.968Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:46:22.323Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/sienna-ameerah-kasyafani-bb42","service":"integra-learn-backend","timestamp":"2026-01-20T06:46:34.761Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:07.423Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:07.424Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:10.048Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:10.180Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:10.182Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/airin-putri-aprilia-bb59","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:23.641Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:28.823Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:28.824Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:32.014Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:39.016Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:39.017Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:43.516Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:47.357Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:47.359Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/anakin-tangguh-imana-kusumawardhana-bb95","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:49.749Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:52.782Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:47:52.783Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:29.647Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:29.767Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:29.768Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:34.203Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:34.250Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/airin-putri-aprilia-bb59","service":"integra-learn-backend","timestamp":"2026-01-20T06:56:46.197Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T06:57:09.123Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/airin-putri-aprilia-bb59","service":"integra-learn-backend","timestamp":"2026-01-20T06:57:09.191Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T06:57:14.416Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T06:57:14.417Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T07:01:05.641Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:01:05.800Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:01:05.801Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:03.503Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:04.397Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:04.641Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:04.641Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.324Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.325Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.325Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.325Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.326Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.326Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.326Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.329Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.329Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.329Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:09.329Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:13.354Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:13.651Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:14.183Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:14.184Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.337Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.337Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.337Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.337Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.338Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.338Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.338Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.339Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.340Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.340Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:18.340Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-20T07:06:31.508Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:42.502Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:43.346Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:43.635Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:43.636Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:48.395Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:48.701Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:49.303Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:49.304Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.370Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.370Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.370Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.371Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.371Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.371Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.371Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.373Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.373Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.373Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-20T07:18:53.373Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T07:19:12.784Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:37:36.740Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:37:36.742Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-20T07:37:40.500Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:37:49.344Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:37:49.345Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-20T07:38:39.137Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:38:41.748Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:38:41.750Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-20T07:38:43.908Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/strategies","service":"integra-learn-backend","timestamp":"2026-01-20T07:38:43.958Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:18.343Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:18.464Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:18.465Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:22.679Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:40.912Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-20T07:46:40.913Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-20T07:47:20.320Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-20T07:56:40.156Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:40.386Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:41.896Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:41.897Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.054Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.841Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.842Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.842Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.844Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.844Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.844Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:42.844Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T00:54:53.169Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:03.462Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:03.464Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/airin-putri-aprilia-bb59","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:13.323Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:23.211Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:23.212Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ayumi-chesna-satria-bb89","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:31.378Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:34.041Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:34.043Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T00:55:38.938Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:41.462Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:42.100Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:42.476Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:42.477Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.054Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.055Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.055Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.055Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.055Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.056Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.056Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.058Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.059Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.059Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T01:02:47.059Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:04:51.999Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:07:26.027Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:37:48.016Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:38:08.036Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:39:26.025Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:39:42.038Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:03.511Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:03.513Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/alexa-fariistha-seftanto-bb45","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:10.153Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:13.761Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:13.763Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T01:50:16.743Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:16.915Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:17.831Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:18.068Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:18.069Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.690Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.690Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.691Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.691Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.691Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.691Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.691Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.694Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.694Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.694Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:22.694Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:33.378Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:33.664Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:34.209Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:34.210Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.332Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.332Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.333Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.333Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.333Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.333Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.333Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.336Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.336Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.336Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:38.336Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:52.204Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:52.490Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:53.058Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:53.059Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.146Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.146Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.147Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.147Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.147Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.147Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.147Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.149Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.149Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.150Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T02:00:57.150Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:03:34.041Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:06:42.006Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:08:57.003Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:09:11.001Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:09:19.005Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:09:27.001Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:09:32.995Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:10:08.998Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:10:17.006Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:10:23.999Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:12:01.007Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:13:16.005Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:13:37.000Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:13:42.993Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:14:33.038Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:15:07.024Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:15:26.028Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:15:33.039Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:15:42.017Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:16:17.017Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:16:33.023Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:16:52.026Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:17:30.022Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T02:17:37.023Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:36.656Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:36.658Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:52.168Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:52.262Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:52.264Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/personal/dashboard","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:52.795Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/history","service":"integra-learn-backend","timestamp":"2026-01-22T03:08:53.728Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/support/contacts","service":"integra-learn-backend","timestamp":"2026-01-22T03:09:01.750Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"POST /api/v1/checkin/submit","service":"integra-learn-backend","timestamp":"2026-01-22T03:09:22.030Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/results/697194e7a94672b2c27e1d0c","service":"integra-learn-backend","timestamp":"2026-01-22T03:09:29.655Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/checkin/results/697194e7a94672b2c27e1d0c","service":"integra-learn-backend","timestamp":"2026-01-22T03:09:29.744Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-22T03:24:37.530Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:16.588Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:17.518Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:17.799Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:17.800Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.363Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.364Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.364Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.364Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.364Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.365Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.365Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.367Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.367Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.368Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:22.368Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:27.784Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:28.098Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:28.642Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:28.643Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.789Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.789Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.789Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.789Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.789Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.790Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.790Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.792Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.792Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.792Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T03:42:32.792Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T03:43:01.624Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:43:11.046Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:43:11.048Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T03:43:24.417Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:45:28.799Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:45:28.802Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T03:45:39.647Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:46:17.094Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:46:17.096Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T03:53:58.195Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T03:53:59.156Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T03:53:59.361Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T03:53:59.362Z"}
+{"level":"warn","message":"⚠️ GOOGLE AI QUOTA EXCEEDED - STARTING IN FALLBACK MODE ⚠️","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.006Z"}
+{"level":"warn","message":"AI features will be limited until quota resets (typically daily)","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.006Z"}
+{"level":"warn","message":"Manual check-ins will work, but AI analysis will be unavailable","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.006Z"}
+{"level":"warn","message":"Application will continue running with reduced functionality","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.006Z"}
+{"level":"warn","message":"To restore AI features, wait for quota reset or upgrade your Google AI plan","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.006Z"}
+{"level":"warn","message":"🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.007Z"}
+{"level":"info","message":"✅ Application initialized successfully with fallback AI mode","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.007Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.008Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.008Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.008Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T03:54:04.009Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:24.116Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:29.636Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:29.639Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:52.699Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:59.158Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:56:59.160Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T03:57:01.800Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:57:24.388Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:57:24.391Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:14.936Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:15.073Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:15.074Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:29.350Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:29.447Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T03:59:29.448Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T04:05:48.935Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T04:05:48.937Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:06:05.275Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/mentor-assignments","service":"integra-learn-backend","timestamp":"2026-01-22T04:06:13.447Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students","service":"integra-learn-backend","timestamp":"2026-01-22T04:06:13.450Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:06:16.864Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:12:15.023Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:12:32.020Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:12:44.032Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:15:26.025Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:15:33.025Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:15:42.017Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:15:52.019Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:16:02.011Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:16:08.020Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:16:15.015Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:16:23.014Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T04:28:21.847Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:28:21.946Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T04:32:12.018Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-22T06:22:24.418Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T06:28:56.437Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T06:28:57.604Z"}
+{"level":"info","message":"Attempting to connect to MongoDB...","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:25.338Z"}
+{"level":"info","message":"✅ MongoDB Connected successfully: ac-uoixeii-shard-00-00.6imqddn.mongodb.net","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:25.659Z"}
+{"level":"info","message":"✅ Slack Socket Mode connected","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.183Z"}
+{"level":"info","message":"🚀 Slack Socket Mode client started","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.183Z"}
+{"level":"info","message":"Google AI connection successful","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.390Z"}
+{"level":"info","message":"Slack Socket Mode service initialized","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.391Z"}
+{"level":"info","message":"Application initialized successfully","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.391Z"}
+{"level":"info","message":"🚀 Server running on port 3003","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.393Z"}
+{"level":"info","message":"📊 Environment: development","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.393Z"}
+{"level":"info","message":"🔗 API available at: http://localhost:3003/api","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.393Z"}
+{"level":"info","message":"💚 Health check: http://localhost:3003/api/health","service":"integra-learn-backend","timestamp":"2026-01-22T06:29:26.394Z"}
+{"ip":"::1","level":"info","message":"GET /api/v1/auth/me","service":"integra-learn-backend","timestamp":"2026-01-22T06:30:28.171Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"ip":"::1","level":"info","message":"GET /api/v1/mtss/students/ahmad-zayd-al-malik-bb5c","service":"integra-learn-backend","timestamp":"2026-01-22T06:30:28.379Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"integra-learn-backend","timestamp":"2026-01-22T06:31:28.841Z"}

@@ -56,6 +56,23 @@ const formatDate = (value, options = { month: 'short', day: 'numeric', year: 'nu
     }
 };
 
+const deriveGradeLabel = (student = {}) => {
+    if (student.currentGrade) return student.currentGrade;
+    const className = student.className || '';
+    if (!className) return '-';
+    const gradeMatch = className.match(/grade\s*\d+/i);
+    if (gradeMatch) {
+        return gradeMatch[0].replace(/grade/i, 'Grade').replace(/\s+/g, ' ').trim();
+    }
+    if (/kindergarten|kindy|pre[-\s]?k|\bk\s*1\b|\bk\s*2\b/i.test(className)) {
+        if (/pre[-\s]?k/i.test(className)) return 'Kindergarten Pre-K';
+        if (/\bk\s*1\b/i.test(className)) return 'Kindergarten K1';
+        if (/\bk\s*2\b/i.test(className)) return 'Kindergarten K2';
+        return 'Kindergarten';
+    }
+    return className;
+};
+
 const formatDuration = (start, end) => {
     if (!start) return 'Ongoing';
     const startDate = new Date(start);
@@ -76,6 +93,7 @@ const tierLabelFromCode = (code = 'tier1') => TIER_LABELS[code] || mapTierLabel(
 const INTERVENTION_LOOKUP = new Map(INTERVENTION_TYPES.map((type) => [type.key, type]));
 
 const buildInterventionDisplay = (entry = {}, meta) => {
+    const hasData = Boolean(entry.type || entry.tier || entry.status === 'active');
     const tierCode = (entry.tier || 'tier1').toString().toLowerCase();
     return {
         type: meta.key,
@@ -89,7 +107,8 @@ const buildInterventionDisplay = (entry = {}, meta) => {
         updatedAt: entry.updatedAt || null,
         updatedBy: entry.updatedBy || null,
         assignedMentor: entry.assignedMentor || null,
-        history: Array.isArray(entry.history) ? entry.history : []
+        history: Array.isArray(entry.history) ? entry.history : [],
+        hasData // Flag to indicate if this intervention has actual data
     };
 };
 
@@ -149,12 +168,19 @@ const inferNextUpdate = (assignment = {}) => {
 
 const buildChartSeries = (assignment = {}) => {
     const checkIns = assignment.checkIns || [];
+    const targetValue = assignment.targetScore?.value || 100;
+
     if (checkIns.length) {
-        const total = checkIns.length;
         return checkIns.map((entry, index) => {
-            const value = Math.round(((index + 1) / total) * 100);
+            const value = entry.value ?? 0;
             const label = formatDate(entry.date);
-            return { label, date: label, reading: value, goal: 100, value };
+            return {
+                label,
+                date: label,
+                reading: value,  // Actual score value
+                goal: targetValue,  // Target score
+                value
+            };
         });
     }
 
@@ -189,8 +215,36 @@ const buildHistory = (assignment = {}) => {
 const buildProfile = (assignment = {}) => {
     const goals = assignment.goals || [];
     const completedGoals = goals.filter(goal => goal.completed).length;
-    const progressUnit = inferProgressUnit(assignment);
+    const progressUnit = assignment.metricLabel || inferProgressUnit(assignment);
     const teacherRoster = assignment.mentorId?.name ? [assignment.mentorId.name] : [];
+
+    // Extract baseline/current/target from check-ins or baselineScore/targetScore
+    let baseline = null;
+    let current = null;
+    let target = null;
+
+    if (assignment.checkIns?.length > 0) {
+        // Use actual check-in values
+        const firstCheckIn = assignment.checkIns[0];
+        const lastCheckIn = assignment.checkIns[assignment.checkIns.length - 1];
+        baseline = firstCheckIn.value ?? null;
+        current = lastCheckIn.value ?? null;
+    }
+
+    // Use baselineScore/targetScore if available
+    if (assignment.baselineScore?.value != null) {
+        baseline = assignment.baselineScore.value;
+    }
+    if (assignment.targetScore?.value != null) {
+        target = assignment.targetScore.value;
+    }
+
+    // Fallback to goals-based logic if no check-in data
+    if (baseline === null && current === null && target === null && goals.length > 0) {
+        baseline = 0;
+        current = completedGoals;
+        target = goals.length;
+    }
 
     return {
         teacher: assignment.mentorId?.name || 'MTSS Mentor',
@@ -202,9 +256,9 @@ const buildProfile = (assignment = {}) => {
             : `Support focus - ${mapTierLabel(assignment.tier)}`,
         started: formatDate(assignment.startDate),
         duration: formatDuration(assignment.startDate, assignment.endDate),
-        baseline: goals.length ? 0 : null,
-        current: goals.length ? completedGoals : assignment.checkIns?.length || (assignment.status === 'completed' ? 1 : 0),
-        target: goals.length || Math.max(assignment.checkIns?.length || 1, 1),
+        baseline,
+        current,
+        target,
         progressUnit,
         chart: buildChartSeries(assignment),
         history: buildHistory(assignment)
@@ -219,7 +273,10 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
         students.forEach((studentId) => {
             const key = studentId?.toString?.() || studentId;
             if (!key) return;
-            const priority = STATUS_PRIORITY[assignment.status] || 0;
+            const tierLabel = mapTierLabel(assignment.tier);
+            const tierScore = TIER_PRIORITY[assignment.tier] || TIER_PRIORITY[tierLabel] || 0;
+            const statusScore = STATUS_PRIORITY[assignment.status] || 0;
+            const priority = (tierScore * 10) + statusScore;
             const current = summaryMap.get(key);
             if (current && current.priority >= priority) {
                 return;
@@ -228,7 +285,7 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
             summaryMap.set(key, {
                 priority,
                 type: deriveFocusArea(assignment),
-                tier: mapTierLabel(assignment.tier),
+                tier: tierLabel,
                 progress: STATUS_LABELS[assignment.status] || 'On Track',
                 nextUpdate: inferNextUpdate(assignment),
                 profile: buildProfile(assignment),
@@ -246,7 +303,7 @@ const formatRosterStudent = (studentDoc, summary) => {
 
     const support = summary || defaultProfile;
 
-    const gradeLabel = source.currentGrade || source.className || '-';
+    const gradeLabel = deriveGradeLabel(source);
 
     const slug = source.slug || slugifyValue(source.name || '');
 
@@ -282,7 +339,7 @@ const formatRosterStudent = (studentDoc, summary) => {
 
     safeProfile.teacherRoster = teacherRoster;
 
-    safeProfile.teacher = teacherRoster.length ? teacherRoster.join('  ') : safeProfile.teacher;
+    safeProfile.teacher = teacherRoster.length ? teacherRoster.join(' / ') : safeProfile.teacher;
 
     safeProfile.mentor = mentorLabel;
 

@@ -32,9 +32,32 @@ const mentorAssignmentSchema = new mongoose.Schema({
     endDate: {
         type: Date
     },
+    duration: {
+        type: String,
+        enum: ['4 weeks', '6 weeks', '8 weeks'],
+        trim: true
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    strategyId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'MTSSStrategy'
+    },
+    strategyName: {
+        type: String,
+        trim: true
+    },
+    monitoringMethod: {
+        type: String,
+        enum: ['Option 1 - Direct Observation', 'Option 2 - Student Self-Report', 'Option 3 - Assessment Data'],
+        trim: true
+    },
+    monitoringFrequency: {
+        type: String,
+        enum: ['Daily', 'Weekly', 'Bi-weekly'],
+        trim: true
     },
     metricLabel: {
         type: String,
