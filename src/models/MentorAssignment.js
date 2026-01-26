@@ -13,7 +13,7 @@ const mentorAssignmentSchema = new mongoose.Schema({
     }],
     tier: {
         type: String,
-        enum: ['tier2', 'tier3'],
+        enum: ['tier1', 'tier2', 'tier3'],
         required: true
     },
     focusAreas: [{

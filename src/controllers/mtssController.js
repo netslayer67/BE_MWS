@@ -293,10 +293,36 @@ const sanitizeCheckIn = (checkIn = {}) => {
 
 const createMentorAssignment = async (req, res) => {
     try {
-        const { mentorId, studentIds, tier, focusAreas, startDate, goals, notes, metricLabel, baselineScore, targetScore } = req.body;
+        const {
+            mentorId,
+            studentIds,
+            tier,
+            focusAreas,
+            startDate,
+            goals,
+            notes,
+            metricLabel,
+            baselineScore,
+            targetScore,
+            duration,
+            strategyId,
+            strategyName,
+            monitoringMethod,
+            monitoringFrequency
+        } = req.body;
 
-        if (!studentIds || studentIds.length < 2) {
-            return sendError(res, 'Mentor assignments must include at least two students to encourage group support.', 400);
+        if (!studentIds || !studentIds.length) {
+            return sendError(res, 'At least one student is required for an intervention plan.', 400);
+        }
+
+        // Check if user is admin or assigning themselves
+        const isAdmin = isMTSSAdminRole(req.user?.role);
+        const viewerId = req.user?.id?.toString?.() || req.user?._id?.toString?.();
+        const requestedMentorId = mentorId?.toString?.();
+
+        // Non-admin users can only assign themselves as mentor
+        if (!isAdmin && viewerId !== requestedMentorId) {
+            return sendError(res, 'You can only create intervention plans for yourself as the mentor.', 403);
         }
 
         await ensureMentorEligibility(mentorId);
@@ -309,12 +335,26 @@ const createMentorAssignment = async (req, res) => {
         const sanitizedBaseline = sanitizeScorePayload(baselineScore);
         const sanitizedTarget = sanitizeScorePayload(targetScore);
 
+        // Normalize tier code (handle "Tier 2" -> "tier2" format)
+        let normalizedTier = tier || 'tier2';
+        if (typeof normalizedTier === 'string') {
+            normalizedTier = normalizedTier.toLowerCase().replace(/\s+/g, '');
+            if (!normalizedTier.startsWith('tier')) {
+                normalizedTier = `tier${normalizedTier}`;
+            }
+        }
+
         const assignment = await MentorAssignment.create({
             mentorId,
             studentIds,
-            tier,
+            tier: normalizedTier,
             focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
             startDate: startDate || Date.now(),
+            duration: duration || undefined,
+            strategyId: strategyId || undefined,
+            strategyName: strategyName?.trim() || undefined,
+            monitoringMethod: monitoringMethod || undefined,
+            monitoringFrequency: monitoringFrequency || undefined,
             goals,
             notes,
             metricLabel: metricLabel?.trim() || undefined,
@@ -323,14 +363,14 @@ const createMentorAssignment = async (req, res) => {
             createdBy: req.user?.id || null
         });
 
-        sendSuccess(res, 'Mentor assignment created', { assignment }, 201);
+        sendSuccess(res, 'Intervention plan created', { assignment }, 201);
 
         emitAssignmentEvent(assignment._id, 'created').catch((error) => {
             console.error('Failed to broadcast new mentor assignment:', error);
         });
     } catch (error) {
         console.error('Failed to create mentor assignment:', error);
-        sendError(res, error.message || 'Failed to create mentor assignment', 500);
+        sendError(res, error.message || 'Failed to create intervention plan', 500);
     }
 };
 

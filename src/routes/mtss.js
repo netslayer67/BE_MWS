@@ -54,7 +54,8 @@ router.get('/mentors', requireMTSSAdmin, listMentors);
 
 router.get('/mentor-assignments', requireStaffOrTeacher, getMentorAssignments);
 router.get('/mentor-assignments/:id', requireStaffOrTeacher, getMentorAssignmentById);
-router.post('/mentor-assignments', requireMTSSAdmin, validate(mentorAssignmentCreateSchema), createMentorAssignment);
+// Allow teachers to create intervention plans for students (they must assign themselves as mentor)
+router.post('/mentor-assignments', requireStaffOrTeacher, validate(mentorAssignmentCreateSchema), createMentorAssignment);
 router.put('/mentor-assignments/:id', requireStaffOrTeacher, validate(mentorAssignmentUpdateSchema), updateMentorAssignment);
 router.get('/mentor-assignments/my/students', requireStaffOrTeacher, getMyAssignedStudents);
 

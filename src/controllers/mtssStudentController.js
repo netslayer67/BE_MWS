@@ -50,6 +50,7 @@ const normalizeGender = (gender) => {
 const TIER_CODES = ['tier1', 'tier2', 'tier3'];
 const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
+const UNIT_LEVEL_ROLES = new Set(['head_unit']); // Principals who see all students in their unit
 const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
 const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
@@ -166,34 +167,125 @@ const sanitizeStudentPayload = (payload = {}) => {
 };
 
 const applyViewerScope = (filter = {}, viewer = {}) => {
+    // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
         return filter;
     }
 
-    const viewerUnit = (viewer.unit || '').toLowerCase();
-    let gradeClauses = buildGradeFilterClauses(deriveAllowedGradesForUser(viewer));
-    const classClauses = buildClassFilterClauses(deriveAllowedClassNamesForUser(viewer));
-
-    const scopeClauses = [...classClauses, ...gradeClauses];
-    if (scopeClauses.length) {
-        filter.$and = filter.$and || [];
-        filter.$and.push({ $or: scopeClauses });
+    // Head Unit / Principal see all students in their unit
+    if (UNIT_LEVEL_ROLES.has(viewer.role)) {
+        const unitGrades = deriveGradesForUnit(viewer.unit || '');
+        if (unitGrades.length) {
+            const gradeClauses = buildGradeFilterClauses(unitGrades);
+            if (gradeClauses.length) {
+                filter.$and = filter.$and || [];
+                filter.$and.push({ $or: gradeClauses });
+            }
+        }
         return filter;
     }
 
-    const unitGrades = deriveGradesForUnit(viewer.unit || '');
-    if (unitGrades.length) {
-        const unitGradeClauses = buildGradeFilterClauses(unitGrades);
-        if (unitGradeClauses.length) {
+    // Teachers (teacher, se_teacher, staff) only see students in their assigned classes
+    const viewerClasses = viewer.classes || [];
+    if (!viewerClasses.length) {
+        // No class assignments - fall back to unit-based access (limited)
+        const unitGrades = deriveGradesForUnit(viewer.unit || '');
+        if (unitGrades.length) {
+            const gradeClauses = buildGradeFilterClauses(unitGrades);
+            if (gradeClauses.length) {
+                filter.$and = filter.$and || [];
+                filter.$and.push({ $or: gradeClauses });
+            }
+        }
+        return filter;
+    }
+
+    // Helper to check if a class assignment indicates a Homeroom Teacher
+    // Homeroom Teachers see ALL students in their grade (not filtered by specific class section)
+    const isHomeroomAssignment = (cls) => {
+        const className = (cls.className || '').toLowerCase();
+        const role = (cls.role || '').toLowerCase();
+        return className === 'homeroom' ||
+               role === 'homeroom teacher' ||
+               role.includes('homeroom');
+    };
+
+    // Separate homeroom assignments (grade-only filter) from specific class assignments
+    const homeroomGrades = [];
+    const specificClasses = [];
+
+    viewerClasses.forEach((cls) => {
+        if (!cls.grade) return;
+        if (isHomeroomAssignment(cls)) {
+            // Homeroom teacher - they see all students in the grade
+            homeroomGrades.push(cls.grade);
+            console.log(`[MTSS] Homeroom teacher detected: ${viewer.name} for ${cls.grade} (className: ${cls.className}, role: ${cls.role})`);
+        } else if (cls.className) {
+            // Specific class assignment - they see only that class
+            specificClasses.push(cls);
+        }
+    });
+
+    // Build filter clauses
+    const allClauses = [];
+
+    // Add grade-only clauses for homeroom teachers
+    if (homeroomGrades.length) {
+        const gradeClauses = buildGradeFilterClauses(homeroomGrades);
+        allClauses.push(...gradeClauses);
+    }
+
+    // Add strict class clauses for specific class assignments
+    specificClasses.forEach((cls) => {
+        const gradeRegex = buildGradeRegex(cls.grade);
+        const classRegex = buildClassRegex(cls.className);
+        if (gradeRegex && classRegex) {
+            allClauses.push({ currentGrade: gradeRegex, className: classRegex });
+        }
+    });
+
+    if (allClauses.length) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: allClauses });
+    } else {
+        // Fallback: if no valid class assignments, use grade-only filter
+        const allowedGrades = deriveAllowedGradesForUser(viewer);
+        const gradeClauses = buildGradeFilterClauses(allowedGrades);
+        if (gradeClauses.length) {
             filter.$and = filter.$and || [];
-            filter.$and.push({ $or: unitGradeClauses });
+            filter.$and.push({ $or: gradeClauses });
         }
     }
 
     return filter;
 };
 
-const buildFilter = (query = {}) => {
+// Helper to build grade regex (reused from mtssAccess)
+const buildGradeRegex = (grade = '') => {
+    if (!grade) return null;
+    const gradeMatch = grade.match(/Grade\s*(\d+)/i);
+    if (gradeMatch) {
+        const number = gradeMatch[1];
+        return new RegExp(`^Grade\\s*${number}(\\s*-.*)?$`, 'i');
+    }
+    if (/kindergarten/i.test(grade)) {
+        if (/(pre[-\s]?k)/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*Pre[-\\s]?K.*', 'i');
+        if (/k\s*1/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*1.*', 'i');
+        if (/k\s*2/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*2.*', 'i');
+        return new RegExp('^Kindergarten.*', 'i');
+    }
+    return new RegExp(`^${grade.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+};
+
+// Helper to build class regex for partial match
+const buildClassRegex = (className = '') => {
+    if (!className) return null;
+    const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    // Match either exact className or as suffix (e.g., "Andromeda" matches "Grade 3 - Andromeda")
+    return new RegExp(`(^${escaped}$|\\s*-\\s*${escaped}$)`, 'i');
+};
+
+const buildFilter = (query = {}, skipGradeClassFilter = false) => {
     const filter = {};
 
     const statusList = normalizeList(query.status).map((status) => status.toLowerCase());
@@ -201,32 +293,36 @@ const buildFilter = (query = {}) => {
         filter.status = { $in: statusList };
     }
 
-    const gradeList = normalizeList(query.grade);
-    const gradeClauses = buildGradeFilterClauses(gradeList);
-    if (gradeClauses.length) {
-        filter.$and = filter.$and || [];
-        filter.$and.push({ $or: gradeClauses });
-    }
+    // Only apply grade/className filters from query params for privileged users
+    // For teachers, the applyViewerScope will handle this
+    if (!skipGradeClassFilter) {
+        const gradeList = normalizeList(query.grade);
+        const gradeClauses = buildGradeFilterClauses(gradeList);
+        if (gradeClauses.length) {
+            filter.$and = filter.$and || [];
+            filter.$and.push({ $or: gradeClauses });
+        }
 
-    const classList = normalizeList(query.className);
-    const classClauses = buildClassFilterClauses(classList);
-    if (classClauses.length) {
-        filter.$and = filter.$and || [];
-        filter.$and.push({ $or: classClauses });
+        const classList = normalizeList(query.className);
+        const classClauses = buildClassFilterClauses(classList);
+        if (classClauses.length) {
+            filter.$and = filter.$and || [];
+            filter.$and.push({ $or: classClauses });
+        }
+
+        const unitGrades = deriveGradesForUnit(query.unit || '');
+        if (unitGrades.length) {
+            const unitGradeClauses = buildGradeFilterClauses(unitGrades);
+            if (unitGradeClauses.length) {
+                filter.$and = filter.$and || [];
+                filter.$and.push({ $or: unitGradeClauses });
+            }
+        }
     }
 
     const genderList = normalizeList(query.gender).map((gender) => gender.toLowerCase());
     if (genderList.length) {
         filter.gender = { $in: genderList };
-    }
-
-    const unitGrades = deriveGradesForUnit(query.unit || '');
-    if (unitGrades.length) {
-        const unitGradeClauses = buildGradeFilterClauses(unitGrades);
-        if (unitGradeClauses.length) {
-            filter.$and = filter.$and || [];
-            filter.$and.push({ $or: unitGradeClauses });
-        }
     }
 
     if (query.search) {
@@ -302,18 +398,31 @@ const loadMentorsByGrade = async (grades = []) => {
     const queries = await Promise.all(
         grades.map(async (grade) => {
             if (!grade) return null;
-            const unit = deriveUnitFromGrade(grade);
+            // Only find mentors who are specifically assigned to this grade
+            // Don't include all teachers from the same unit
             const mentors = await User.find({
                 ...mentorRoleFilter,
                 $or: [
                     { 'classes.grade': grade },
-                    { 'classes.grade': new RegExp(`^${grade}`, 'i') },
-                    unit ? { unit } : null
-                ].filter(Boolean)
+                    { 'classes.grade': new RegExp(`^${grade}(\\s|$)`, 'i') }
+                ]
             })
                 .select('name email username jobPosition unit classes')
                 .lean();
-            const filteredMentors = (mentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
+
+            // Filter mentors to only those whose class assignments match the grade
+            const filteredMentors = (mentors || [])
+                .filter((mentor) => !shouldExcludeMentor(mentor))
+                .filter((mentor) => {
+                    // Check if mentor has a class assignment matching this grade
+                    const classes = mentor.classes || [];
+                    return classes.some((cls) => {
+                        const clsGrade = cls.grade || '';
+                        return clsGrade === grade ||
+                               clsGrade.toLowerCase().startsWith(grade.toLowerCase());
+                    });
+                });
+
             return { grade, mentors: filteredMentors };
         })
     );
@@ -322,6 +431,97 @@ const loadMentorsByGrade = async (grades = []) => {
         if (entry?.grade) {
             cache.set(entry.grade, entry.mentors || []);
         }
+    });
+
+    return cache;
+};
+
+// Load mentors specifically for a grade AND class combination
+const loadMentorsByGradeAndClass = async (grade = '', className = '') => {
+    if (!grade && !className) return [];
+
+    // Extract class name suffix (e.g., "Andromeda" from "Grade 3 - Andromeda")
+    const classNameSuffix = className.includes('-')
+        ? className.split('-').pop().trim()
+        : className;
+
+    const mentors = await User.find({
+        ...mentorRoleFilter
+    })
+        .select('name email username jobPosition unit classes')
+        .lean();
+
+    // Filter mentors who have class assignments matching BOTH grade AND className
+    const matchedMentors = (mentors || [])
+        .filter((mentor) => !shouldExcludeMentor(mentor))
+        .filter((mentor) => {
+            const classes = mentor.classes || [];
+            return classes.some((cls) => {
+                const clsGrade = cls.grade || '';
+                const clsClassName = cls.className || '';
+
+                // Check grade match
+                const gradeMatches = !grade ||
+                    clsGrade === grade ||
+                    clsGrade.toLowerCase().startsWith(grade.toLowerCase());
+
+                // Check class name match (e.g., "Andromeda" matches "Grade 3 - Andromeda")
+                const classMatches = !classNameSuffix ||
+                    clsClassName === classNameSuffix ||
+                    clsClassName.toLowerCase() === classNameSuffix.toLowerCase() ||
+                    className.toLowerCase().includes(clsClassName.toLowerCase());
+
+                return gradeMatches && classMatches;
+            });
+        });
+
+    return matchedMentors;
+};
+
+// Load mentors for multiple class keys (grade|className combinations) - for list view
+const loadMentorsByClassKeys = async (classKeys = []) => {
+    const cache = new Map();
+    if (!classKeys.length) return cache;
+
+    // Fetch all potential mentors once
+    const allMentors = await User.find({
+        ...mentorRoleFilter
+    })
+        .select('name email username jobPosition unit classes')
+        .lean();
+
+    const filteredMentors = (allMentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
+
+    // For each class key, find matching mentors
+    classKeys.forEach((key) => {
+        const [grade, className] = key.split('|');
+        if (!grade && !className) return;
+
+        // Extract class name suffix (e.g., "Andromeda" from "Grade 3 - Andromeda")
+        const classNameSuffix = className.includes('-')
+            ? className.split('-').pop().trim()
+            : className;
+
+        const matched = filteredMentors.filter((mentor) => {
+            const classes = mentor.classes || [];
+            return classes.some((cls) => {
+                const clsGrade = cls.grade || '';
+                const clsClassName = cls.className || '';
+
+                // Check grade match
+                const gradeMatches = !grade ||
+                    clsGrade === grade ||
+                    clsGrade.toLowerCase().startsWith(grade.toLowerCase());
+
+                // Check class name match - must match the specific class (Andromeda vs Sombrero)
+                const classMatches = !classNameSuffix ||
+                    clsClassName.toLowerCase() === classNameSuffix.toLowerCase();
+
+                return gradeMatches && classMatches;
+            });
+        });
+
+        cache.set(key, matched);
     });
 
     return cache;
@@ -370,21 +570,33 @@ const listStudents = async (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
         const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
         const skip = (page - 1) * limit;
-        const filter = applyViewerScope(buildFilter(req.query), req.user);
+
+        // Determine if user is privileged (can use query params for grade/class filtering)
+        const isPrivileged = !req.user || PRIVILEGED_ROLES.has(req.user.role);
+        const skipGradeClassFilter = !isPrivileged;
+
+        // Build base filter (privileged users can filter by grade/class from query params)
+        const baseFilter = buildFilter(req.query, skipGradeClassFilter);
+
+        // Apply viewer scope (adds role-based filtering for non-privileged users)
+        const filter = applyViewerScope(baseFilter, req.user);
 
         const [students, total] = await Promise.all([
             MTSSStudent.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
             MTSSStudent.countDocuments(filter)
         ]);
 
-        const uniqueGrades = Array.from(
+        // Collect unique class combinations (grade + className)
+        const uniqueClassKeys = Array.from(
             new Set(
                 students
-                    .map((student) => student.currentGrade || student.className)
-                    .filter(Boolean)
+                    .map((student) => `${student.currentGrade || ''}|${student.className || ''}`)
+                    .filter((key) => key !== '|')
             )
         );
-        const gradeMentorMap = await loadMentorsByGrade(uniqueGrades);
+
+        // Build mentor map by className (more specific than grade)
+        const classMentorMap = await loadMentorsByClassKeys(uniqueClassKeys);
 
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
@@ -396,12 +608,12 @@ const listStudents = async (req, res) => {
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
         const payload = students.map((student) => {
-            const gradeLabel = student.currentGrade || student.className;
+            const classKey = `${student.currentGrade || ''}|${student.className || ''}`;
             const summary = summaryMap.get(student._id.toString());
             if (summary) {
                 return formatRosterStudent(student, summary);
             }
-            const mentorList = gradeMentorMap.get(gradeLabel) || [];
+            const mentorList = classMentorMap.get(classKey) || [];
             const fallback = buildFallbackSummary(mentorList);
             return formatRosterStudent(student, fallback);
         });
@@ -444,10 +656,11 @@ const getStudent = async (req, res) => {
         if (summary) {
             payload = formatRosterStudent(student, summary);
         } else {
-            const gradeLabel = student.currentGrade || student.className;
-            const mentors = await loadMentorsByGrade([gradeLabel]);
-            const mentorList = mentors.get(gradeLabel) || [];
-            payload = formatRosterStudent(student, buildFallbackSummary(mentorList));
+            // Find mentors specifically assigned to this student's grade AND class
+            const gradeLabel = student.currentGrade || '';
+            const classLabel = student.className || '';
+            const mentors = await loadMentorsByGradeAndClass(gradeLabel, classLabel);
+            payload = formatRosterStudent(student, buildFallbackSummary(mentors));
         }
 
         // Build intervention details with progress data for each assignment

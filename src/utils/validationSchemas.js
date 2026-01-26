@@ -193,13 +193,31 @@ const mtssStrategyUpdateSchema = Joi.object({
 
 const mentorAssignmentCreateSchema = Joi.object({
     mentorId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
-    studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(2).required(),
-    tier: Joi.string().valid('tier2', 'tier3').required(),
+    studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(1).required(),
+    tier: Joi.string().valid('tier1', 'tier2', 'tier3').required(),
     focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
     startDate: Joi.date().optional(),
+    duration: Joi.string().valid('4 weeks', '6 weeks', '8 weeks').optional(),
+    strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow(null),
+    strategyName: Joi.string().trim().optional().allow('', null),
+    monitoringMethod: Joi.string().valid(
+        'Option 1 - Direct Observation',
+        'Option 2 - Student Self-Report',
+        'Option 3 - Assessment Data'
+    ).optional(),
+    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly').optional(),
+    metricLabel: Joi.string().trim().optional().allow('', null),
+    baselineScore: Joi.object({
+        value: Joi.number().optional(),
+        unit: Joi.string().allow('', null)
+    }).optional(),
+    targetScore: Joi.object({
+        value: Joi.number().optional(),
+        unit: Joi.string().allow('', null)
+    }).optional(),
     goals: Joi.array().items(Joi.object({
         description: Joi.string().required(),
-        successCriteria: Joi.string().optional()
+        successCriteria: Joi.string().optional().allow('', null)
     })).optional(),
     notes: Joi.string().optional().allow('')
 });

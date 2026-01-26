@@ -127,10 +127,15 @@ const buildClassRegex = (label = '') => {
     const escapedSegments = segments.map((segment) =>
         escapeRegex(segment).replace(/ +/g, '\\s+')
     );
-    const pattern =
-        escapedSegments.length > 1
-            ? escapedSegments.join('\\s*-\\s*')
-            : escapedSegments[0];
+
+    // If only one segment (e.g., "Andromeda"), also match full class names like "Grade 3 - Andromeda"
+    if (escapedSegments.length === 1) {
+        const segment = escapedSegments[0];
+        // Match either "^Andromeda$" or "...\\s*-\\s*Andromeda$"
+        return new RegExp(`(^${segment}$|\\s*-\\s*${segment}$)`, 'i');
+    }
+
+    const pattern = escapedSegments.join('\\s*-\\s*');
     return new RegExp(`^${pattern}$`, 'i');
 };
 
