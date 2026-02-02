@@ -56,6 +56,9 @@ const startServer = async () => {
             winston.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
             winston.info(`🔗 API available at: http://localhost:${PORT}/api`);
             winston.info(`💚 Health check: http://localhost:${PORT}/api/health`);
+            // Log OAuth-related config for debugging
+            winston.info(`🌐 FRONTEND_URL: ${process.env.FRONTEND_URL || 'NOT SET (will use localhost:5173)'}`);
+            winston.info(`🔑 GOOGLE_REDIRECT_URL: ${process.env.GOOGLE_REDIRECT_URL || 'NOT SET'}`);
         });
 
         // Graceful shutdown handling

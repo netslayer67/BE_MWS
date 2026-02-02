@@ -110,6 +110,14 @@ router.get('/google/callback',
             };
             const canViewDashboard = hasDashboardAccess(oauthUserForLogging);
 
+            // Debug log for FRONTEND_URL configuration
+            console.log('🌐 OAuth redirect config:', {
+                FRONTEND_URL_ENV: process.env.FRONTEND_URL || 'NOT SET (using fallback)',
+                NODE_ENV: process.env.NODE_ENV || 'NOT SET',
+                frontendUrl,
+                redirectTarget
+            });
+
             console.log('🔄 Redirecting to frontend with database-validated user data');
             console.log('📋 User role for dashboard access:', {
                 role: dbUser.role,

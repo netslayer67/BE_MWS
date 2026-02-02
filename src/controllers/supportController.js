@@ -27,25 +27,28 @@ const getSupportContacts = async (req, res) => {
         switch (userRole) {
             case 'student':
                 // Students get specific support contacts based on their department
-                contactableRoles = ['teacher']; // Will include class teachers
+                contactableRoles = []; // Don't fetch all teachers - only class-specific ones via Organization
 
-                // Add specific support contacts based on department
+                // Add Principal (Head Unit) based on student's unit/department
                 if (userDepartment === 'Elementary') {
-                    // SD students: Kholida Widyawati (Head Unit Elementary) + Azalia (Psychologist)
                     specificUsers = [
-                        { name: 'Kholida Widyawati', role: 'head_unit', unit: 'Elementary' },
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate' }
+                        { name: 'Kholida Widyawati', role: 'head_unit', unit: 'Elementary', contactCategory: 'principal' },
+                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
                     ];
                 } else if (userDepartment === 'Junior High') {
-                    // SMP students: Aria Wisnuwardana (Head Unit Junior High) + Azalia (Psychologist)
                     specificUsers = [
-                        { name: 'Aria Wisnuwardana', role: 'head_unit', unit: 'Junior High' },
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate' }
+                        { name: 'Aria Wisnuwardana', role: 'head_unit', unit: 'Junior High', contactCategory: 'principal' },
+                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
+                    ];
+                } else if (userDepartment === 'Kindergarten') {
+                    specificUsers = [
+                        { name: 'Mahrukh Bashir', role: 'head_unit', unit: 'Kindergarten', contactCategory: 'principal' },
+                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
                     ];
                 } else {
                     // Fallback for students without specific department
                     specificUsers = [
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate' }
+                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
                     ];
                 }
                 break;
@@ -92,6 +95,7 @@ const getSupportContacts = async (req, res) => {
                     .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                 if (foundUser && !supportUsers.find(u => u._id.toString() === foundUser._id.toString())) {
+                    foundUser._doc.contactCategory = specificUser.contactCategory || 'other';
                     supportUsers.push(foundUser);
                 }
             }
@@ -178,31 +182,53 @@ const getSupportContacts = async (req, res) => {
             gender: user.gender,
             specialSupportTag: user.specialSupportTag,
             displayRole: user.displayRole,
+            contactCategory: user.contactCategory || null,
             // Add special indicators for students
             ...(user.isClassTeacher && {
                 isClassTeacher: true,
                 classInfo: user.classInfo,
+                contactCategory: 'classTeacher',
                 displayRole: `Class Teacher${user.classInfo ? ` (${user.classInfo})` : ''}`
+            }),
+            ...(user.contactCategory === 'principal' && {
+                contactCategory: 'principal',
+                displayRole: `Principal ${user.unit || ''}`
+            }),
+            ...(user.contactCategory === 'psychologist' && {
+                contactCategory: 'psychologist',
+                displayRole: "School Psychologist"
             })
         }));
 
-        // Sort contacts: class teachers first, then specific support contacts, then others
-        // Restrict to core support contacts with defined ordering
-        const coreContactsMap = new Map();
-        supportContacts.forEach(contact => {
-            coreContactsMap.set(contact.email, contact);
-        });
+        if (userRole === 'student') {
+            // For students: Sort by category - class teachers first, then principal, then psychologist
+            supportContacts.sort((a, b) => {
+                const categoryOrder = { classTeacher: 0, principal: 1, psychologist: 2, other: 3 };
+                const catA = a.isClassTeacher ? 'classTeacher' : (a.contactCategory || 'other');
+                const catB = b.isClassTeacher ? 'classTeacher' : (b.contactCategory || 'other');
+                const orderA = categoryOrder[catA] ?? 3;
+                const orderB = categoryOrder[catB] ?? 3;
+                if (orderA !== orderB) return orderA - orderB;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+        } else {
+            // For staff/teachers: Restrict to core support contacts with defined ordering
+            const coreContactsMap = new Map();
+            supportContacts.forEach(contact => {
+                coreContactsMap.set(contact.email, contact);
+            });
 
-        const orderedCoreContacts = [];
-        for (const coreContact of CORE_SUPPORT_CONTACTS) {
-            const match = coreContactsMap.get(coreContact.email);
-            if (match) {
-                match.displayName = coreContact.displayName || match.name;
-                orderedCoreContacts.push(match);
+            const orderedCoreContacts = [];
+            for (const coreContact of CORE_SUPPORT_CONTACTS) {
+                const match = coreContactsMap.get(coreContact.email);
+                if (match) {
+                    match.displayName = coreContact.displayName || match.name;
+                    orderedCoreContacts.push(match);
+                }
             }
-        }
 
-        supportContacts = orderedCoreContacts;
+            supportContacts = orderedCoreContacts;
+        }
 
         // Add "No Need" option
         supportContacts.push({

@@ -515,7 +515,10 @@ const submitCheckin = async (req, res) => {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: false } // Manual check-in doesn't have aiEmotionScan
+            $or: [
+                { aiEmotionScan: { $exists: false } },
+                { aiEmotionScan: null }
+            ] // Manual check-in has no AI scan (missing or null)
         });
 
         if (existingManualCheckin) {
@@ -852,7 +855,10 @@ const getTodayCheckinStatus = async (req, res) => {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: false }
+            $or: [
+                { aiEmotionScan: { $exists: false } },
+                { aiEmotionScan: null }
+            ]
         });
 
         // Check for AI check-in (has aiEmotionScan)
@@ -862,7 +868,7 @@ const getTodayCheckinStatus = async (req, res) => {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: true }
+            aiEmotionScan: { $exists: true, $ne: null }
         });
 
         const status = {
@@ -1386,7 +1392,7 @@ const submitAICheckin = async (req, res) => {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: true } // AI check-in has aiEmotionScan
+            aiEmotionScan: { $exists: true, $ne: null } // AI check-in has AI scan data
         });
 
         if (existingAICheckin) {

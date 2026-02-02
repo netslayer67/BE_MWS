@@ -37,6 +37,7 @@ module.exports = defineConfig({
         defaultCommandTimeout: 15000,
         env: {
             apiUrl: process.env.CYPRESS_API_URL || 'http://localhost:3000/api/v1',
+            frontendUrl: process.env.CYPRESS_FRONTEND_URL || 'http://localhost:5173',
             testEmail: process.env.CYPRESS_TEST_EMAIL || 'staff@example.com',
             testPassword: process.env.CYPRESS_TEST_PASSWORD || 'password123',
             manualBurst: Number(process.env.CYPRESS_MANUAL_BURST || 5),
