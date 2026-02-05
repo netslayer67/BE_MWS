@@ -3,7 +3,7 @@ services:
   api:
     build: .
     ports:
-      - "3001:3001"
+      - "3003:3003"
     env_file:
       - .env.docker
     restart: unless-stopped
