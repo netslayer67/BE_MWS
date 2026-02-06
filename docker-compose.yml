@@ -1,12 +1,99 @@
 version: "3.8"
+
 services:
-  api:
-    build: .
-    ports:
-      - "3003:3003"
-    env_file:
-      - .env.docker
+  # ============================================
+  # TRAEFIK - Reverse Proxy & SSL
+  # ============================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
     restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@millenniaws.sch.id"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "traefik-certs:/letsencrypt"
+    networks:
+      - mws-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(\`traefik.millenniaws.sch.id\`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+
+  # ============================================
+  # BACKEND API
+  # ============================================
+  backend:
+    image: ghcr.io/netslayer67/mws-app-be:latest
+    container_name: mws-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - FRONTEND_URL=https://app.millenniaws.sch.id
+      - MONGODB_URI=\${MONGODB_URI}
+      - JWT_SECRET=\${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      - GOOGLE_CLIENT_ID=\${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=\${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=https://api.millenniaws.sch.id/auth/google/callback
+      - GOOGLE_AI_API_KEY=\${GOOGLE_AI_API_KEY}
+      - GOOGLE_AI_MODEL=gemini-flash-latest
+      - SLACK_BOT_TOKEN=\${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=\${SLACK_APP_TOKEN}
+      - SLACK_SIGNING_SECRET=\${SLACK_SIGNING_SECRET}
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=\${SMTP_USER}
+      - SMTP_PASS=\${SMTP_PASS}
+      - SMTP_FROM=\${SMTP_FROM}
+      - RATE_LIMIT_WINDOW=15
+      - RATE_LIMIT_MAX_REQUESTS=600
+      - CACHE_TTL=3600
+      - LOG_LEVEL=info
+    networks:
+      - mws-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(\`api.millenniaws.sch.id\`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=3001"
+
+  # ============================================
+  # FRONTEND
+  # ============================================
+  frontend:
+    image: ghcr.io/netslayer67/mws-app-fe:latest
+    container_name: mws-frontend
+    restart: unless-stopped
+    networks:
+      - mws-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(\`app.millenniaws.sch.id\`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+
+networks:
+  mws-network:
+    driver: bridge
+
+volumes:
+  traefik-certs:
