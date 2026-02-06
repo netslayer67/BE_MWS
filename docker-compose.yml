@@ -30,7 +30,7 @@ services:
       - mws-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(\`traefik.millenniaws.sch.id\`)"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.millenniaws.sch.id`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
       - "traefik.http.routers.traefik.service=api@internal"
@@ -46,22 +46,22 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - FRONTEND_URL=https://app.millenniaws.sch.id
-      - MONGODB_URI=\${MONGODB_URI}
-      - JWT_SECRET=\${JWT_SECRET}
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
-      - GOOGLE_CLIENT_ID=\${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=\${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URL=https://api.millenniaws.sch.id/auth/google/callback
-      - GOOGLE_AI_API_KEY=\${GOOGLE_AI_API_KEY}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
       - GOOGLE_AI_MODEL=gemini-flash-latest
-      - SLACK_BOT_TOKEN=\${SLACK_BOT_TOKEN}
-      - SLACK_APP_TOKEN=\${SLACK_APP_TOKEN}
-      - SLACK_SIGNING_SECRET=\${SLACK_SIGNING_SECRET}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
       - SMTP_HOST=smtp.gmail.com
       - SMTP_PORT=587
-      - SMTP_USER=\${SMTP_USER}
-      - SMTP_PASS=\${SMTP_PASS}
-      - SMTP_FROM=\${SMTP_FROM}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
       - RATE_LIMIT_WINDOW=15
       - RATE_LIMIT_MAX_REQUESTS=600
       - CACHE_TTL=3600
@@ -70,7 +70,7 @@ services:
       - mws-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(\`api.millenniaws.sch.id\`)"
+      - "traefik.http.routers.backend.rule=Host(`api.millenniaws.sch.id`)"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.backend.loadbalancer.server.port=3001"
@@ -86,7 +86,7 @@ services:
       - mws-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(\`app.millenniaws.sch.id\`)"
+      - "traefik.http.routers.frontend.rule=Host(`app.millenniaws.sch.id`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
