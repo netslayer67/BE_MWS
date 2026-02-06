@@ -72,6 +72,12 @@ jobs:
           NODE_ENV: test
           JWT_SECRET: test-secret-key-for-ci
           MONGODB_URI: mongodb://localhost:27017/integra-learn-test
+          # Google OAuth dummy values for CI
+          GOOGLE_CLIENT_ID: dummy-client-id-for-ci
+          GOOGLE_CLIENT_SECRET: dummy-client-secret-for-ci
+          GOOGLE_REDIRECT_URL: http://localhost:3000/auth/google/callback
+          # Google AI dummy values
+          GOOGLE_AI_API_KEY: dummy-api-key-for-ci
 
       - name: Run Cypress E2E (optional)
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_e2e == 'true' }}
