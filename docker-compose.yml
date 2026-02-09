@@ -7,10 +7,10 @@ services:
     container_name: mws-backend
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3003:3003"
     environment:
       - NODE_ENV=production
-      - PORT=3001
+      - PORT=3003
       - FRONTEND_URL=https://app.millenniaws.sch.id
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
