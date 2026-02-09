@@ -6,8 +6,8 @@ services:
     image: ghcr.io/netslayer67/mws-app-be:latest
     container_name: mws-backend
     restart: unless-stopped
-    ports:
-      - "3003:3003"
+    expose:
+      - "3003"
     environment:
       - NODE_ENV=production
       - PORT=3003
@@ -17,7 +17,7 @@ services:
       - JWT_EXPIRES_IN=7d
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URL=https://api.millenniaws.sch.id/auth/google/callback
+      - GOOGLE_REDIRECT_URL=https://app.millenniaws.sch.id/auth/google/callback
       - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
       - GOOGLE_AI_MODEL=gemini-flash-latest
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
@@ -42,6 +42,8 @@ services:
     image: ghcr.io/netslayer67/mws-app-fe:latest
     container_name: mws-frontend
     restart: unless-stopped
+    depends_on:
+      - backend
     ports:
       - "80:80"
     networks:
