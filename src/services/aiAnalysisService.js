@@ -100,9 +100,17 @@ class AIAnalysisService {
                 }
 
                 // Determine context based on user role (if available)
-                const context = checkinData.userRole === 'head_unit' || checkinData.userRole === 'directorate' ||
-                    checkinData.userRole === 'admin' || checkinData.userRole === 'superadmin'
-                    ? 'manager' : 'employee';
+                let context = 'employee';
+                if (checkinData.userRole === 'student') {
+                    context = 'student';
+                } else if (
+                    checkinData.userRole === 'head_unit' ||
+                    checkinData.userRole === 'directorate' ||
+                    checkinData.userRole === 'admin' ||
+                    checkinData.userRole === 'superadmin'
+                ) {
+                    context = 'manager';
+                }
 
                 const prompt = this.buildPsychologyPrompt(checkinData, context);
                 console.log(`🤖 Sending to AI (${context} context):`, prompt.substring(0, 200) + '...');
@@ -181,8 +189,63 @@ class AIAnalysisService {
         // Declare prompt variable at the top level
         let prompt;
 
-        // Different prompts based on context (employee self-assessment vs manager/supervisor view)
-        if (context === 'manager') {
+        // Different prompts based on context (student, employee self-assessment, manager view)
+        if (context === 'student') {
+            prompt = `You are a warm, school-based psychologist writing emotional wellbeing guidance for a STUDENT.
+Use language that is age-appropriate, encouraging, and easy to understand.
+Do not use workplace, HR, productivity, employee, or team-management framing.
+Do not diagnose. Focus on emotional support, school-life balance, and practical next steps.
+
+STUDENT CHECK-IN DATA:
+- Weather/Mood Metaphor: ${weatherText}
+- Current Feelings: ${moodText}
+- Presence Level: ${presenceText}
+- Capacity Level: ${capacityText}
+- Student Reflection: ${data.details || 'No additional reflection shared'}
+
+${hasHistoricalContext ? `
+STUDENT WELLBEING JOURNEY:
+- Baseline Stability: ${Math.round(baselineStability * 100)}%
+- Recent Changes: ${recentDeviations.length > 0 ? recentDeviations.join(', ') : 'Mostly stable'}
+- Pattern Summary: ${data.historicalPatterns?.patternAnalysis || 'Limited historical data'}
+` : ''}
+
+STUDENT-FOCUSED ANALYSIS:
+1. Reflect the student's emotions with empathy and validation.
+2. Provide practical next steps for school context (class focus, breaks, asking for help, healthy routines).
+3. Encourage self-compassion and emotional literacy.
+4. Suggest safe support pathways (trusted teacher, homeroom, SE teacher, principal, school psychologist).
+5. Keep recommendations specific, simple, and actionable for a student.
+
+SUPPORT THRESHOLD:
+- needsSupport should be true when presence/capacity ≤4 OR emotional state is challenging/depleted OR student signals distress.
+
+RESPONSE FORMAT (JSON only):
+{
+  "emotionalState": "positive|challenging|balanced|depleted",
+  "presenceState": "high|moderate|low",
+  "capacityState": "high|moderate|low",
+  "recommendations": [
+    {
+      "title": "Student-friendly action step",
+      "description": "Simple practical action for emotional wellbeing at school/home",
+      "priority": "high|medium|low",
+      "category": "school|self-care|connection|mindfulness"
+    }
+  ],
+  "psychologicalInsights": "Gentle, student-friendly insight on current emotional experience",
+  "motivationalMessage": "Warm encouragement for students with hopeful tone",
+  "needsSupport": true/false,
+  "confidence": 0-100,
+  "supportReasoning": "Why support is or is not currently needed in student context",
+  "historicalContextUsed": true/false
+}
+
+IMPORTANT FOR STUDENTS:
+- Use emotionally safe, non-judgmental language.
+- Avoid clinical labels and avoid workplace framing.
+- Keep tone hopeful, kind, and empowering.`;
+        } else if (context === 'manager') {
             // Manager/Supervisor perspective - more analytical, focused on team management
             prompt = `You are a workplace wellness consultant analyzing an employee's emotional check-in data from a management perspective. Provide insights for supervisors and HR professionals to support their team members effectively.
 
@@ -371,7 +434,7 @@ IMPORTANT FOR PERSONAL GROWTH:
                 throw new Error('AI generated invalid motivational message - template detected');
             }
 
-            return this.validateAnalysis(parsed);
+            return this.validateAnalysis(parsed, checkinData);
 
         } catch (error) {
             console.error('❌ Failed to parse AI response:', error.message);
@@ -388,7 +451,7 @@ IMPORTANT FOR PERSONAL GROWTH:
         }
     }
 
-    validateAnalysis(analysis) {
+    validateAnalysis(analysis, checkinData = {}) {
         // Ensure required fields exist, add defaults for missing ones
         const requiredFields = ['emotionalState', 'presenceState', 'capacityState', 'recommendations', 'psychologicalInsights', 'needsSupport'];
 
@@ -429,44 +492,85 @@ IMPORTANT FOR PERSONAL GROWTH:
             .slice(0, 4);
 
         // Ensure a minimum of 4 personalized recommendations
-        const basePool = [
-            {
-                title: 'Grounding Breath',
-                description: 'Take 3–5 deep breaths. Inhale for 4s, exhale for 6s to settle your nervous system.',
-                priority: 'medium',
-                category: 'mindfulness'
-            },
-            {
-                title: 'Micro Break',
-                description: 'Step away for 3 minutes. Stretch shoulders and neck, hydrate, and reset your posture.',
-                priority: 'medium',
-                category: 'recovery'
-            },
-            {
-                title: 'Focused One‑Task',
-                description: 'Choose one small task and complete it end‑to‑end to regain focus and momentum.',
-                priority: 'low',
-                category: 'focus'
-            },
-            {
-                title: 'Support Check‑in',
-                description: 'Message a trusted colleague or supervisor to share how you are and what support would help.',
-                priority: 'high',
-                category: 'support'
-            },
-            {
-                title: 'Reflective Journal',
-                description: 'Write 3 lines about what you’re feeling and 1 helpful next step you can take today.',
-                priority: 'low',
-                category: 'reflection'
-            },
-            {
-                title: 'Gratitude Scan',
-                description: 'List 2 small things you appreciate right now to broaden perspective and ease tension.',
-                priority: 'low',
-                category: 'mindset'
-            }
-        ];
+        const isStudent = checkinData?.userRole === 'student';
+
+        const basePool = isStudent
+            ? [
+                {
+                    title: '2-Minute Breathing Reset',
+                    description: 'Breathe in for 4 counts, breathe out for 6 counts, and repeat 5 times.',
+                    priority: 'medium',
+                    category: 'mindfulness'
+                },
+                {
+                    title: 'Water + Stretch Break',
+                    description: 'Take a short break, drink water, and stretch your shoulders for one minute.',
+                    priority: 'medium',
+                    category: 'self-care'
+                },
+                {
+                    title: 'One Small School Task',
+                    description: 'Pick one easy task (5-10 minutes) and finish it to build momentum.',
+                    priority: 'low',
+                    category: 'school'
+                },
+                {
+                    title: 'Talk to a Trusted Adult',
+                    description: 'Tell your homeroom teacher, SE teacher, principal, or school psychologist how you feel.',
+                    priority: 'high',
+                    category: 'connection'
+                },
+                {
+                    title: 'Feelings Journal',
+                    description: 'Write 2-3 sentences: “What I feel”, “Why I feel it”, and “What can help now”.',
+                    priority: 'low',
+                    category: 'reflection'
+                },
+                {
+                    title: '3 Good Things',
+                    description: 'Write 3 good things from today, even small ones, to support a calm mindset.',
+                    priority: 'low',
+                    category: 'mindset'
+                }
+            ]
+            : [
+                {
+                    title: 'Grounding Breath',
+                    description: 'Take 3–5 deep breaths. Inhale for 4s, exhale for 6s to settle your nervous system.',
+                    priority: 'medium',
+                    category: 'mindfulness'
+                },
+                {
+                    title: 'Micro Break',
+                    description: 'Step away for 3 minutes. Stretch shoulders and neck, hydrate, and reset your posture.',
+                    priority: 'medium',
+                    category: 'recovery'
+                },
+                {
+                    title: 'Focused One‑Task',
+                    description: 'Choose one small task and complete it end‑to‑end to regain focus and momentum.',
+                    priority: 'low',
+                    category: 'focus'
+                },
+                {
+                    title: 'Support Check‑in',
+                    description: 'Message a trusted colleague or supervisor to share how you are and what support would help.',
+                    priority: 'high',
+                    category: 'support'
+                },
+                {
+                    title: 'Reflective Journal',
+                    description: 'Write 3 lines about what you’re feeling and 1 helpful next step you can take today.',
+                    priority: 'low',
+                    category: 'reflection'
+                },
+                {
+                    title: 'Gratitude Scan',
+                    description: 'List 2 small things you appreciate right now to broaden perspective and ease tension.',
+                    priority: 'low',
+                    category: 'mindset'
+                }
+            ];
 
         const titles = new Set(analysis.recommendations.map(r => String(r.title).toLowerCase()));
 
@@ -477,7 +581,7 @@ IMPORTANT FOR PERSONAL GROWTH:
         const emotionalChallenging = analysis.emotionalState === 'challenging' || analysis.emotionalState === 'depleted';
 
         const prioritized = [];
-        if (wantSupport) prioritized.push('Support Check‑in');
+        if (wantSupport) prioritized.push(isStudent ? 'Talk to a Trusted Adult' : 'Support Check‑in');
         if (presenceLow) prioritized.push('Grounding Breath', 'Focused One‑Task');
         if (capacityLow) prioritized.push('Micro Break');
         if (emotionalChallenging) prioritized.push('Reflective Journal');
@@ -534,8 +638,12 @@ IMPORTANT FOR PERSONAL GROWTH:
                     category: "mindfulness"
                 }
             ],
-            psychologicalInsights: "Your check-in shows you're actively engaging with your emotional well-being, which is a positive step toward mental health awareness.",
-            motivationalMessage: "You are capable of amazing things! Keep believing in yourself and your journey.",
+            psychologicalInsights: checkinData?.userRole === 'student'
+                ? "Your check-in shows good emotional awareness. Naming your feelings is a strong step toward better wellbeing."
+                : "Your check-in shows you're actively engaging with your emotional well-being, which is a positive step toward mental health awareness.",
+            motivationalMessage: checkinData?.userRole === 'student'
+                ? "You are growing every day. Small positive steps still count, and you are not alone."
+                : "You are capable of amazing things! Keep believing in yourself and your journey.",
             needsSupport: checkinData.capacityLevel <= 3 || checkinData.presenceLevel <= 3,
             confidence: 70
         };
