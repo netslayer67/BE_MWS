@@ -14,6 +14,47 @@ const CORE_SUPPORT_CONTACTS = [
     { email: 'faisal@millennia21.id', displayName: 'Mr. Faisal' }
 ];
 
+const normalizeValue = (value) => String(value || '').trim().toLowerCase();
+
+const isHomeroomAssignment = (role) => {
+    const normalizedRole = normalizeValue(role);
+    return normalizedRole === 'homeroom teacher' || normalizedRole === 'homeroom';
+};
+
+const parseStudentClassInfo = (student) => {
+    const fullClassName = String(student.className || '').trim();
+    const currentGrade = String(student.currentGrade || '').trim();
+
+    // Example: "Grade 3 - Sombrero" => "Sombrero"
+    const classParts = fullClassName.split('-').map((part) => part.trim()).filter(Boolean);
+    const shortClassName = classParts.length > 1 ? classParts[classParts.length - 1] : fullClassName;
+
+    return {
+        fullClassName,
+        shortClassName,
+        currentGrade
+    };
+};
+
+const assignmentMatchesStudentClass = (assignment, studentClassInfo) => {
+    if (!assignment || !isHomeroomAssignment(assignment.role)) return false;
+
+    const assignmentGrade = normalizeValue(assignment.grade);
+    const assignmentClassName = normalizeValue(assignment.className);
+    const assignmentSubject = normalizeValue(assignment.subject);
+
+    const studentGrade = normalizeValue(studentClassInfo.currentGrade);
+    const studentClassShort = normalizeValue(studentClassInfo.shortClassName);
+    const studentClassFull = normalizeValue(studentClassInfo.fullClassName);
+
+    const gradeMatches = !studentGrade || !assignmentGrade || assignmentGrade === studentGrade;
+    const classMatches = assignmentClassName === studentClassShort ||
+        assignmentClassName === studentClassFull ||
+        assignmentSubject === studentClassShort;
+
+    return gradeMatches && classMatches;
+};
+
 // Get all directorate and head_unit users for support contacts
 const getSupportContacts = async (req, res) => {
     try {
@@ -91,7 +132,7 @@ const getSupportContacts = async (req, res) => {
                     .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                 if (foundUser && !supportUsers.find(u => u._id.toString() === foundUser._id.toString())) {
-                    foundUser._doc.contactCategory = specificUser.contactCategory || 'other';
+                    foundUser.contactCategory = specificUser.contactCategory || 'other';
                     supportUsers.push(foundUser);
                 }
             }
@@ -109,19 +150,22 @@ const getSupportContacts = async (req, res) => {
 
                 // Get teachers from these classes
                 for (const org of studentOrganizations) {
-                    const teacherMembers = org.members.filter(member =>
-                        member.role === 'teacher' || member.role === 'homeroom'
-                    );
+                    const teacherMembers = org.members.filter((member) => {
+                        const memberRole = normalizeValue(member.role);
+                        return memberRole === 'teacher' ||
+                            memberRole === 'homeroom' ||
+                            memberRole === 'homeroom teacher';
+                    });
 
                     for (const teacherMember of teacherMembers) {
-                        if (teacherMember.userId && teacherMember.userId.role === 'teacher') {
+                        if (teacherMember.userId && ['teacher', 'se_teacher'].includes(teacherMember.userId.role)) {
                             const teacherUser = await User.findById(teacherMember.userId._id)
                                 .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                             if (teacherUser && !supportUsers.find(u => u._id.toString() === teacherUser._id.toString())) {
                                 // Mark as class teacher
-                                teacherUser._doc.isClassTeacher = true;
-                                teacherUser._doc.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
+                                teacherUser.isClassTeacher = true;
+                                teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
                                 supportUsers.push(teacherUser);
                             }
                         }
@@ -130,6 +174,33 @@ const getSupportContacts = async (req, res) => {
             } catch (orgError) {
                 console.log('Could not fetch class teachers for student:', orgError.message);
                 // Continue without class teachers if organization lookup fails
+            }
+
+            // Fallback: derive homeroom teachers from User.classes assignments
+            // (needed when class membership is not stored in Organization documents)
+            try {
+                const studentClassInfo = parseStudentClassInfo(req.user);
+                const teacherCandidates = await User.find({
+                    role: { $in: ['teacher', 'se_teacher'] },
+                    unit: req.user.unit || req.user.department,
+                    isActive: true
+                }).select('name username email department employeeId role jobLevel unit jobPosition gender classes');
+
+                for (const teacher of teacherCandidates) {
+                    const classes = Array.isArray(teacher.classes) ? teacher.classes : [];
+                    const matchingAssignment = classes.find((assignment) =>
+                        assignmentMatchesStudentClass(assignment, studentClassInfo)
+                    );
+
+                    if (!matchingAssignment) continue;
+                    if (supportUsers.find(u => u._id.toString() === teacher._id.toString())) continue;
+
+                    teacher.isClassTeacher = true;
+                    teacher.classInfo = `${matchingAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
+                    supportUsers.push(teacher);
+                }
+            } catch (fallbackError) {
+                console.log('Could not derive homeroom teachers from class assignments:', fallbackError.message);
             }
         }
 
@@ -140,8 +211,8 @@ const getSupportContacts = async (req, res) => {
             for (const specialContact of CORE_SUPPORT_CONTACTS) {
                 const existing = supportUsers.find(user => user.email === specialContact.email);
                 if (existing) {
-                    existing._doc.preferredName = specialContact.displayName || existing.name;
-                    existing._doc.displayRole = specialContact.displayRole || existing.displayRole;
+                    existing.preferredName = specialContact.displayName || existing.name;
+                    existing.displayRole = specialContact.displayRole || existing.displayRole;
                 }
             }
         }
@@ -159,16 +230,16 @@ const getSupportContacts = async (req, res) => {
                     }).select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                     if (foundSpecial) {
-                        foundSpecial._doc.specialSupportTag = specialContact.priorityTag || 'priority';
-                        foundSpecial._doc.displayRole = specialContact.displayRole || foundSpecial.role;
-                        foundSpecial._doc.preferredName = specialContact.displayName || specialContact.label || foundSpecial.name;
+                        foundSpecial.specialSupportTag = specialContact.priorityTag || 'priority';
+                        foundSpecial.displayRole = specialContact.displayRole || foundSpecial.role;
+                        foundSpecial.preferredName = specialContact.displayName || specialContact.label || foundSpecial.name;
                         supportUsers.push(foundSpecial);
                         existingContact = foundSpecial;
                     }
                 } else {
-                    existingContact._doc.specialSupportTag = specialContact.priorityTag || existingContact.specialSupportTag;
-                    existingContact._doc.displayRole = specialContact.displayRole || existingContact.displayRole;
-                    existingContact._doc.preferredName = specialContact.displayName || specialContact.label || existingContact.preferredName;
+                    existingContact.specialSupportTag = specialContact.priorityTag || existingContact.specialSupportTag;
+                    existingContact.displayRole = specialContact.displayRole || existingContact.displayRole;
+                    existingContact.preferredName = specialContact.displayName || specialContact.label || existingContact.preferredName;
                 }
             } catch (specialError) {
                 console.error('Failed to append special support contact:', specialError);
