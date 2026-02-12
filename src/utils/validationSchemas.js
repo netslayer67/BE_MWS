@@ -6,6 +6,29 @@ const {
 } = require('../constants/mtss');
 
 const objectIdSchema = Joi.string().regex(/^[0-9a-fA-F]{24}$/);
+const supportContactObjectIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const supportContactUserIdSchema = Joi.alternatives().try(
+    Joi.string().trim().custom((value, helpers) => {
+        const normalized = value.toLowerCase();
+
+        if (!normalized || normalized === 'no_need' || normalized === 'no-need' || normalized === 'no need') {
+            return 'no_need';
+        }
+
+        if (supportContactObjectIdPattern.test(value)) {
+            return value;
+        }
+
+        return helpers.error('any.invalid');
+    }, 'support contact parser'),
+    Joi.object({
+        _id: Joi.string().regex(supportContactObjectIdPattern).required(),
+        name: Joi.string().required(),
+        role: Joi.string().required(),
+        department: Joi.string().optional()
+    })
+).optional().allow(null);
 
 const interventionPayloadSchema = Joi.object({
     type: Joi.string().valid(...INTERVENTION_TYPE_KEYS).required(),
@@ -113,16 +136,7 @@ const emotionalCheckinSchema = Joi.object({
             'any.required': 'Capacity level helps us understand your current energy and focus levels'
         }),
 
-    supportContactUserId: Joi.alternatives().try(
-        Joi.string().regex(/^[0-9a-fA-F]{24}$/), // ObjectId string
-        Joi.string().valid('no_need', 'no-need'),
-        Joi.object({
-            _id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
-            name: Joi.string().required(),
-            role: Joi.string().required(),
-            department: Joi.string().optional()
-        })
-    ).optional().allow(null),
+    supportContactUserId: supportContactUserIdSchema,
 
     // Smart defaults for optional fields
     userReflection: Joi.string()

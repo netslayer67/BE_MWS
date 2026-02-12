@@ -64,12 +64,25 @@ const assignmentMatchesStudentClass = (assignment, studentClassInfo) => {
     const studentClassShort = normalizeValue(studentClassInfo.shortClassName);
     const studentClassFull = normalizeValue(studentClassInfo.fullClassName);
 
-    const gradeMatches = !studentGrade || !assignmentGrade || assignmentGrade === studentGrade;
+    const gradeMatches = studentGrade && assignmentGrade && assignmentGrade === studentGrade;
     const classMatches = assignmentClassName === studentClassShort ||
         assignmentClassName === studentClassFull ||
         assignmentSubject === studentClassShort;
 
-    return gradeMatches && classMatches ? assignmentCategory : null;
+    if (assignmentCategory === 'seTeacher') {
+        // SE teacher must match the same grade AND class.
+        return gradeMatches && classMatches ? assignmentCategory : null;
+    }
+
+    if (assignmentCategory === 'classTeacher') {
+        // Homeroom teacher must match grade. If class label exists, class must match too.
+        const hasClassReference = Boolean(assignmentClassName || assignmentSubject);
+        if (!gradeMatches) return null;
+        if (hasClassReference && !classMatches) return null;
+        return assignmentCategory;
+    }
+
+    return null;
 };
 
 // Get all directorate and head_unit users for support contacts
@@ -171,12 +184,7 @@ const getSupportContacts = async (req, res) => {
                 for (const org of studentOrganizations) {
                     const teacherMembers = org.members.filter((member) => {
                         const memberRole = normalizeValue(member.role);
-                        return memberRole === 'teacher' ||
-                            memberRole === 'se_teacher' ||
-                            memberRole === 'se teacher' ||
-                            memberRole === 'special education teacher' ||
-                            memberRole === 'homeroom' ||
-                            memberRole === 'homeroom teacher';
+                        return isSETeacherAssignment(memberRole) || isHomeroomAssignment(memberRole);
                     });
 
                     for (const teacherMember of teacherMembers) {
@@ -200,6 +208,15 @@ const getSupportContacts = async (req, res) => {
 
                                     teacherUser.classInfo = `${matchingSEAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingSEAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
                                 } else {
+                                    const orgHomeroomMatch = assignmentMatchesStudentClass({
+                                        role: teacherMember.role,
+                                        grade: org.metadata?.grade,
+                                        className: org.metadata?.subject,
+                                        subject: org.metadata?.subject
+                                    }, studentClassInfo);
+                                    if (orgHomeroomMatch !== 'classTeacher') {
+                                        continue;
+                                    }
                                     teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
                                 }
 
@@ -332,6 +349,28 @@ const getSupportContacts = async (req, res) => {
         }));
 
         if (userRole === 'student') {
+            // Keep student list strict to supported categories only.
+            const allowedCategories = new Set(['classTeacher', 'seTeacher', 'principal', 'psychologist']);
+            const seenContactIds = new Set();
+            supportContacts = supportContacts.filter((contact) => {
+                const category = contact.isClassTeacher
+                    ? 'classTeacher'
+                    : contact.isSETeacher
+                        ? 'seTeacher'
+                        : (contact.contactCategory || 'other');
+
+                if (!allowedCategories.has(category)) {
+                    return false;
+                }
+
+                const dedupeKey = contact.id || contact.email;
+                if (!dedupeKey || seenContactIds.has(dedupeKey)) {
+                    return false;
+                }
+                seenContactIds.add(dedupeKey);
+                return true;
+            });
+
             // For students: Sort by category - class teachers first, then SE teachers, then principal, then psychologist
             supportContacts.sort((a, b) => {
                 const categoryOrder = { classTeacher: 0, seTeacher: 1, principal: 2, psychologist: 3, other: 4 };

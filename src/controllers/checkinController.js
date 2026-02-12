@@ -153,6 +153,49 @@ const studentMatchesTeacherScopes = (student, scopes = []) => {
     });
 };
 
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const resolveUnitLabel = (rawUnit = '') => {
+    const normalized = normalizeTextValue(rawUnit);
+    if (!normalized) return '';
+    if (normalized.includes('elementary')) return 'Elementary';
+    if (normalized.includes('junior high')) return 'Junior High';
+    if (normalized.includes('kindergarten') || normalized.includes('kindy') || normalized.includes('pelangi')) return 'Kindergarten';
+    return normalizeSpaces(rawUnit);
+};
+
+const getUnitGradeBandLabel = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return 'Grade 1-6';
+    if (normalized === 'junior high') return 'Grade 7-9';
+    if (normalized === 'kindergarten') return 'Kindergarten';
+    return 'All Grades';
+};
+
+const buildUnitGradeRegex = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return /^grade\s*[1-6]\b/i;
+    if (normalized === 'junior high') return /^grade\s*[7-9]\b/i;
+    if (normalized === 'kindergarten') return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    return null;
+};
+
+const buildGradeRegexFromQuery = (grade = '') => {
+    const normalized = normalizeTextValue(grade);
+    if (!normalized) return null;
+
+    const gradeMatch = normalized.match(/grade\s*(\d+)/i) || normalized.match(/^(\d+)$/);
+    if (gradeMatch) {
+        return new RegExp(`^grade\\s*${gradeMatch[1]}\\b`, 'i');
+    }
+
+    if (/(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i.test(normalized)) {
+        return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    }
+
+    return new RegExp(escapeRegex(normalizeSpaces(grade)), 'i');
+};
+
 const findAnyUserById = async (userId, select) => {
     if (!userId) return null;
     const student = await UserStudent.findById(userId).select(select);
@@ -1019,11 +1062,21 @@ const getTeacherDailyCheckins = async (req, res) => {
     try {
         const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const viewerRole = req.user?.role;
+        const isTeacherRole = viewerRole === 'teacher' || viewerRole === 'se_teacher';
+        const isPrincipalView = ['head_unit', 'directorate', 'admin', 'superadmin'].includes(viewerRole);
+        const requestedGrade = normalizeSpaces(String(req.query.grade || ''));
+        const requestedClassName = normalizeSpaces(String(req.query.className || ''));
+        const requestedUnit = resolveUnitLabel(req.query.unit || '');
 
-        const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
-        if (!teacherScopes.length) {
-            return sendError(res, 'No classroom assignments found for this teacher', 403);
-        }
+        let scopedStudents = [];
+        const scopeMeta = {
+            mode: isTeacherRole ? 'class' : 'unit',
+            viewerRole,
+            unit: null,
+            gradeBand: null,
+            className: requestedClassName || null
+        };
 
         const dateParam = req.query.date ? new Date(req.query.date) : new Date();
         if (Number.isNaN(dateParam.getTime())) {
@@ -1035,17 +1088,86 @@ const getTeacherDailyCheckins = async (req, res) => {
         const endDate = new Date(dateParam);
         endDate.setHours(23, 59, 59, 999);
 
-        const students = await UserStudent.find({
-            role: 'student',
-            isActive: true
-        }).select('name email nickname currentGrade className');
+        if (isTeacherRole) {
+            const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
+            if (!teacherScopes.length) {
+                return sendError(res, 'No classroom assignments found for this teacher', 403);
+            }
 
-        const scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            const students = await UserStudent.find({
+                role: 'student',
+                isActive: true
+            }).select('name email nickname currentGrade className unit department');
+
+            scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            scopeMeta.gradeBand = 'Assigned Classes';
+            scopeMeta.classAssignments = Array.from(new Set(
+                (req.user?.classes || [])
+                    .map((assignment = {}) => {
+                        const grade = normalizeSpaces(assignment.grade || '');
+                        const className = normalizeSpaces(assignment.className || '');
+                        return `${grade}${grade && className ? ' - ' : ''}${className}`.trim();
+                    })
+                    .filter(Boolean)
+            ));
+        } else if (isPrincipalView) {
+            const viewerUnit = resolveUnitLabel(req.user?.unit || req.user?.department || '');
+            const effectiveUnit = viewerRole === 'head_unit'
+                ? viewerUnit
+                : (requestedUnit || viewerUnit);
+
+            const studentFilter = {
+                role: 'student',
+                isActive: true
+            };
+
+            if (effectiveUnit) {
+                studentFilter.$or = [
+                    { unit: effectiveUnit },
+                    { department: effectiveUnit }
+                ];
+            }
+
+            const explicitGradeRegex = buildGradeRegexFromQuery(requestedGrade);
+            const unitGradeRegex = buildUnitGradeRegex(effectiveUnit);
+            if (explicitGradeRegex) {
+                studentFilter.currentGrade = explicitGradeRegex;
+            } else if (unitGradeRegex) {
+                studentFilter.currentGrade = unitGradeRegex;
+            }
+
+            if (requestedClassName) {
+                studentFilter.className = new RegExp(escapeRegex(requestedClassName), 'i');
+            }
+
+            scopedStudents = await UserStudent.find(studentFilter)
+                .select('name email nickname currentGrade className unit department');
+
+            scopeMeta.unit = effectiveUnit || null;
+            scopeMeta.gradeBand = requestedGrade || (effectiveUnit ? getUnitGradeBandLabel(effectiveUnit) : 'All Grades');
+        } else {
+            return sendError(res, 'Role is not allowed to access student daily dashboard', 403);
+        }
+
+        scopedStudents.sort((a, b) => {
+            const gradeA = normalizeSpaces(a.currentGrade || '');
+            const gradeB = normalizeSpaces(b.currentGrade || '');
+            if (gradeA !== gradeB) return gradeA.localeCompare(gradeB);
+            const classA = normalizeSpaces(a.className || '');
+            const classB = normalizeSpaces(b.className || '');
+            if (classA !== classB) return classA.localeCompare(classB);
+            return normalizeSpaces(a.name || '').localeCompare(normalizeSpaces(b.name || ''));
+        });
+
         const studentIds = scopedStudents.map((student) => student._id);
 
         if (!studentIds.length) {
-            return sendSuccess(res, 'No students matched your class assignments', {
+            const noMatchMessage = isTeacherRole
+                ? 'No students matched your class assignments'
+                : 'No students matched your unit scope';
+            return sendSuccess(res, noMatchMessage, {
                 date: startDate.toISOString(),
+                scope: scopeMeta,
                 stats: {
                     totalStudents: 0,
                     submittedToday: 0,
@@ -1088,6 +1210,7 @@ const getTeacherDailyCheckins = async (req, res) => {
 
         sendSuccess(res, 'Teacher daily check-ins retrieved', {
             date: startDate.toISOString(),
+            scope: scopeMeta,
             stats: {
                 totalStudents: scopedStudents.length,
                 submittedToday: checkinMap.size,
