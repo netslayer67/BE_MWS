@@ -228,25 +228,8 @@ const getSupportContacts = async (req, res) => {
                 console.log('Could not derive homeroom teachers from class assignments:', fallbackError.message);
             }
 
-            // Always include SE teachers from the student's unit as additional support options.
-            try {
-                const studentUnit = req.user.unit || req.user.department;
-                const seTeachers = await User.find({
-                    role: 'se_teacher',
-                    isActive: true,
-                    _id: { $ne: req.user.id },
-                    ...(studentUnit ? { unit: studentUnit } : {})
-                }).select('name username email department employeeId role jobLevel unit jobPosition gender');
-
-                for (const seTeacher of seTeachers) {
-                    if (supportUsers.find(u => u._id.toString() === seTeacher._id.toString())) continue;
-                    seTeacher.contactCategory = 'seTeacher';
-                    seTeacher.isSETeacher = true;
-                    supportUsers.push(seTeacher);
-                }
-            } catch (seTeacherError) {
-                console.log('Could not fetch SE teachers for student unit:', seTeacherError.message);
-            }
+            // Keep SE Teacher list strict: only from matching class/grade assignments
+            // (already handled by organization membership + classes-based fallback above).
         }
 
         // For non-students: ensure core support contacts are included and augmented
