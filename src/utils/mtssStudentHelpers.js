@@ -30,6 +30,10 @@ const defaultProfile = {
     tier: 'Tier 1',
     progress: 'Not Assigned',
     nextUpdate: 'Not scheduled',
+    assignmentCount: 0,
+    activeAssignmentCount: 0,
+    lastAssignmentAt: null,
+    dataSource: 'mtssstudents',
     profile: {
         teacher: '-',
         mentor: '-',
@@ -267,12 +271,39 @@ const buildProfile = (assignment = {}) => {
 
 const summarizeAssignmentsForStudents = (assignments = []) => {
     const summaryMap = new Map();
+    const statsMap = new Map();
+
+    const pickLatestDate = (current, candidate) => {
+        if (!candidate) return current || null;
+        const candidateDate = new Date(candidate);
+        if (Number.isNaN(candidateDate.getTime())) return current || null;
+        if (!current) return candidateDate.toISOString();
+        const currentDate = new Date(current);
+        if (Number.isNaN(currentDate.getTime())) return candidateDate.toISOString();
+        return candidateDate > currentDate ? candidateDate.toISOString() : current;
+    };
 
     assignments.forEach((assignment) => {
         const students = assignment.studentIds || [];
         students.forEach((studentId) => {
             const key = studentId?.toString?.() || studentId;
             if (!key) return;
+
+            const currentStats = statsMap.get(key) || {
+                assignmentCount: 0,
+                activeAssignmentCount: 0,
+                lastAssignmentAt: null
+            };
+            currentStats.assignmentCount += 1;
+            if (assignment.status === 'active') {
+                currentStats.activeAssignmentCount += 1;
+            }
+            currentStats.lastAssignmentAt = pickLatestDate(
+                currentStats.lastAssignmentAt,
+                assignment.updatedAt || assignment.endDate || assignment.startDate
+            );
+            statsMap.set(key, currentStats);
+
             const tierLabel = mapTierLabel(assignment.tier);
             const tierScore = TIER_PRIORITY[assignment.tier] || TIER_PRIORITY[tierLabel] || 0;
             const statusScore = STATUS_PRIORITY[assignment.status] || 0;
@@ -289,9 +320,18 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
                 progress: STATUS_LABELS[assignment.status] || 'On Track',
                 nextUpdate: inferNextUpdate(assignment),
                 profile: buildProfile(assignment),
-                teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : []
+                teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : [],
+                dataSource: 'mtssstudents+mentorassignments'
             });
         });
+    });
+
+    summaryMap.forEach((summary, key) => {
+        const stats = statsMap.get(key);
+        if (!stats) return;
+        summary.assignmentCount = stats.assignmentCount;
+        summary.activeAssignmentCount = stats.activeAssignmentCount;
+        summary.lastAssignmentAt = stats.lastAssignmentAt;
     });
 
     return summaryMap;
@@ -400,6 +440,14 @@ const formatRosterStudent = (studentDoc, summary) => {
         progress: support.progress,
 
         nextUpdate: support.nextUpdate,
+
+        assignmentCount: support.assignmentCount ?? 0,
+
+        activeAssignmentCount: support.activeAssignmentCount ?? 0,
+
+        lastAssignmentAt: support.lastAssignmentAt || null,
+
+        dataSource: support.dataSource || defaultProfile.dataSource,
 
         profile: safeProfile,
 

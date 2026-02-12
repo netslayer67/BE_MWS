@@ -22,6 +22,8 @@ const {
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
 
 const normalizeValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const toExactRegex = (value = '') => new RegExp(`^${escapeRegex(value)}$`, 'i');
 
 const normalizeList = (value) =>
     typeof value === 'string'
@@ -169,6 +171,24 @@ const sanitizeStudentPayload = (payload = {}) => {
 const applyViewerScope = (filter = {}, viewer = {}) => {
     // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
+        return filter;
+    }
+
+    // Students can only access their own MTSS student record by identity fields.
+    if (viewer.role === 'student') {
+        const clauses = [];
+        if (viewer.email) clauses.push({ email: toExactRegex(viewer.email) });
+        if (viewer.username) clauses.push({ username: toExactRegex(viewer.username) });
+        if (viewer.nickname) clauses.push({ nickname: toExactRegex(viewer.nickname) });
+        if (viewer.name) clauses.push({ name: toExactRegex(viewer.name) });
+
+        filter.$and = filter.$and || [];
+        if (clauses.length) {
+            filter.$and.push({ $or: clauses });
+        } else {
+            // Explicit deny-all fallback if we cannot identify the student user.
+            filter.$and.push({ _id: null });
+        }
         return filter;
     }
 
@@ -602,7 +622,7 @@ const listStudents = async (req, res) => {
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
                   .populate('mentorId', 'name email username jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
                   .lean()
             : [];
 
@@ -645,9 +665,16 @@ const getStudent = async (req, res) => {
             return sendError(res, 'Student not found', 404);
         }
 
+        // Enforce viewer scope for single-student endpoint as well.
+        const scopedFilter = applyViewerScope({ _id: student._id }, req.user);
+        const canAccess = await MTSSStudent.exists(scopedFilter);
+        if (!canAccess) {
+            return sendError(res, 'Insufficient permissions to view this student', 403);
+        }
+
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -727,6 +754,15 @@ const getStudent = async (req, res) => {
 
         // Add interventionDetails to payload
         payload.interventionDetails = interventionDetails;
+        payload.assignmentCount = assignments.length;
+        payload.activeAssignmentCount = assignments.filter((assignment) => assignment.status === 'active').length;
+        payload.lastAssignmentAt = assignments
+            .map((assignment) => assignment.updatedAt || assignment.endDate || assignment.startDate || null)
+            .filter(Boolean)
+            .map((value) => new Date(value))
+            .filter((value) => !Number.isNaN(value.getTime()))
+            .sort((a, b) => b - a)[0]?.toISOString() || null;
+        payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

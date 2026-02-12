@@ -57,7 +57,7 @@ const userRegistrationSchema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
     name: Joi.string().min(2).max(100).required(),
-    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate').default('staff'),
+    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher', 'counselor').default('staff'),
     department: Joi.string().max(100).optional(),
     employeeId: Joi.string().max(50).optional()
 });

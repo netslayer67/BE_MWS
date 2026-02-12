@@ -109,7 +109,7 @@ const requireMTSSAdmin = authorize('admin', 'superadmin', 'directorate', 'head_u
 const requireSuperAdmin = authorize('superadmin', 'directorate');
 
 // Staff and teacher access (for their own data) - now includes student for Google OAuth users
-const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit');
+const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit', 'counselor');
 const requireTeacherAccess = authorize('teacher', 'se_teacher');
 
 // Any authenticated user

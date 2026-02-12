@@ -12,6 +12,7 @@ services:
       - NODE_ENV=production
       - PORT=3003
       - FRONTEND_URL=https://app.millenniaws.sch.id
+      - CORS_ORIGINS=https://app.millenniaws.sch.id,http://localhost:5173
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
