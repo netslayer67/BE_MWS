@@ -115,6 +115,7 @@ const emotionalCheckinSchema = Joi.object({
 
     supportContactUserId: Joi.alternatives().try(
         Joi.string().regex(/^[0-9a-fA-F]{24}$/), // ObjectId string
+        Joi.string().valid('no_need', 'no-need'),
         Joi.object({
             _id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
             name: Joi.string().required(),

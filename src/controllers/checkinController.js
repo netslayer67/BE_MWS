@@ -160,6 +160,30 @@ const findAnyUserById = async (userId, select) => {
     return User.findById(userId).select(select);
 };
 
+const isNoSupportSelection = (value) => {
+    if (value == null) return true;
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === '' || normalized === 'no_need' || normalized === 'no-need';
+};
+
+const extractSupportContactUserId = (rawValue) => {
+    if (rawValue && typeof rawValue === 'object' && rawValue._id) {
+        rawValue = rawValue._id;
+    }
+    if (isNoSupportSelection(rawValue)) {
+        return null;
+    }
+    if (typeof rawValue !== 'string') {
+        return null;
+    }
+    const candidate = rawValue.trim();
+    if (!mongoose.Types.ObjectId.isValid(candidate)) {
+        return null;
+    }
+    return candidate;
+};
+
 const formatCheckinSnapshot = (checkin) => {
     if (!checkin) {
         return null;
@@ -525,16 +549,8 @@ const submitCheckin = async (req, res) => {
             return sendError(res, 'You have already completed a manual check-in today. You can only do AI analysis or wait until tomorrow.', 409);
         }
 
-        // Handle support contact - extract ObjectId if object is provided
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                // For AI scans, this should be the ObjectId string
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact and gracefully normalize "No Need" values.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🔍 Processing support contact:', {
             input: req.body.supportContactUserId,
@@ -1137,7 +1153,7 @@ const getAvailableContacts = async (req, res) => {
                 jobPosition: contact.jobPosition || 'N/A'
             })),
             {
-                id: 'no_need',
+                id: 'no-need',
                 name: 'No Need',
                 role: 'N/A',
                 department: 'N/A',
@@ -1399,15 +1415,8 @@ const submitAICheckin = async (req, res) => {
             return sendError(res, 'You have already completed an AI analysis check-in today. You can only do manual check-in or wait until tomorrow.', 409);
         }
 
-        // Handle support contact for AI scans
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact for AI scans and normalize "No Need" variants.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🤖 AI Check-in support contact processing:', {
             input: req.body.supportContactUserId,
