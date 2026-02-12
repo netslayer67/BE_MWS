@@ -157,6 +157,8 @@ const getSupportContacts = async (req, res) => {
 
         // For students, also add their class teachers (wali kelas)
         if (userRole === 'student') {
+            const studentClassInfo = parseStudentClassInfo(req.user);
+
             try {
                 // Find organizations where this student is a member
                 const Organization = require('../models/Organization');
@@ -180,14 +182,30 @@ const getSupportContacts = async (req, res) => {
                     for (const teacherMember of teacherMembers) {
                         if (teacherMember.userId && ['teacher', 'se_teacher'].includes(teacherMember.userId.role)) {
                             const teacherUser = await User.findById(teacherMember.userId._id)
-                                .select('name username email department employeeId role jobLevel unit jobPosition gender');
+                                .select('name username email department employeeId role jobLevel unit jobPosition gender classes');
 
                             if (teacherUser && !supportUsers.find(u => u._id.toString() === teacherUser._id.toString())) {
                                 const isSETeacher = teacherUser.role === 'se_teacher' || isSETeacherAssignment(teacherMember.role);
+
+                                if (isSETeacher) {
+                                    const seAssignments = Array.isArray(teacherUser.classes) ? teacherUser.classes : [];
+                                    const matchingSEAssignment = seAssignments.find((assignment) =>
+                                        assignmentMatchesStudentClass(assignment, studentClassInfo) === 'seTeacher'
+                                    );
+
+                                    // Strict rule: SE teacher must match student's class assignment.
+                                    if (!matchingSEAssignment) {
+                                        continue;
+                                    }
+
+                                    teacherUser.classInfo = `${matchingSEAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingSEAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
+                                } else {
+                                    teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
+                                }
+
                                 teacherUser.contactCategory = isSETeacher ? 'seTeacher' : 'classTeacher';
                                 teacherUser.isClassTeacher = !isSETeacher;
                                 teacherUser.isSETeacher = isSETeacher;
-                                teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
                                 supportUsers.push(teacherUser);
                             }
                         }
@@ -201,7 +219,6 @@ const getSupportContacts = async (req, res) => {
             // Fallback: derive homeroom teachers from User.classes assignments
             // (needed when class membership is not stored in Organization documents)
             try {
-                const studentClassInfo = parseStudentClassInfo(req.user);
                 const teacherCandidates = await User.find({
                     role: { $in: ['teacher', 'se_teacher'] },
                     unit: req.user.unit || req.user.department,
