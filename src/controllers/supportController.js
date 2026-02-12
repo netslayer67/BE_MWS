@@ -26,29 +26,28 @@ const getSupportContacts = async (req, res) => {
 
         switch (userRole) {
             case 'student':
-                // Students get specific support contacts based on their department
-                contactableRoles = []; // Don't fetch all teachers - only class-specific ones via Organization
+                // Students only see: homeroom teachers, their unit principal, and school psychologist
+                contactableRoles = [];
 
-                // Add Principal (Head Unit) based on student's unit/department
+                // Principal per unit + Ms. Wina as school psychologist (lookup by email for reliability)
                 if (userDepartment === 'Elementary') {
                     specificUsers = [
-                        { name: 'Kholida Widyawati', role: 'head_unit', unit: 'Elementary', contactCategory: 'principal' },
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
+                        { email: 'kholida@millennia21.id', contactCategory: 'principal' },
+                        { email: 'wina@millennia21.id', contactCategory: 'psychologist' }
                     ];
                 } else if (userDepartment === 'Junior High') {
                     specificUsers = [
-                        { name: 'Aria Wisnuwardana', role: 'head_unit', unit: 'Junior High', contactCategory: 'principal' },
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
+                        { email: 'aria@millennia21.id', contactCategory: 'principal' },
+                        { email: 'wina@millennia21.id', contactCategory: 'psychologist' }
                     ];
                 } else if (userDepartment === 'Kindergarten') {
                     specificUsers = [
-                        { name: 'Mahrukh Bashir', role: 'head_unit', unit: 'Kindergarten', contactCategory: 'principal' },
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
+                        { email: 'mahrukh@millennia21.id', contactCategory: 'principal' },
+                        { email: 'wina@millennia21.id', contactCategory: 'psychologist' }
                     ];
                 } else {
-                    // Fallback for students without specific department
                     specificUsers = [
-                        { name: 'Azalia Magdalena Septianti Tambunan', role: 'staff', department: 'Directorate', contactCategory: 'psychologist' }
+                        { email: 'wina@millennia21.id', contactCategory: 'psychologist' }
                     ];
                 }
                 break;
@@ -82,15 +81,12 @@ const getSupportContacts = async (req, res) => {
             supportUsers = [...roleBasedUsers];
         }
 
-        // Add specific named users for students
+        // Add specific contacts for students (principal + psychologist) by email
         if (userRole === 'student' && specificUsers.length > 0) {
             for (const specificUser of specificUsers) {
                 const foundUser = await User.findOne({
-                    name: specificUser.name,
-                    role: specificUser.role,
-                    isActive: true,
-                    ...(specificUser.unit && { unit: specificUser.unit }),
-                    ...(specificUser.department && { department: specificUser.department })
+                    email: specificUser.email,
+                    isActive: true
                 })
                     .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
@@ -137,8 +133,21 @@ const getSupportContacts = async (req, res) => {
             }
         }
 
-        // Ensure core support contacts are included and augmented
-        for (const specialContact of CORE_SUPPORT_CONTACTS) {
+        // For non-students: ensure core support contacts are included and augmented
+        // Students already have their specific contacts (homeroom + principal + psychologist)
+        if (userRole === 'student') {
+            // Only augment display metadata for contacts already in the list
+            for (const specialContact of CORE_SUPPORT_CONTACTS) {
+                const existing = supportUsers.find(user => user.email === specialContact.email);
+                if (existing) {
+                    existing._doc.preferredName = specialContact.displayName || existing.name;
+                    existing._doc.displayRole = specialContact.displayRole || existing.displayRole;
+                }
+            }
+        }
+
+        // For staff/teachers: ensure all core support contacts are included
+        if (userRole !== 'student') for (const specialContact of CORE_SUPPORT_CONTACTS) {
             try {
                 let existingContact = supportUsers.find(user => user.email === specialContact.email);
 
