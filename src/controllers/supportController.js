@@ -21,6 +21,20 @@ const isHomeroomAssignment = (role) => {
     return normalizedRole === 'homeroom teacher' || normalizedRole === 'homeroom';
 };
 
+const isSETeacherAssignment = (role) => {
+    const normalizedRole = normalizeValue(role);
+    return normalizedRole === 'se_teacher' ||
+        normalizedRole === 'se teacher' ||
+        normalizedRole === 'special education teacher' ||
+        normalizedRole.includes('special education');
+};
+
+const getAssignmentCategory = (role) => {
+    if (isHomeroomAssignment(role)) return 'classTeacher';
+    if (isSETeacherAssignment(role)) return 'seTeacher';
+    return null;
+};
+
 const parseStudentClassInfo = (student) => {
     const fullClassName = String(student.className || '').trim();
     const currentGrade = String(student.currentGrade || '').trim();
@@ -37,7 +51,10 @@ const parseStudentClassInfo = (student) => {
 };
 
 const assignmentMatchesStudentClass = (assignment, studentClassInfo) => {
-    if (!assignment || !isHomeroomAssignment(assignment.role)) return false;
+    if (!assignment) return null;
+
+    const assignmentCategory = getAssignmentCategory(assignment.role);
+    if (!assignmentCategory) return null;
 
     const assignmentGrade = normalizeValue(assignment.grade);
     const assignmentClassName = normalizeValue(assignment.className);
@@ -52,7 +69,7 @@ const assignmentMatchesStudentClass = (assignment, studentClassInfo) => {
         assignmentClassName === studentClassFull ||
         assignmentSubject === studentClassShort;
 
-    return gradeMatches && classMatches;
+    return gradeMatches && classMatches ? assignmentCategory : null;
 };
 
 // Get all directorate and head_unit users for support contacts
@@ -153,6 +170,9 @@ const getSupportContacts = async (req, res) => {
                     const teacherMembers = org.members.filter((member) => {
                         const memberRole = normalizeValue(member.role);
                         return memberRole === 'teacher' ||
+                            memberRole === 'se_teacher' ||
+                            memberRole === 'se teacher' ||
+                            memberRole === 'special education teacher' ||
                             memberRole === 'homeroom' ||
                             memberRole === 'homeroom teacher';
                     });
@@ -163,8 +183,10 @@ const getSupportContacts = async (req, res) => {
                                 .select('name username email department employeeId role jobLevel unit jobPosition gender');
 
                             if (teacherUser && !supportUsers.find(u => u._id.toString() === teacherUser._id.toString())) {
-                                // Mark as class teacher
-                                teacherUser.isClassTeacher = true;
+                                const isSETeacher = teacherUser.role === 'se_teacher' || isSETeacherAssignment(teacherMember.role);
+                                teacherUser.contactCategory = isSETeacher ? 'seTeacher' : 'classTeacher';
+                                teacherUser.isClassTeacher = !isSETeacher;
+                                teacherUser.isSETeacher = isSETeacher;
                                 teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
                                 supportUsers.push(teacherUser);
                             }
@@ -195,7 +217,10 @@ const getSupportContacts = async (req, res) => {
                     if (!matchingAssignment) continue;
                     if (supportUsers.find(u => u._id.toString() === teacher._id.toString())) continue;
 
-                    teacher.isClassTeacher = true;
+                    const assignmentCategory = assignmentMatchesStudentClass(matchingAssignment, studentClassInfo);
+                    teacher.contactCategory = assignmentCategory;
+                    teacher.isClassTeacher = assignmentCategory === 'classTeacher';
+                    teacher.isSETeacher = assignmentCategory === 'seTeacher';
                     teacher.classInfo = `${matchingAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
                     supportUsers.push(teacher);
                 }
@@ -270,6 +295,12 @@ const getSupportContacts = async (req, res) => {
                 contactCategory: 'classTeacher',
                 displayRole: `Class Teacher${user.classInfo ? ` (${user.classInfo})` : ''}`
             }),
+            ...(user.isSETeacher && {
+                isSETeacher: true,
+                classInfo: user.classInfo,
+                contactCategory: 'seTeacher',
+                displayRole: `SE Teacher${user.classInfo ? ` (${user.classInfo})` : ''}`
+            }),
             ...(user.contactCategory === 'principal' && {
                 contactCategory: 'principal',
                 displayRole: `Principal ${user.unit || ''}`
@@ -281,13 +312,13 @@ const getSupportContacts = async (req, res) => {
         }));
 
         if (userRole === 'student') {
-            // For students: Sort by category - class teachers first, then principal, then psychologist
+            // For students: Sort by category - class teachers first, then SE teachers, then principal, then psychologist
             supportContacts.sort((a, b) => {
-                const categoryOrder = { classTeacher: 0, principal: 1, psychologist: 2, other: 3 };
-                const catA = a.isClassTeacher ? 'classTeacher' : (a.contactCategory || 'other');
-                const catB = b.isClassTeacher ? 'classTeacher' : (b.contactCategory || 'other');
-                const orderA = categoryOrder[catA] ?? 3;
-                const orderB = categoryOrder[catB] ?? 3;
+                const categoryOrder = { classTeacher: 0, seTeacher: 1, principal: 2, psychologist: 3, other: 4 };
+                const catA = a.isClassTeacher ? 'classTeacher' : (a.isSETeacher ? 'seTeacher' : (a.contactCategory || 'other'));
+                const catB = b.isClassTeacher ? 'classTeacher' : (b.isSETeacher ? 'seTeacher' : (b.contactCategory || 'other'));
+                const orderA = categoryOrder[catA] ?? 4;
+                const orderB = categoryOrder[catB] ?? 4;
                 if (orderA !== orderB) return orderA - orderB;
                 return (a.name || '').localeCompare(b.name || '');
             });
