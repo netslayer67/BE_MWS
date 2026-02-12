@@ -61,8 +61,11 @@ router.post('/slack/interactions', express.raw({ type: 'application/x-www-form-u
                     try {
                         const notificationService = require('../services/notificationService');
                         const EmotionalCheckin = require('../models/EmotionalCheckin');
+                        const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 
-                        const checkin = await EmotionalCheckin.findById(actionData.requestId)
+                        const checkin = await StudentEmotionalCheckin.findById(actionData.requestId)
+                            .select('supportContactUserId')
+                            || await EmotionalCheckin.findById(actionData.requestId)
                             .select('supportContactUserId');
                         const assignedContactId = checkin?.supportContactUserId?.toString();
 

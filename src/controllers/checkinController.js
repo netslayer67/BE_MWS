@@ -1,8 +1,52 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
+const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const STUDENT_DAILY_LIMIT_PER_TYPE = 2;
+const DEFAULT_DAILY_LIMIT_PER_TYPE = 1;
+
+const getCheckinModelForRole = (role) => (
+    role === 'student' ? StudentEmotionalCheckin : EmotionalCheckin
+);
+
+const getCheckinModelForUser = (user = {}) => getCheckinModelForRole(user?.role);
+
+const getDailyCheckinLimitByRole = (role) => (
+    role === 'student' ? STUDENT_DAILY_LIMIT_PER_TYPE : DEFAULT_DAILY_LIMIT_PER_TYPE
+);
+
+const getDailyCheckinLimitsForUser = (user = {}) => {
+    const limit = getDailyCheckinLimitByRole(user?.role);
+    return {
+        manual: limit,
+        ai: limit
+    };
+};
+
+const manualCheckinFilter = {
+    $or: [
+        { aiEmotionScan: { $exists: false } },
+        { aiEmotionScan: null }
+    ]
+};
+
+const aiCheckinFilter = {
+    aiEmotionScan: { $exists: true, $ne: null }
+};
+
+const countDocumentsSafe = async (Model, query) => {
+    if (Model && typeof Model.countDocuments === 'function') {
+        return Model.countDocuments(query);
+    }
+    if (Model && typeof Model.findOne === 'function') {
+        const found = await Model.findOne(query);
+        return found ? 1 : 0;
+    }
+    return 0;
+};
 
 const normalizeObjectId = (id) => {
     if (!id) {
@@ -416,14 +460,14 @@ const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
 };
 
 // Update user's emotional patterns for AI learning
-const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection) => {
+const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection, userRole = null) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const CheckinModel = getCheckinModelForRole(userRole);
 
         if (!aiEmotionScan) return;
 
         // Get user's recent emotional history (last 30 check-ins)
-        const recentCheckins = await EmotionalCheckin.find({
+        const recentCheckins = await CheckinModel.find({
             userId,
             aiEmotionScan: { $exists: true }
         })
@@ -522,7 +566,7 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
         }
 
         // Update the current check-in with emotional patterns
-        const currentCheckin = await EmotionalCheckin.findOne({
+        const currentCheckin = await CheckinModel.findOne({
             userId,
             submittedAt: { $gte: new Date(Date.now() - 60000) } // Last minute
         }).sort({ submittedAt: -1 });
@@ -552,16 +596,16 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
 // Submit emotional check-in
 const submitCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -576,20 +620,21 @@ const submitCheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingManualCheckin = await EmotionalCheckin.findOne({
+        const manualCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ] // Manual check-in has no AI scan (missing or null)
+            ...manualCheckinFilter
         });
 
-        if (existingManualCheckin) {
-            return sendError(res, 'You have already completed a manual check-in today. You can only do AI analysis or wait until tomorrow.', 409);
+        if (manualCheckinsToday >= limits.manual) {
+            return sendError(
+                res,
+                `You have reached today's manual check-in limit (${limits.manual}/${limits.manual}). Please continue with AI analysis or try again tomorrow.`,
+                409
+            );
         }
 
         // Handle support contact and gracefully normalize "No Need" values.
@@ -668,11 +713,11 @@ const submitCheckin = async (req, res) => {
 
         // Update user's emotional patterns for AI learning
         console.log('🧠 Updating user emotional patterns...');
-        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection);
+        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection, req.user.role);
         console.log('✅ User emotional patterns updated');
 
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
@@ -682,7 +727,7 @@ const submitCheckin = async (req, res) => {
         // Populate support contact details if exists
         let populatedCheckin = checkin;
         if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            populatedCheckin = await CheckinModel.findById(checkin._id)
                 .populate('supportContactUserId', 'name role department');
         }
 
@@ -854,15 +899,15 @@ const submitCheckin = async (req, res) => {
 // Get today's check-in for the current user
 const getTodayCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             userId: req.user.id,
             date: {
                 $gte: today,
@@ -875,7 +920,7 @@ const getTodayCheckin = async (req, res) => {
         }
 
         // Populate user name for today's checkin
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -899,42 +944,51 @@ const getTodayCheckin = async (req, res) => {
 // Get today's check-in status (for UI to show available options)
 const getTodayCheckinStatus = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Check for manual check-in (no aiEmotionScan)
-        const manualCheckin = await EmotionalCheckin.findOne({
+        const baseTodayQuery = {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
-            },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ]
-        });
+            }
+        };
 
-        // Check for AI check-in (has aiEmotionScan)
-        const aiCheckin = await EmotionalCheckin.findOne({
-            userId: req.user.id,
-            date: {
-                $gte: today,
-                $lt: tomorrow
-            },
-            aiEmotionScan: { $exists: true, $ne: null }
-        });
+        const [manualCount, aiCount, manualCheckin, aiCheckin] = await Promise.all([
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }),
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }).sort({ submittedAt: -1 }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }).sort({ submittedAt: -1 })
+        ]);
 
         const status = {
-            hasManualCheckin: !!manualCheckin,
-            hasAICheckin: !!aiCheckin,
-            canDoManual: !manualCheckin,
-            canDoAI: !aiCheckin,
+            manualCount,
+            aiCount,
+            manualLimit: limits.manual,
+            aiLimit: limits.ai,
+            hasManualCheckin: manualCount >= limits.manual,
+            hasAICheckin: aiCount >= limits.ai,
+            canDoManual: manualCount < limits.manual,
+            canDoAI: aiCount < limits.ai,
             manualCheckinTime: manualCheckin?.submittedAt,
             aiCheckinTime: aiCheckin?.submittedAt
         };
@@ -949,10 +1003,10 @@ const getTodayCheckinStatus = async (req, res) => {
 // Get check-in results with AI analysis
 const getCheckinResults = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             _id: req.params.id,
             userId: req.user.id
         }).populate('supportContactUserId', 'name role department');
@@ -962,7 +1016,7 @@ const getCheckinResults = async (req, res) => {
         }
 
         // Populate user name for check-in results
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -986,7 +1040,6 @@ const getCheckinResults = async (req, res) => {
 // Get check-in history with pagination and optional user filtering for dashboard
 const getCheckinHistory = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError, getPaginationInfo } = require('../utils/response');
 
         const page = parseInt(req.query.page) || 1;
@@ -996,6 +1049,8 @@ const getCheckinHistory = async (req, res) => {
         // Build query - allow filtering by userId with role-based checks
         const query = {};
         const requestedUserId = req.query.userId;
+        let queryRole = req.user.role;
+
         if (requestedUserId) {
             // If requesting another user's data, enforce permissions
             const isSelf = String(requestedUserId) === String(req.user.id);
@@ -1013,10 +1068,14 @@ const getCheckinHistory = async (req, res) => {
                 }
             }
             query.userId = requestedUserId;
+            const requestedUser = await findAnyUserById(requestedUserId, 'role');
+            queryRole = requestedUser?.role || req.user.role;
         } else {
             // Default to current user's history if no userId specified
             query.userId = req.user.id;
         }
+
+        const CheckinModel = getCheckinModelForRole(queryRole);
 
         // Add date filtering if provided
         if (req.query.startDate || req.query.endDate) {
@@ -1030,10 +1089,10 @@ const getCheckinHistory = async (req, res) => {
         }
 
         // Get total count
-        const total = await EmotionalCheckin.countDocuments(query);
+        const total = await countDocumentsSafe(CheckinModel, query);
 
         // Get check-ins with pagination
-        const checkins = await EmotionalCheckin.find(query)
+        const checkins = await CheckinModel.find(query)
             .sort({ date: -1, submittedAt: -1 })
             .skip(skip)
             .limit(limit)
@@ -1060,8 +1119,8 @@ const getCheckinHistory = async (req, res) => {
 
 const getTeacherDailyCheckins = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = StudentEmotionalCheckin;
         const viewerRole = req.user?.role;
         const isTeacherRole = viewerRole === 'teacher' || viewerRole === 'se_teacher';
         const isPrincipalView = ['head_unit', 'directorate', 'admin', 'superadmin'].includes(viewerRole);
@@ -1178,7 +1237,7 @@ const getTeacherDailyCheckins = async (req, res) => {
             });
         }
 
-        const checkins = await EmotionalCheckin.find({
+        const checkins = await CheckinModel.find({
             userId: { $in: studentIds },
             date: { $gte: startDate, $lte: endDate }
         }).sort({ date: -1, submittedAt: -1 });
@@ -1502,16 +1561,16 @@ const buildVisionFallbackResult = (seed = Date.now()) => {
 // Submit AI emotion scan check-in (separate from manual check-in)
 const submitAICheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -1526,17 +1585,21 @@ const submitAICheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingAICheckin = await EmotionalCheckin.findOne({
+        const aiCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: true, $ne: null } // AI check-in has AI scan data
+            ...aiCheckinFilter
         });
 
-        if (existingAICheckin) {
-            return sendError(res, 'You have already completed an AI analysis check-in today. You can only do manual check-in or wait until tomorrow.', 409);
+        if (aiCheckinsToday >= limits.ai) {
+            return sendError(
+                res,
+                `You have reached today's AI analysis check-in limit (${limits.ai}/${limits.ai}). Please continue with manual check-in or try again tomorrow.`,
+                409
+            );
         }
 
         // Handle support contact for AI scans and normalize "No Need" variants.
@@ -1626,7 +1689,7 @@ const submitAICheckin = async (req, res) => {
         aiAnalysis.personalizedGreeting = personalizedGreeting;
 
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
@@ -1636,7 +1699,7 @@ const submitAICheckin = async (req, res) => {
         // Populate support contact details if exists
         let populatedCheckin = checkin;
         if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            populatedCheckin = await CheckinModel.findById(checkin._id)
                 .populate('supportContactUserId', 'name role department');
         }
 
@@ -1749,12 +1812,12 @@ const submitAICheckin = async (req, res) => {
 };
 
 const getPersonalDashboard = async (req, res) => {
-    const EmotionalCheckin = require('../models/EmotionalCheckin');
     const { sendSuccess, sendError } = require('../utils/response');
 
     try {
         const userId = req.user.id;
         const objectId = normalizeObjectId(userId);
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         if (!objectId) {
             return sendError(res, 'Unable to resolve user profile for dashboard', 400);
@@ -1776,18 +1839,18 @@ const getPersonalDashboard = async (req, res) => {
             streakBuckets,
             last30DaysCheckins
         ] = await Promise.all([
-            EmotionalCheckin.findOne({
+            CheckinModel.findOne({
                 userId,
                 date: { $gte: todayStart, $lt: todayEnd }
             })
                 .populate('supportContactUserId', 'name role department unit email')
                 .lean(),
-            EmotionalCheckin.find({ userId })
+            CheckinModel.find({ userId })
                 .populate('supportContactUserId', 'name role department unit')
                 .sort({ date: -1 })
                 .limit(5)
                 .lean(),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1810,7 +1873,7 @@ const getPersonalDashboard = async (req, res) => {
                     }
                 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 {
                     $match: {
                         userId: objectId,
@@ -1827,7 +1890,7 @@ const getPersonalDashboard = async (req, res) => {
                 { $sort: { count: -1 } },
                 { $limit: 6 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1838,7 +1901,7 @@ const getPersonalDashboard = async (req, res) => {
                 },
                 { $sort: { '_id': -1 } }
             ]),
-            EmotionalCheckin.find({
+            CheckinModel.find({
                 userId,
                 date: { $gte: thirtyDaysAgo }
             })

@@ -923,6 +923,7 @@ class NotificationService {
     async confirmSupportRequest(requestId, contactId, action, details = null, followUpActions = null) {
         try {
             const EmotionalCheckin = require('../models/EmotionalCheckin');
+            const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
             if (!['handled', 'acknowledged'].includes(action)) {
                 return { success: false, code: 400, message: 'Invalid action' };
             }
@@ -936,8 +937,19 @@ class NotificationService {
             }
 
             const normalizedContactId = String(contactId);
-            const checkin = await EmotionalCheckin.findById(requestId)
-                .select('supportContactUserId supportContactResponse');
+            const models = [EmotionalCheckin, StudentEmotionalCheckin];
+            let CheckinModel = null;
+            let checkin = null;
+
+            for (const model of models) {
+                const found = await model.findById(requestId)
+                    .select('supportContactUserId supportContactResponse');
+                if (found) {
+                    checkin = found;
+                    CheckinModel = model;
+                    break;
+                }
+            }
 
             if (!checkin) {
                 return { success: false, code: 404, message: 'Support request not found' };
@@ -976,7 +988,7 @@ class NotificationService {
                 updateData['supportContactResponse.followUpActions'] = followUpActions;
             }
 
-            const updatedCheckin = await EmotionalCheckin.findOneAndUpdate(
+            const updatedCheckin = await CheckinModel.findOneAndUpdate(
                 {
                     _id: requestId,
                     supportContactUserId: normalizedContactId,

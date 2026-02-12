@@ -1,5 +1,6 @@
 const Notification = require('../models/Notification');
 const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 const notificationService = require('../services/notificationService');
 const { response } = require('../utils/response');
 
@@ -154,7 +155,8 @@ const handleSlackAction = async (req, res) => {
 
         console.log('Slack action received:', { action_id, requestId, action });
 
-        const checkin = await EmotionalCheckin.findById(requestId).select('supportContactUserId');
+        const checkin = await StudentEmotionalCheckin.findById(requestId).select('supportContactUserId')
+            || await EmotionalCheckin.findById(requestId).select('supportContactUserId');
         const assignedContactId = checkin?.supportContactUserId?.toString();
         if (!assignedContactId) {
             return res.json({

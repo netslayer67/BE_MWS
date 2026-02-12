@@ -1,4 +1,5 @@
 const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
@@ -1534,7 +1535,8 @@ const confirmSupportRequest = async (req, res) => {
 
         // Send notification to original user about the response
         try {
-            const checkin = await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
+            const checkin = await StudentEmotionalCheckin.findById(requestId).populate('userId', 'name email')
+                || await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
             if (checkin && checkin.userId?.email) {
                 const subject = action === 'handled'
                     ? `Your Support Request Has Been Handled - ${req.user.name}`

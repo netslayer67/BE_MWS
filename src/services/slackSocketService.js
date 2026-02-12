@@ -158,8 +158,11 @@ class SlackSocketService {
             // Get notification service
             const notificationService = require('./notificationService');
             const EmotionalCheckin = require('../models/EmotionalCheckin');
+            const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 
-            const checkin = await EmotionalCheckin.findById(actionData.requestId)
+            const checkin = await StudentEmotionalCheckin.findById(actionData.requestId)
+                .select('supportContactUserId')
+                || await EmotionalCheckin.findById(actionData.requestId)
                 .select('supportContactUserId');
             const assignedContactId = checkin?.supportContactUserId?.toString();
 
