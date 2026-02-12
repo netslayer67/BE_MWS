@@ -1237,16 +1237,16 @@ const getAvailableContacts = async (req, res) => {
         let contactableRoles = [];
         switch (userRole) {
             case 'student':
-                contactableRoles = ['counselor', 'teacher', 'directorate'];
+                contactableRoles = ['support_staff', 'teacher', 'se_teacher', 'directorate', 'head_unit'];
                 break;
             case 'teacher':
             case 'staff':
             case 'support_staff':
             case 'se_teacher':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'head_unit':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'directorate':
                 contactableRoles = ['directorate', 'head_unit']; // Can contact other directors and head units
@@ -1506,6 +1506,7 @@ const submitAICheckin = async (req, res) => {
         const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
+        const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)

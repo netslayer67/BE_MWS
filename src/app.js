@@ -8,6 +8,7 @@ const connectDB = require('./config/database');
 const googleAI = require('./config/googleAI');
 const { initSocket } = require('./config/socket');
 const slackSocketService = require('./services/slackSocketService');
+const { createCorsOriginChecker, validateCorsConfiguration } = require('./config/cors');
 
 // Import routes
 const routes = require('./routes');
@@ -27,12 +28,12 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS configuration - Allow all origins for now to debug
+// CORS configuration (explicit allowlist in production)
 app.use(cors({
-    origin: true, // Allow all origins temporarily
+    origin: createCorsOriginChecker(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Device-Id']
 }));
 
 // Rate limiting (per-user aware with IP fallback)
@@ -65,6 +66,11 @@ app.use(errorHandler);
 // Initialize database and AI connections
 const initializeApp = async () => {
     try {
+        const corsConfig = validateCorsConfiguration();
+        if (!corsConfig.valid) {
+            throw new Error(corsConfig.message);
+        }
+
         // Connect to MongoDB
         await connectDB();
 

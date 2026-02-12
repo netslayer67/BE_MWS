@@ -157,11 +157,20 @@ class SlackSocketService {
 
             // Get notification service
             const notificationService = require('./notificationService');
+            const EmotionalCheckin = require('../models/EmotionalCheckin');
+
+            const checkin = await EmotionalCheckin.findById(actionData.requestId)
+                .select('supportContactUserId');
+            const assignedContactId = checkin?.supportContactUserId?.toString();
+
+            if (!assignedContactId) {
+                throw new Error('Support request contact is missing');
+            }
 
             // Confirm the support request
             const result = await notificationService.confirmSupportRequest(
                 actionData.requestId,
-                payload.user.id, // Slack user ID
+                assignedContactId,
                 actionData.action,
                 'Handled via Slack Socket Mode interaction',
                 null // No follow-up actions
@@ -291,4 +300,3 @@ class SlackSocketService {
 
 // Export singleton instance
 module.exports = new SlackSocketService();
-

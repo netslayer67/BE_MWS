@@ -60,11 +60,20 @@ router.post('/slack/interactions', express.raw({ type: 'application/x-www-form-u
                 setImmediate(async () => {
                     try {
                         const notificationService = require('../services/notificationService');
+                        const EmotionalCheckin = require('../models/EmotionalCheckin');
+
+                        const checkin = await EmotionalCheckin.findById(actionData.requestId)
+                            .select('supportContactUserId');
+                        const assignedContactId = checkin?.supportContactUserId?.toString();
+
+                        if (!assignedContactId) {
+                            throw new Error('Support request contact is missing');
+                        }
 
                         // Confirm the support request
                         const result = await notificationService.confirmSupportRequest(
                             actionData.requestId,
-                            payload.user.id, // Slack user ID
+                            assignedContactId,
                             actionData.action,
                             'Handled via Slack interaction', // Default details
                             null // No follow-up actions

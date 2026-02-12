@@ -922,13 +922,50 @@ class NotificationService {
     // Handle support request confirmation with enhanced details
     async confirmSupportRequest(requestId, contactId, action, details = null, followUpActions = null) {
         try {
-            // Update the check-in record with confirmation status
             const EmotionalCheckin = require('../models/EmotionalCheckin');
+            if (!['handled', 'acknowledged'].includes(action)) {
+                return { success: false, code: 400, message: 'Invalid action' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(requestId)) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(String(contactId || ''))) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const normalizedContactId = String(contactId);
+            const checkin = await EmotionalCheckin.findById(requestId)
+                .select('supportContactUserId supportContactResponse');
+
+            if (!checkin) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            const assignedContactId = checkin.supportContactUserId?.toString() || null;
+            if (!assignedContactId || assignedContactId !== normalizedContactId) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const currentStatus = checkin.supportContactResponse?.status || 'pending';
+            const transitionAllowed = (
+                (currentStatus === 'pending' && (action === 'acknowledged' || action === 'handled')) ||
+                (currentStatus === 'acknowledged' && action === 'handled')
+            );
+
+            if (!transitionAllowed) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: `Cannot change support request from "${currentStatus}" to "${action}"`
+                };
+            }
 
             const updateData = {
                 'supportContactResponse.status': action,
                 'supportContactResponse.respondedAt': new Date(),
-                'supportContactResponse.contactId': contactId
+                'supportContactResponse.contactId': normalizedContactId
             };
 
             if (details) {
@@ -939,18 +976,32 @@ class NotificationService {
                 updateData['supportContactResponse.followUpActions'] = followUpActions;
             }
 
-            await EmotionalCheckin.findByIdAndUpdate(requestId, {
-                $set: updateData
-            });
+            const updatedCheckin = await EmotionalCheckin.findOneAndUpdate(
+                {
+                    _id: requestId,
+                    supportContactUserId: normalizedContactId,
+                    'supportContactResponse.status': currentStatus
+                },
+                { $set: updateData },
+                { new: true }
+            );
+
+            if (!updatedCheckin) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: 'Support request status changed by another process. Please refresh and try again.'
+                };
+            }
 
             console.log(`✅ Support request ${requestId} ${action} by contact ${contactId}`);
             console.log(`📝 Details: ${details || 'No details provided'}`);
             console.log(`🔄 Follow-up actions: ${followUpActions || 'None specified'}`);
 
-            return { success: true };
+            return { success: true, code: 200, message: `Support request ${action} successfully` };
         } catch (error) {
             console.error('Support request confirmation error:', error);
-            return { success: false, error: error.message };
+            return { success: false, code: 500, message: error.message };
         }
     }
 

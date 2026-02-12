@@ -1,12 +1,13 @@
 const socketIo = require('socket.io');
 const winston = require('winston');
+const { createCorsOriginChecker } = require('./cors');
 
 let io;
 
 const initSocket = (server) => {
     io = socketIo(server, {
         cors: {
-            origin: true, // Allow all origins temporarily
+            origin: createCorsOriginChecker(),
             methods: ['GET', 'POST'],
             credentials: true
         }
