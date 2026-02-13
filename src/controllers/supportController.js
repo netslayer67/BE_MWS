@@ -15,6 +15,7 @@ const CORE_SUPPORT_CONTACTS = [
 ];
 
 const normalizeValue = (value) => String(value || '').trim().toLowerCase();
+const normalizeCompact = (value) => normalizeValue(value).replace(/\s+/g, ' ');
 
 const isHomeroomAssignment = (role) => {
     const normalizedRole = normalizeValue(role);
@@ -29,9 +30,17 @@ const isSETeacherAssignment = (role) => {
         normalizedRole.includes('special education');
 };
 
+const isSubjectTeacherAssignment = (role) => {
+    const normalizedRole = normalizeValue(role);
+    return normalizedRole === 'teacher' ||
+        normalizedRole === 'subject teacher' ||
+        normalizedRole.includes('subject');
+};
+
 const getAssignmentCategory = (role) => {
     if (isHomeroomAssignment(role)) return 'classTeacher';
     if (isSETeacherAssignment(role)) return 'seTeacher';
+    if (isSubjectTeacherAssignment(role)) return 'gradeTeacher';
     return null;
 };
 
@@ -50,35 +59,137 @@ const parseStudentClassInfo = (student) => {
     };
 };
 
+const extractGradeKey = (value) => {
+    const normalized = normalizeCompact(value);
+    if (!normalized) return '';
+
+    const gradeMatch = normalized.match(/\bgrade\s*([0-9]{1,2})\b/);
+    if (gradeMatch) return `grade-${gradeMatch[1]}`;
+
+    if (/^[0-9]{1,2}$/.test(normalized)) {
+        return `grade-${normalized}`;
+    }
+
+    if (normalized.includes('pre-k') || normalized.includes('pre k') || normalized.includes('prek')) {
+        return 'kindy-prek';
+    }
+    if (normalized.includes('k1') || normalized.includes('k 1')) {
+        return 'kindy-k1';
+    }
+    if (normalized.includes('k2') || normalized.includes('k 2')) {
+        return 'kindy-k2';
+    }
+    if (normalized.includes('kindergarten')) {
+        return 'kindy';
+    }
+
+    return normalized;
+};
+
+const gradeMatchesStudent = (assignmentGrade, studentClassInfo) => {
+    const normalizedAssignmentGrade = normalizeCompact(assignmentGrade);
+    const studentGradeCandidates = [
+        normalizeCompact(studentClassInfo.currentGrade),
+        normalizeCompact(studentClassInfo.fullClassName)
+    ].filter(Boolean);
+
+    if (!normalizedAssignmentGrade || studentGradeCandidates.length === 0) {
+        return false;
+    }
+
+    if (studentGradeCandidates.includes(normalizedAssignmentGrade)) {
+        return true;
+    }
+
+    const assignmentGradeKey = extractGradeKey(normalizedAssignmentGrade);
+    if (!assignmentGradeKey) {
+        return false;
+    }
+
+    return studentGradeCandidates.some((candidate) => {
+        const candidateKey = extractGradeKey(candidate);
+        return candidateKey && candidateKey === assignmentGradeKey;
+    });
+};
+
+const classMatchesStudent = (assignmentClassName, assignmentSubject, studentClassInfo) => {
+    const assignmentClass = normalizeCompact(assignmentClassName);
+    const assignmentSubj = normalizeCompact(assignmentSubject);
+
+    const studentClassCandidates = [
+        normalizeCompact(studentClassInfo.shortClassName),
+        normalizeCompact(studentClassInfo.fullClassName)
+    ].filter(Boolean);
+
+    if (studentClassCandidates.length === 0) return false;
+
+    const checks = [assignmentClass, assignmentSubj].filter(Boolean);
+    if (checks.length === 0) return false;
+
+    return checks.some((value) => studentClassCandidates.some((candidate) =>
+        value === candidate || value.includes(candidate) || candidate.includes(value)
+    ));
+};
+
+const isGenericClassLabel = (value, category) => {
+    const normalized = normalizeCompact(value);
+    if (!normalized) return true;
+
+    if (category === 'classTeacher') {
+        return normalized === 'homeroom' || normalized === 'class teacher';
+    }
+
+    if (category === 'seTeacher') {
+        return normalized === 'special education' ||
+            normalized === 'se teacher' ||
+            normalized === 'se_teacher';
+    }
+
+    return false;
+};
+
 const assignmentMatchesStudentClass = (assignment, studentClassInfo) => {
     if (!assignment) return null;
 
     const assignmentCategory = getAssignmentCategory(assignment.role);
     if (!assignmentCategory) return null;
 
-    const assignmentGrade = normalizeValue(assignment.grade);
-    const assignmentClassName = normalizeValue(assignment.className);
-    const assignmentSubject = normalizeValue(assignment.subject);
+    const assignmentGrade = assignment.grade;
+    const assignmentClassName = assignment.className;
+    const assignmentSubject = assignment.subject;
 
-    const studentGrade = normalizeValue(studentClassInfo.currentGrade);
-    const studentClassShort = normalizeValue(studentClassInfo.shortClassName);
-    const studentClassFull = normalizeValue(studentClassInfo.fullClassName);
-
-    const gradeMatches = studentGrade && assignmentGrade && assignmentGrade === studentGrade;
-    const classMatches = assignmentClassName === studentClassShort ||
-        assignmentClassName === studentClassFull ||
-        assignmentSubject === studentClassShort;
+    const gradeMatches = gradeMatchesStudent(assignmentGrade, studentClassInfo);
+    const classMatches = classMatchesStudent(assignmentClassName, assignmentSubject, studentClassInfo);
 
     if (assignmentCategory === 'seTeacher') {
-        // SE teacher must match the same grade AND class.
-        return gradeMatches && classMatches ? assignmentCategory : null;
+        // SE teacher must match the same grade.
+        // If the class label is specific (e.g., Helix), enforce class match.
+        // If label is generic (e.g., "Special Education"), grade match is enough.
+        if (!gradeMatches) return null;
+        const hasSpecificClassReference =
+            !isGenericClassLabel(assignmentClassName, assignmentCategory) ||
+            !isGenericClassLabel(assignmentSubject, assignmentCategory);
+        if (hasSpecificClassReference && !classMatches) return null;
+        return assignmentCategory;
     }
 
     if (assignmentCategory === 'classTeacher') {
-        // Homeroom teacher must match grade. If class label exists, class must match too.
+        // Homeroom teacher must match grade.
+        // If class label is specific, enforce class match.
+        // If label is generic "Homeroom", grade match is enough.
         const hasClassReference = Boolean(assignmentClassName || assignmentSubject);
+        const hasSpecificClassReference =
+            hasClassReference &&
+            (!isGenericClassLabel(assignmentClassName, assignmentCategory) ||
+                !isGenericClassLabel(assignmentSubject, assignmentCategory));
         if (!gradeMatches) return null;
-        if (hasClassReference && !classMatches) return null;
+        if (hasSpecificClassReference && !classMatches) return null;
+        return assignmentCategory;
+    }
+
+    if (assignmentCategory === 'gradeTeacher') {
+        // Grade teachers should appear for the same grade.
+        if (!gradeMatches) return null;
         return assignmentCategory;
     }
 
@@ -97,7 +208,8 @@ const getSupportContacts = async (req, res) => {
 
         switch (userRole) {
             case 'student':
-                // Students only see: homeroom teachers, their unit principal, and school psychologist
+                // Students only see: relevant teachers (homeroom / SE / grade teachers),
+                // their unit principal, and school psychologist.
                 contactableRoles = [];
 
                 // Principal per unit + Ms. Wina as school psychologist (lookup by email for reliability)
@@ -183,8 +295,8 @@ const getSupportContacts = async (req, res) => {
                 // Get teachers from these classes
                 for (const org of studentOrganizations) {
                     const teacherMembers = org.members.filter((member) => {
-                        const memberRole = normalizeValue(member.role);
-                        return isSETeacherAssignment(memberRole) || isHomeroomAssignment(memberRole);
+                        const memberRole = member.role;
+                        return Boolean(getAssignmentCategory(memberRole));
                     });
 
                     for (const teacherMember of teacherMembers) {
@@ -193,36 +305,22 @@ const getSupportContacts = async (req, res) => {
                                 .select('name username email department employeeId role jobLevel unit jobPosition gender classes');
 
                             if (teacherUser && !supportUsers.find(u => u._id.toString() === teacherUser._id.toString())) {
-                                const isSETeacher = teacherUser.role === 'se_teacher' || isSETeacherAssignment(teacherMember.role);
+                                const matchedCategory = assignmentMatchesStudentClass({
+                                    role: teacherMember.role,
+                                    grade: org.metadata?.grade || studentClassInfo.currentGrade,
+                                    className: org.metadata?.subject || studentClassInfo.shortClassName,
+                                    subject: org.metadata?.subject
+                                }, studentClassInfo);
 
-                                if (isSETeacher) {
-                                    const seAssignments = Array.isArray(teacherUser.classes) ? teacherUser.classes : [];
-                                    const matchingSEAssignment = seAssignments.find((assignment) =>
-                                        assignmentMatchesStudentClass(assignment, studentClassInfo) === 'seTeacher'
-                                    );
-
-                                    // Strict rule: SE teacher must match student's class assignment.
-                                    if (!matchingSEAssignment) {
-                                        continue;
-                                    }
-
-                                    teacherUser.classInfo = `${matchingSEAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingSEAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
-                                } else {
-                                    const orgHomeroomMatch = assignmentMatchesStudentClass({
-                                        role: teacherMember.role,
-                                        grade: org.metadata?.grade,
-                                        className: org.metadata?.subject,
-                                        subject: org.metadata?.subject
-                                    }, studentClassInfo);
-                                    if (orgHomeroomMatch !== 'classTeacher') {
-                                        continue;
-                                    }
-                                    teacherUser.classInfo = `${org.metadata?.grade || ''} ${org.metadata?.subject || ''}`.trim();
+                                if (!matchedCategory) {
+                                    continue;
                                 }
 
-                                teacherUser.contactCategory = isSETeacher ? 'seTeacher' : 'classTeacher';
-                                teacherUser.isClassTeacher = !isSETeacher;
-                                teacherUser.isSETeacher = isSETeacher;
+                                teacherUser.contactCategory = matchedCategory;
+                                teacherUser.isClassTeacher = matchedCategory === 'classTeacher';
+                                teacherUser.isSETeacher = matchedCategory === 'seTeacher';
+                                teacherUser.isGradeTeacher = matchedCategory === 'gradeTeacher';
+                                teacherUser.classInfo = `${org.metadata?.grade || studentClassInfo.currentGrade || ''} ${org.metadata?.subject || studentClassInfo.shortClassName || ''}`.trim();
                                 supportUsers.push(teacherUser);
                             }
                         }
@@ -236,9 +334,14 @@ const getSupportContacts = async (req, res) => {
             // Fallback: derive homeroom teachers from User.classes assignments
             // (needed when class membership is not stored in Organization documents)
             try {
+                const studentUnit = req.user.unit || req.user.department;
+                const studentDepartment = req.user.department || req.user.unit;
                 const teacherCandidates = await User.find({
                     role: { $in: ['teacher', 'se_teacher'] },
-                    unit: req.user.unit || req.user.department,
+                    $or: [
+                        { unit: studentUnit },
+                        { department: studentDepartment }
+                    ],
                     isActive: true
                 }).select('name username email department employeeId role jobLevel unit jobPosition gender classes');
 
@@ -255,7 +358,8 @@ const getSupportContacts = async (req, res) => {
                     teacher.contactCategory = assignmentCategory;
                     teacher.isClassTeacher = assignmentCategory === 'classTeacher';
                     teacher.isSETeacher = assignmentCategory === 'seTeacher';
-                    teacher.classInfo = `${matchingAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingAssignment.className || studentClassInfo.shortClassName || ''}`.trim();
+                    teacher.isGradeTeacher = assignmentCategory === 'gradeTeacher';
+                    teacher.classInfo = `${matchingAssignment.grade || studentClassInfo.currentGrade || ''} ${matchingAssignment.className || matchingAssignment.subject || studentClassInfo.shortClassName || ''}`.trim();
                     supportUsers.push(teacher);
                 }
             } catch (fallbackError) {
@@ -338,6 +442,12 @@ const getSupportContacts = async (req, res) => {
                 contactCategory: 'seTeacher',
                 displayRole: `SE Teacher${user.classInfo ? ` (${user.classInfo})` : ''}`
             }),
+            ...(user.isGradeTeacher && {
+                isGradeTeacher: true,
+                classInfo: user.classInfo,
+                contactCategory: 'gradeTeacher',
+                displayRole: `Grade Teacher${user.classInfo ? ` (${user.classInfo})` : ''}`
+            }),
             ...(user.contactCategory === 'principal' && {
                 contactCategory: 'principal',
                 displayRole: `Principal ${user.unit || ''}`
@@ -350,13 +460,15 @@ const getSupportContacts = async (req, res) => {
 
         if (userRole === 'student') {
             // Keep student list strict to supported categories only.
-            const allowedCategories = new Set(['classTeacher', 'seTeacher', 'principal', 'psychologist']);
+            const allowedCategories = new Set(['classTeacher', 'seTeacher', 'gradeTeacher', 'principal', 'psychologist']);
             const seenContactIds = new Set();
             supportContacts = supportContacts.filter((contact) => {
                 const category = contact.isClassTeacher
                     ? 'classTeacher'
                     : contact.isSETeacher
                         ? 'seTeacher'
+                        : contact.isGradeTeacher
+                            ? 'gradeTeacher'
                         : (contact.contactCategory || 'other');
 
                 if (!allowedCategories.has(category)) {
@@ -373,11 +485,19 @@ const getSupportContacts = async (req, res) => {
 
             // For students: Sort by category - class teachers first, then SE teachers, then principal, then psychologist
             supportContacts.sort((a, b) => {
-                const categoryOrder = { classTeacher: 0, seTeacher: 1, principal: 2, psychologist: 3, other: 4 };
-                const catA = a.isClassTeacher ? 'classTeacher' : (a.isSETeacher ? 'seTeacher' : (a.contactCategory || 'other'));
-                const catB = b.isClassTeacher ? 'classTeacher' : (b.isSETeacher ? 'seTeacher' : (b.contactCategory || 'other'));
-                const orderA = categoryOrder[catA] ?? 4;
-                const orderB = categoryOrder[catB] ?? 4;
+                const categoryOrder = { classTeacher: 0, seTeacher: 1, gradeTeacher: 2, principal: 3, psychologist: 4, other: 5 };
+                const catA = a.isClassTeacher
+                    ? 'classTeacher'
+                    : (a.isSETeacher
+                        ? 'seTeacher'
+                        : (a.isGradeTeacher ? 'gradeTeacher' : (a.contactCategory || 'other')));
+                const catB = b.isClassTeacher
+                    ? 'classTeacher'
+                    : (b.isSETeacher
+                        ? 'seTeacher'
+                        : (b.isGradeTeacher ? 'gradeTeacher' : (b.contactCategory || 'other')));
+                const orderA = categoryOrder[catA] ?? 5;
+                const orderB = categoryOrder[catB] ?? 5;
                 if (orderA !== orderB) return orderA - orderB;
                 return (a.name || '').localeCompare(b.name || '');
             });

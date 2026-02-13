@@ -427,7 +427,7 @@ const loadMentorsByGrade = async (grades = []) => {
                     { 'classes.grade': new RegExp(`^${grade}(\\s|$)`, 'i') }
                 ]
             })
-                .select('name email username jobPosition unit classes')
+                .select('name email username gender jobPosition unit classes')
                 .lean();
 
             // Filter mentors to only those whose class assignments match the grade
@@ -468,7 +468,7 @@ const loadMentorsByGradeAndClass = async (grade = '', className = '') => {
     const mentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     // Filter mentors who have class assignments matching BOTH grade AND className
@@ -507,7 +507,7 @@ const loadMentorsByClassKeys = async (classKeys = []) => {
     const allMentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     const filteredMentors = (allMentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
@@ -571,6 +571,9 @@ const buildFallbackSummary = (mentors = []) => {
             .map((mentor) => ({
                 id: mentor?._id?.toString?.() || mentor?._id,
                 name: mentor?.name,
+                nickname: mentor?.username,
+                username: mentor?.username,
+                gender: mentor?.gender,
                 email: mentor?.email,
                 jobPosition: mentor?.jobPosition,
                 unit: mentor?.unit,
@@ -621,7 +624,7 @@ const listStudents = async (req, res) => {
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
-                  .populate('mentorId', 'name email username jobPosition')
+                  .populate('mentorId', 'name email username gender jobPosition')
                   .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
                   .lean()
             : [];
@@ -673,7 +676,7 @@ const getStudent = async (req, res) => {
         }
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
-            .populate('mentorId', 'name email username jobPosition')
+            .populate('mentorId', 'name email username gender jobPosition')
             .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
             .lean();
 
@@ -734,6 +737,9 @@ const getStudent = async (req, res) => {
                 monitoringMethod: assignment.monitoringMethod || null,
                 monitoringFrequency: assignment.monitoringFrequency || null,
                 mentor: assignment.mentorId?.name || 'MTSS Mentor',
+                mentorNickname: assignment.mentorId?.username || null,
+                mentorUsername: assignment.mentorId?.username || null,
+                mentorGender: assignment.mentorId?.gender || null,
                 mentorEmail: assignment.mentorId?.email || null,
                 startDate: assignment.startDate,
                 endDate: assignment.endDate,

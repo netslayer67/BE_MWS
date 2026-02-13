@@ -221,6 +221,16 @@ const buildProfile = (assignment = {}) => {
     const completedGoals = goals.filter(goal => goal.completed).length;
     const progressUnit = assignment.metricLabel || inferProgressUnit(assignment);
     const teacherRoster = assignment.mentorId?.name ? [assignment.mentorId.name] : [];
+    const mentorProfile = assignment.mentorId
+        ? {
+            id: assignment.mentorId?._id?.toString?.() || assignment.mentorId?._id || null,
+            name: assignment.mentorId?.name || null,
+            username: assignment.mentorId?.username || null,
+            nickname: assignment.mentorId?.username || null,
+            gender: assignment.mentorId?.gender || null,
+            email: assignment.mentorId?.email || null
+        }
+        : null;
 
     // Extract baseline/current/target from check-ins or baselineScore/targetScore
     let baseline = null;
@@ -253,7 +263,11 @@ const buildProfile = (assignment = {}) => {
     return {
         teacher: assignment.mentorId?.name || 'MTSS Mentor',
         mentor: assignment.mentorId?.name || 'MTSS Mentor',
+        mentorUsername: assignment.mentorId?.username || null,
+        mentorNickname: assignment.mentorId?.username || null,
+        mentorGender: assignment.mentorId?.gender || null,
         teacherRoster,
+        mentors: mentorProfile ? [mentorProfile] : [],
         type: deriveFocusArea(assignment),
         strategy: Array.isArray(assignment.focusAreas) && assignment.focusAreas.length
             ? assignment.focusAreas.join(', ')
@@ -321,6 +335,14 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
                 nextUpdate: inferNextUpdate(assignment),
                 profile: buildProfile(assignment),
                 teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : [],
+                mentors: assignment.mentorId ? [{
+                    id: assignment.mentorId?._id?.toString?.() || assignment.mentorId?._id || null,
+                    name: assignment.mentorId?.name || null,
+                    username: assignment.mentorId?.username || null,
+                    nickname: assignment.mentorId?.username || null,
+                    gender: assignment.mentorId?.gender || null,
+                    email: assignment.mentorId?.email || null
+                }] : [],
                 dataSource: 'mtssstudents+mentorassignments'
             });
         });
@@ -357,7 +379,12 @@ const formatRosterStudent = (studentDoc, summary) => {
 
         ...profileSource,
 
-        mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor'
+        mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor',
+        mentors: Array.isArray(profileSource?.mentors)
+            ? profileSource.mentors
+            : Array.isArray(support?.mentors)
+                ? support.mentors
+                : []
 
     };
 
@@ -376,12 +403,21 @@ const formatRosterStudent = (studentDoc, summary) => {
                 : [];
 
     const mentorLabel = teacherRoster[0] || safeProfile.mentor;
+    const mentorFromProfile = Array.isArray(safeProfile.mentors) && safeProfile.mentors.length
+        ? safeProfile.mentors[0]
+        : null;
+    const mentorUsername = safeProfile.mentorUsername || mentorFromProfile?.username || null;
+    const mentorNickname = safeProfile.mentorNickname || mentorFromProfile?.nickname || mentorUsername || null;
+    const mentorGender = safeProfile.mentorGender || mentorFromProfile?.gender || null;
 
     safeProfile.teacherRoster = teacherRoster;
 
     safeProfile.teacher = teacherRoster.length ? teacherRoster.join(' / ') : safeProfile.teacher;
 
     safeProfile.mentor = mentorLabel;
+    safeProfile.mentorUsername = mentorUsername;
+    safeProfile.mentorNickname = mentorNickname;
+    safeProfile.mentorGender = mentorGender;
 
     const interventions = buildStudentInterventions(source);
 
@@ -430,6 +466,9 @@ const formatRosterStudent = (studentDoc, summary) => {
         grade: gradeLabel,
 
         mentor: mentorLabel,
+        mentorUsername,
+        mentorNickname,
+        mentorGender,
 
         teachers: teacherRoster,
 
