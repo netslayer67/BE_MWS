@@ -301,6 +301,203 @@ const formatCheckinSnapshot = (checkin) => {
     };
 };
 
+const getNumericValue = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+const roundOneDecimal = (value) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return Math.round(value * 10) / 10;
+};
+
+const toISODateKey = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    parsed.setHours(0, 0, 0, 0);
+    return parsed.toISOString().split('T')[0];
+};
+
+const isDateWithinWindow = (value, start, end) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.getTime() >= start.getTime() && parsed.getTime() <= end.getTime();
+};
+
+const deriveMoodStateFromCheckin = (checkin = {}) => {
+    const explicit = normalizeTextValue(checkin.aiAnalysis?.emotionalState || '');
+    if (['positive', 'balanced', 'challenging', 'depleted'].includes(explicit)) {
+        return explicit;
+    }
+
+    const presence = getNumericValue(checkin.presenceLevel);
+    const capacity = getNumericValue(checkin.capacityLevel);
+    if (presence == null && capacity == null) {
+        return 'balanced';
+    }
+
+    const basis = [];
+    if (presence != null) basis.push(presence);
+    if (capacity != null) basis.push(capacity);
+    const average = basis.reduce((sum, item) => sum + item, 0) / basis.length;
+
+    if (average >= 7.5) return 'positive';
+    if (average <= 3.5) return 'challenging';
+    if (average <= 5) return 'depleted';
+    return 'balanced';
+};
+
+const buildStudentProgressPayload = (historyCheckins = []) => {
+    const sortedHistory = [...historyCheckins].sort((a, b) => {
+        const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+        const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+        return aTime - bTime;
+    });
+
+    if (!sortedHistory.length) {
+        return {
+            submissionsLast14Days: 0,
+            averagePresence: null,
+            averageCapacity: null,
+            supportAlertsLast14Days: 0,
+            moodBreakdown: {
+                positive: 0,
+                balanced: 0,
+                depleted: 0,
+                challenging: 0
+            },
+            topMoods: [],
+            trend: [],
+            recentNotes: []
+        };
+    }
+
+    const dayMap = new Map();
+    const moodCountMap = new Map();
+    const moodBreakdown = {
+        positive: 0,
+        balanced: 0,
+        depleted: 0,
+        challenging: 0
+    };
+
+    let totalPresence = 0;
+    let totalCapacity = 0;
+    let presenceCount = 0;
+    let capacityCount = 0;
+    let supportAlerts = 0;
+
+    sortedHistory.forEach((checkin) => {
+        const dayKey = toISODateKey(checkin.date || checkin.submittedAt);
+        if (!dayKey) return;
+
+        if (!dayMap.has(dayKey)) {
+            dayMap.set(dayKey, {
+                date: dayKey,
+                submissions: 0,
+                presenceTotal: 0,
+                presenceCount: 0,
+                capacityTotal: 0,
+                capacityCount: 0,
+                moodCounts: {},
+                needsSupport: false
+            });
+        }
+
+        const dayEntry = dayMap.get(dayKey);
+        dayEntry.submissions += 1;
+
+        const presence = getNumericValue(checkin.presenceLevel);
+        if (presence != null) {
+            dayEntry.presenceTotal += presence;
+            dayEntry.presenceCount += 1;
+            totalPresence += presence;
+            presenceCount += 1;
+        }
+
+        const capacity = getNumericValue(checkin.capacityLevel);
+        if (capacity != null) {
+            dayEntry.capacityTotal += capacity;
+            dayEntry.capacityCount += 1;
+            totalCapacity += capacity;
+            capacityCount += 1;
+        }
+
+        const moodState = deriveMoodStateFromCheckin(checkin);
+        dayEntry.moodCounts[moodState] = (dayEntry.moodCounts[moodState] || 0) + 1;
+        moodBreakdown[moodState] = (moodBreakdown[moodState] || 0) + 1;
+
+        if (checkin.aiAnalysis?.needsSupport) {
+            dayEntry.needsSupport = true;
+            supportAlerts += 1;
+        }
+
+        (Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [])
+            .map((mood) => normalizeSpaces(String(mood || '')).toLowerCase())
+            .filter(Boolean)
+            .forEach((mood) => {
+                moodCountMap.set(mood, (moodCountMap.get(mood) || 0) + 1);
+            });
+    });
+
+    const trend = [...dayMap.values()]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((dayEntry) => {
+            const dominantMoodState = Object.entries(dayEntry.moodCounts)
+                .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
+
+            return {
+                date: dayEntry.date,
+                submissions: dayEntry.submissions,
+                presence: dayEntry.presenceCount > 0 ? roundOneDecimal(dayEntry.presenceTotal / dayEntry.presenceCount) : null,
+                capacity: dayEntry.capacityCount > 0 ? roundOneDecimal(dayEntry.capacityTotal / dayEntry.capacityCount) : null,
+                moodState: dominantMoodState,
+                needsSupport: dayEntry.needsSupport
+            };
+        });
+
+    const recentNotes = [...sortedHistory]
+        .sort((a, b) => {
+            const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+            const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+            return bTime - aTime;
+        })
+        .map((checkin) => {
+            const reflection = normalizeSpaces(checkin.userReflection || '');
+            const detailNote = normalizeSpaces(checkin.details || '');
+            const note = reflection || detailNote;
+            if (!note) return null;
+
+            return {
+                id: checkin._id,
+                date: checkin.date || checkin.submittedAt,
+                note,
+                source: reflection ? 'reflection' : 'details',
+                weatherType: checkin.weatherType || null,
+                selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+                needsSupport: Boolean(checkin.aiAnalysis?.needsSupport)
+            };
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+    const topMoods = [...moodCountMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([mood, count]) => ({ mood, count }));
+
+    return {
+        submissionsLast14Days: sortedHistory.length,
+        averagePresence: presenceCount > 0 ? roundOneDecimal(totalPresence / presenceCount) : null,
+        averageCapacity: capacityCount > 0 ? roundOneDecimal(totalCapacity / capacityCount) : null,
+        supportAlertsLast14Days: supportAlerts,
+        moodBreakdown,
+        topMoods,
+        trend,
+        recentNotes
+    };
+};
+
 const buildPeriodSummary = (checkins = []) => {
     if (!Array.isArray(checkins) || checkins.length === 0) {
         return {
@@ -1237,17 +1434,30 @@ const getTeacherDailyCheckins = async (req, res) => {
             });
         }
 
+        const trendStartDate = new Date(startDate);
+        trendStartDate.setDate(trendStartDate.getDate() - 13);
+
         const checkins = await CheckinModel.find({
             userId: { $in: studentIds },
-            date: { $gte: startDate, $lte: endDate }
+            date: { $gte: trendStartDate, $lte: endDate }
         }).sort({ date: -1, submittedAt: -1 });
 
+        const historyByStudent = new Map();
         const checkinMap = new Map();
         const needsSupportSet = new Set();
+
         checkins.forEach((checkin) => {
             const key = checkin.userId.toString();
-            if (!checkinMap.has(key)) {
-                checkinMap.set(key, checkin);
+
+            if (!historyByStudent.has(key)) {
+                historyByStudent.set(key, []);
+            }
+            historyByStudent.get(key).push(checkin);
+
+            if (isDateWithinWindow(checkin.date, startDate, endDate)) {
+                if (!checkinMap.has(key)) {
+                    checkinMap.set(key, checkin);
+                }
                 if (checkin.aiAnalysis?.needsSupport) {
                     needsSupportSet.add(key);
                 }
@@ -1255,6 +1465,7 @@ const getTeacherDailyCheckins = async (req, res) => {
         });
 
         const studentsPayload = scopedStudents.map((student) => {
+            const studentHistory = historyByStudent.get(student._id.toString()) || [];
             const checkin = checkinMap.get(student._id.toString());
             return {
                 id: student._id,
@@ -1263,7 +1474,8 @@ const getTeacherDailyCheckins = async (req, res) => {
                 nickname: student.nickname,
                 currentGrade: student.currentGrade,
                 className: student.className,
-                checkin: checkin ? formatCheckinSnapshot(checkin) : null
+                checkin: checkin ? formatCheckinSnapshot(checkin) : null,
+                progress: buildStudentProgressPayload(studentHistory)
             };
         });
 
