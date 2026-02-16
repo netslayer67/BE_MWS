@@ -535,30 +535,30 @@ const buildPersonalInsights = (summary, todaySnapshot, streaks, periodSummary) =
     const insights = [];
 
     if (!todaySnapshot) {
-        insights.push('Belum ada check-in hari ini. Luangkan waktu 2 menit untuk mencatat kondisi emosimu.');
+        insights.push('No check-in yet today. Take 2 minutes to record how you\'re feeling.');
     }
 
     if (!summary.totalCheckins) {
-        insights.push('Mulai catat emosi secara rutin agar AI dapat menyiapkan insight personal untukmu.');
+        insights.push('Start checking in regularly so AI can prepare personalized insights for you.');
         return insights.slice(0, 3);
     }
 
     if (typeof summary.averagePresence === 'number' && summary.averagePresence > 0 && summary.averagePresence < 5) {
-        insights.push('Presence rata-rata masih di bawah 5. Pertimbangkan micro break atau jeda singkat sepanjang hari.');
+        insights.push('Your average presence is still below 5. Consider taking micro breaks or short pauses throughout the day.');
     } else if (typeof summary.averagePresence === 'number' && summary.averagePresence >= 7.5) {
-        insights.push('Presence kamu stabil dan tinggi. Pertahankan ritme kerja yang seimbang seperti sekarang.');
+        insights.push('Your presence is stable and high. Keep maintaining your balanced work rhythm.');
     }
 
     if (summary.aiSupportDays > 0) {
-        insights.push(`AI mendeteksi kebutuhan dukungan sebanyak ${summary.aiSupportDays} hari. Manfaatkan support contact jika diperlukan.`);
+        insights.push(`AI detected support needs on ${summary.aiSupportDays} days. Consider using support contacts if needed.`);
     }
 
     if (streaks.current >= 3) {
-        insights.push(`Keren! Kamu konsisten check-in selama ${streaks.current} hari berturut-turut.`);
+        insights.push(`Awesome! You've been consistently checking in for ${streaks.current} days in a row.`);
     }
 
     if (periodSummary?.challengingDays >= periodSummary?.positiveDays && periodSummary?.challengingDays > 0) {
-        insights.push('Dalam 30 hari terakhir, emosi menantang muncul lebih sering. Coba tinjau ulang rekomendasi AI di riwayat check-in.');
+        insights.push('In the last 30 days, challenging emotions appeared more often. Try reviewing AI recommendations in your check-in history.');
     }
 
     return insights.slice(0, 3);
@@ -2156,8 +2156,8 @@ const getPersonalDashboard = async (req, res) => {
             today: {
                 status: todaySnapshot ? 'completed' : 'pending',
                 message: todaySnapshot
-                    ? 'Check-in hari ini sudah tercatat'
-                    : 'Belum ada check-in untuk hari ini',
+                    ? 'Today\'s check-in is recorded'
+                    : 'No check-in yet for today',
                 checkin: todaySnapshot
             },
             overall: {
