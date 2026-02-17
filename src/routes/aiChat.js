@@ -41,4 +41,18 @@ router.get('/conversations/:sessionId', aiChatController.getConversationHistory)
  */
 router.post('/conversations/:sessionId/archive', aiChatController.archiveConversation);
 
+/**
+ * @route   GET /api/v1/ai-chat/assistant-profile
+ * @desc    Get personal assistant profile and daily focus
+ * @access  Private
+ */
+router.get('/assistant-profile', aiChatController.getAssistantProfile);
+
+/**
+ * @route   PATCH /api/v1/ai-chat/assistant-profile
+ * @desc    Update personal assistant preferences
+ * @access  Private
+ */
+router.patch('/assistant-profile', aiChatController.updateAssistantProfile);
+
 module.exports = router;

@@ -60,6 +60,11 @@ const aiConversationSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    summaryUpdatedAt: Date,
+    summaryMessageCount: {
+        type: Number,
+        default: 0
+    },
     detectedTopics: [{
         topic: String,
         frequency: Number,

@@ -1,12 +1,21 @@
 const aiChatService = require('../services/aiChatService');
 
+const getRequestUserId = (req) => req.user?.id || req.user?._id || null;
+
 /**
  * Send a chat message and get AI response
  */
 const sendMessage = async (req, res) => {
     try {
         const { message, sessionId } = req.body;
-        const userId = req.user._id;
+        const userId = getRequestUserId(req);
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
 
         if (!message || typeof message !== 'string' || message.trim().length === 0) {
             return res.status(400).json({
@@ -46,7 +55,13 @@ const sendMessage = async (req, res) => {
 const getConversationHistory = async (req, res) => {
     try {
         const { sessionId } = req.params;
-        const userId = req.user._id;
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
         const limit = parseInt(req.query.limit) || 50;
 
         const history = await aiChatService.getConversationHistory(userId, sessionId, limit);
@@ -71,7 +86,13 @@ const getConversationHistory = async (req, res) => {
  */
 const getUserConversations = async (req, res) => {
     try {
-        const userId = req.user._id;
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
         const limit = parseInt(req.query.limit) || 10;
 
         const conversations = await aiChatService.getUserConversations(userId, limit);
@@ -96,7 +117,13 @@ const getUserConversations = async (req, res) => {
  */
 const startNewConversation = async (req, res) => {
     try {
-        const userId = req.user._id;
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
 
         const sessionId = `chat_${Date.now()}_${userId}`;
         const conversation = await aiChatService.getOrCreateConversation(userId, sessionId);
@@ -125,7 +152,13 @@ const startNewConversation = async (req, res) => {
 const archiveConversation = async (req, res) => {
     try {
         const { sessionId } = req.params;
-        const userId = req.user._id;
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
 
         const AIConversation = require('../models/AIConversation');
         const conversation = await AIConversation.findOne({
@@ -158,10 +191,68 @@ const archiveConversation = async (req, res) => {
     }
 };
 
+/**
+ * Get personal AI assistant profile/dashboard for current student
+ */
+const getAssistantProfile = async (req, res) => {
+    try {
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const profile = await aiChatService.getAssistantProfile(userId);
+        return res.json({
+            success: true,
+            data: profile
+        });
+    } catch (error) {
+        console.error('Error in getAssistantProfile:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to get assistant profile',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Update personal AI assistant preferences for current student
+ */
+const updateAssistantProfile = async (req, res) => {
+    try {
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const updated = await aiChatService.updateAssistantPreferences(userId, req.body || {});
+        return res.json({
+            success: true,
+            data: updated
+        });
+    } catch (error) {
+        console.error('Error in updateAssistantProfile:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update assistant profile',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     sendMessage,
     getConversationHistory,
     getUserConversations,
     startNewConversation,
-    archiveConversation
+    archiveConversation,
+    getAssistantProfile,
+    updateAssistantProfile
 };
