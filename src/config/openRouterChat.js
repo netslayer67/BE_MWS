@@ -9,11 +9,19 @@ class OpenRouterChatService {
         this.lastConfigSignature = '';
         this.envFilePath = path.resolve(process.cwd(), '.env');
         this.lastEnvMtimeMs = 0;
+        this.lastEnvCheckAt = 0;
+        this.envReloadCheckIntervalMs = parseInt(process.env.OPENROUTER_ENV_CHECK_INTERVAL_MS || '10000', 10);
         this.reloadEnvFileIfUpdated(true);
         this.refreshFromEnv({ logInit: true });
     }
 
     reloadEnvFileIfUpdated(force = false) {
+        const now = Date.now();
+        if (!force && Number.isFinite(this.lastEnvCheckAt) && (now - this.lastEnvCheckAt) < this.envReloadCheckIntervalMs) {
+            return;
+        }
+        this.lastEnvCheckAt = now;
+
         try {
             const stats = fs.statSync(this.envFilePath);
             const shouldReload = force || stats.mtimeMs > this.lastEnvMtimeMs;
@@ -43,7 +51,8 @@ class OpenRouterChatService {
         const fallbackModels = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS || '');
         const maxTokens = parseInt(process.env.OPENROUTER_MAX_TOKENS || '1024', 10);
         const temperature = parseFloat(process.env.OPENROUTER_TEMPERATURE || '0.4');
-        const minDelay = parseInt(process.env.OPENROUTER_MIN_DELAY_MS || '600', 10);
+        const minDelay = parseInt(process.env.OPENROUTER_MIN_DELAY_MS || '0', 10);
+        const timeoutMs = parseInt(process.env.OPENROUTER_TIMEOUT_MS || '20000', 10);
         const httpReferer = process.env.OPENROUTER_HTTP_REFERER || process.env.FRONTEND_URL || '';
         const appName = process.env.OPENROUTER_APP_NAME || 'IntegraLearn AI Chat';
 
@@ -55,6 +64,7 @@ class OpenRouterChatService {
             maxTokens,
             temperature,
             minDelay,
+            timeoutMs,
             httpReferer,
             appName
         };
@@ -69,6 +79,7 @@ class OpenRouterChatService {
             String(config.maxTokens),
             String(config.temperature),
             String(config.minDelay),
+            String(config.timeoutMs),
             config.httpReferer,
             config.appName
         ].join('|');
@@ -88,6 +99,7 @@ class OpenRouterChatService {
         this.maxTokens = nextConfig.maxTokens;
         this.temperature = nextConfig.temperature;
         this.minDelay = nextConfig.minDelay;
+        this.timeoutMs = nextConfig.timeoutMs;
         this.httpReferer = nextConfig.httpReferer;
         this.appName = nextConfig.appName;
 
@@ -101,14 +113,45 @@ class OpenRouterChatService {
         }
     }
 
-    getModelCandidates() {
-        this.refreshFromEnv();
+    getModelCandidates(skipRefresh = false) {
+        if (!skipRefresh) this.refreshFromEnv();
         const ordered = [this.primaryModel, ...this.fallbackModels].filter(Boolean);
         return Array.from(new Set(ordered));
     }
 
-    isAvailable() {
-        this.refreshFromEnv();
+    getModelCandidatesWithOverrides(options = {}, skipRefresh = false) {
+        if (!skipRefresh) this.refreshFromEnv();
+
+        const explicitCandidates = Array.isArray(options.modelCandidates)
+            ? options.modelCandidates
+            : this.parseModelList(String(options.modelCandidates || ''));
+        const explicitPrimary = String(options.model || options.primaryModel || '').trim();
+        const explicitFallbacks = Array.isArray(options.fallbackModels)
+            ? options.fallbackModels
+            : this.parseModelList(String(options.fallbackModels || ''));
+
+        const normalizedCandidates = explicitCandidates
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+        const normalizedFallbacks = explicitFallbacks
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+
+        const overrideOrdered = [
+            explicitPrimary,
+            ...normalizedCandidates,
+            ...normalizedFallbacks
+        ].filter(Boolean);
+
+        if (overrideOrdered.length > 0) {
+            return Array.from(new Set(overrideOrdered));
+        }
+
+        return this.getModelCandidates(true);
+    }
+
+    isAvailable(skipRefresh = false) {
+        if (!skipRefresh) this.refreshFromEnv();
         if (!this.apiKey) return false;
         if (Date.now() < this.disabledUntil) return false;
         return true;
@@ -119,6 +162,7 @@ class OpenRouterChatService {
     }
 
     async waitForRateLimitWindow() {
+        if (!Number.isFinite(this.minDelay) || this.minDelay <= 0) return;
         const now = Date.now();
         const elapsed = now - this.lastRequestTime;
         if (elapsed >= this.minDelay) return;
@@ -152,6 +196,9 @@ class OpenRouterChatService {
     async callChatCompletion(model, promptOrMessages, options = {}) {
         this.refreshFromEnv();
         const messages = this.normalizeMessages(promptOrMessages);
+        const timeoutMs = Math.max(5000, Number(options.timeoutMs || this.timeoutMs || 20000));
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
         const headers = {
             Authorization: `Bearer ${this.apiKey}`,
@@ -167,51 +214,63 @@ class OpenRouterChatService {
             headers['X-Title'] = this.appName;
         }
 
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                model,
-                messages,
-                temperature: typeof options.temperature === 'number' ? options.temperature : this.temperature,
-                max_tokens: typeof options.maxTokens === 'number'
-                    ? options.maxTokens
-                    : Math.min(Math.max(this.maxTokens, 128), 8192),
-                stream: false
-            })
-        });
+        try {
+            const response = await fetch(`${this.baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers,
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model,
+                    messages,
+                    temperature: typeof options.temperature === 'number' ? options.temperature : this.temperature,
+                    max_tokens: typeof options.maxTokens === 'number'
+                        ? options.maxTokens
+                        : Math.min(Math.max(this.maxTokens, 128), 8192),
+                    stream: false
+                })
+            });
 
-        const payload = await response.json().catch(() => ({}));
-        const requestId = response.headers.get('x-request-id') ||
-            response.headers.get('x-openrouter-request-id') ||
-            null;
+            const payload = await response.json().catch(() => ({}));
+            const requestId = response.headers.get('x-request-id') ||
+                response.headers.get('x-openrouter-request-id') ||
+                null;
 
-        if (!response.ok) {
-            const errorMessage = payload?.error?.message ||
-                payload?.message ||
-                `OpenRouter request failed (${response.status})`;
+            if (!response.ok) {
+                const errorMessage = payload?.error?.message ||
+                    payload?.message ||
+                    `OpenRouter request failed (${response.status})`;
 
-            const error = new Error(errorMessage);
-            error.status = response.status;
-            error.payload = payload;
-            error.requestId = requestId;
+                const error = new Error(errorMessage);
+                error.status = response.status;
+                error.payload = payload;
+                error.requestId = requestId;
+                throw error;
+            }
+
+            this.lastRequestTime = Date.now();
+            return { ...payload, _model: model, _requestId: requestId };
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                const timeoutError = new Error(`OpenRouter request timed out after ${timeoutMs}ms`);
+                timeoutError.status = 504;
+                throw timeoutError;
+            }
             throw error;
+        } finally {
+            clearTimeout(timeoutHandle);
         }
-
-        this.lastRequestTime = Date.now();
-        return { ...payload, _model: model, _requestId: requestId };
     }
 
     async generateContent(promptOrMessages, options = {}) {
         this.refreshFromEnv();
 
-        if (!this.isAvailable()) {
+        if (!this.isAvailable(true)) {
             throw new Error('OpenRouter chat service unavailable');
         }
 
         await this.waitForRateLimitWindow();
 
-        const models = this.getModelCandidates();
+        const models = this.getModelCandidatesWithOverrides(options, true);
         let lastError = null;
 
         for (let index = 0; index < models.length; index += 1) {

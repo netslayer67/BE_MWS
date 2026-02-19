@@ -3,20 +3,94 @@ const AIConversation = require('../models/AIConversation');
 const MTSSStudent = require('../models/MTSSStudent');
 const MentorAssignment = require('../models/MentorAssignment');
 const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+const EmotionalCheckin = require('../models/EmotionalCheckin');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const StudentAIAssistantProfile = require('../models/StudentAIAssistantProfile');
 const { INTERVENTION_TYPES, TIER_LABELS } = require('../constants/mtss');
+const { assistantOrchestrator, twinRepository } = require('../modules/ai-assistant');
 
 class AIChatService {
     constructor() {
         this.conversationCache = new Map(); // Cache recent conversations
+        this.contextCache = new Map();
+        this.sessionLocks = new Map();
         this.maxMessagesInContext = 40; // Keep broader context so follow-up replies stay on track
         this.summaryMinMessages = 12;
         this.summaryRefreshEveryMessages = 6;
         this.summaryCandidateWindow = 120;
         this.summaryMaxChars = 1600;
         this.maxMemoryItemsPerList = 10;
+        this.contextCacheTtlMs = parseInt(process.env.AI_CHAT_CONTEXT_CACHE_TTL_MS || '45000', 10);
+        this.maxContextCacheEntries = parseInt(process.env.AI_CHAT_MAX_CONTEXT_CACHE_ENTRIES || '600', 10);
+        this.studentRoleSet = new Set(['student']);
+        this.workforceRoleSet = new Set([
+            'staff',
+            'support_staff',
+            'nurse',
+            'teacher',
+            'se_teacher',
+            'head_unit',
+            'directorate',
+            'admin',
+            'superadmin',
+            'counselor'
+        ]);
+    }
+
+    getSessionLockKey(userId, sessionId = null) {
+        return `${String(userId)}:${String(sessionId || 'active')}`;
+    }
+
+    async runWithSessionLock(lockKey, task) {
+        const previous = this.sessionLocks.get(lockKey) || Promise.resolve();
+        const next = previous
+            .catch(() => undefined)
+            .then(() => task());
+
+        this.sessionLocks.set(lockKey, next);
+
+        try {
+            return await next;
+        } finally {
+            if (this.sessionLocks.get(lockKey) === next) {
+                this.sessionLocks.delete(lockKey);
+            }
+        }
+    }
+
+    getCachedContext(userId) {
+        const cacheKey = String(userId);
+        const entry = this.contextCache.get(cacheKey);
+        if (!entry) return null;
+
+        const ageMs = Date.now() - Number(entry.timestamp || 0);
+        if (!Number.isFinite(ageMs) || ageMs > this.contextCacheTtlMs) {
+            this.contextCache.delete(cacheKey);
+            return null;
+        }
+
+        return entry.value ? { ...entry.value } : null;
+    }
+
+    setCachedContext(userId, context) {
+        const cacheKey = String(userId);
+        if (!cacheKey || !context || typeof context !== 'object') return;
+
+        if (this.contextCache.size >= this.maxContextCacheEntries) {
+            const oldestKey = this.contextCache.keys().next().value;
+            if (oldestKey) this.contextCache.delete(oldestKey);
+        }
+
+        this.contextCache.set(cacheKey, {
+            value: { ...context },
+            timestamp: Date.now()
+        });
+    }
+
+    invalidateContextCache(userId) {
+        if (!userId) return;
+        this.contextCache.delete(String(userId));
     }
 
     async resolveUserProfile(userId) {
@@ -29,6 +103,51 @@ class AIChatService {
         if (user) return user;
 
         return null;
+    }
+
+    normalizeRole(role = '') {
+        return String(role || '').trim().toLowerCase();
+    }
+
+    isStudentRole(role = '') {
+        return this.studentRoleSet.has(this.normalizeRole(role));
+    }
+
+    isWorkforceRole(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        return this.workforceRoleSet.has(normalizedRole) || (!this.isStudentRole(normalizedRole) && Boolean(normalizedRole));
+    }
+
+    resolveContextScopeFromRole(role = '') {
+        return this.isStudentRole(role) ? 'student' : 'workforce';
+    }
+
+    isStudentContext(context = {}) {
+        const scope = this.resolveContextScopeFromRole(context?.actor?.role || context?.student?.role || '');
+        return scope === 'student';
+    }
+
+    getWorkforceRoleLabel(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        if (!normalizedRole) return 'Workforce';
+
+        const labels = {
+            staff: 'Staff',
+            support_staff: 'Support Staff',
+            nurse: 'Nurse',
+            teacher: 'Teacher',
+            se_teacher: 'SE Teacher',
+            head_unit: 'Head Unit',
+            directorate: 'Directorate',
+            admin: 'Admin',
+            superadmin: 'Superadmin',
+            counselor: 'Counselor'
+        };
+
+        return labels[normalizedRole] || normalizedRole
+            .split('_')
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
     }
 
     getDefaultAssistantName(userId) {
@@ -69,6 +188,37 @@ class AIChatService {
 
     mergeMemoryList(existing = [], incoming = []) {
         return this.normalizeList([...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]);
+    }
+
+    buildDefaultAssistantRuntime(userId) {
+        return {
+            assistantName: this.getDefaultAssistantName(userId),
+            communicationStyle: {
+                tone: 'friendly',
+                responseLength: 'balanced',
+                explanationStyle: 'mixed',
+                emojiLevel: 'medium'
+            },
+            habits: {
+                preferredStudyTime: null,
+                checkInFrequency: 'daily',
+                focusSessionMinutes: 25
+            },
+            preferences: {
+                language: 'English',
+                motivationalStyle: 'mixed'
+            },
+            memoryHighlights: {
+                interests: [],
+                goals: [],
+                challenges: [],
+                strengths: []
+            },
+            daily: {
+                focusItems: [],
+                quickActions: []
+            }
+        };
     }
 
     ensureAssistantProfileShape(profile = {}, userId) {
@@ -258,7 +408,60 @@ class AIChatService {
         profileDoc.memory.notes = this.mergeMemoryList(profileDoc.memory.notes, signals.notes);
     }
 
+    buildWorkforceDailyFocus(context = {}, assistantProfile = {}) {
+        const actor = context?.actor || {};
+        const workforce = context?.workforce || {};
+        const emotional = context?.emotional || {};
+        const memory = assistantProfile.memory || {};
+
+        const focusItems = [];
+        const quickActions = [];
+
+        if (Number(workforce.activeMentorAssignments || 0) > 0) {
+            focusItems.push(`You currently have ${workforce.activeMentorAssignments} active mentor assignment(s) to monitor.`);
+            quickActions.push('Show my active MTSS assignments and priorities for today.');
+        } else {
+            focusItems.push('No active mentor assignments are currently recorded. Focus on proactive support planning.');
+            quickActions.push('Help me make a practical work plan for today.');
+        }
+
+        if (Number(workforce.flaggedSelfCheckins || 0) > 0) {
+            focusItems.push(`${workforce.flaggedSelfCheckins} recent check-in(s) indicate support follow-up is needed.`);
+            quickActions.push('Give me a response checklist for users who need support today.');
+        }
+
+        if (emotional.summary?.trend === 'declining') {
+            focusItems.push('Your recent emotional trend is declining. Take short reset breaks between tasks.');
+            quickActions.push('Guide me through a 5-minute reset before continuing work.');
+        }
+
+        if ((memory.goals || []).length > 0) {
+            focusItems.push(`Personal goal in focus: ${(memory.goals || [])[0]}.`);
+            quickActions.push('Break my current goal into clear next steps.');
+        }
+
+        if ((memory.challenges || []).length > 0) {
+            quickActions.push(`Coach me on this challenge: ${memory.challenges[0]}`);
+        }
+
+        if (actor?.role === 'teacher' || actor?.role === 'se_teacher' || actor?.role === 'head_unit') {
+            quickActions.push('Open MTSS teacher dashboard');
+        }
+
+        quickActions.push('Open support hub');
+        quickActions.push('Open my profile');
+
+        return {
+            focusItems: this.normalizeList(focusItems).slice(0, 5),
+            quickActions: this.normalizeList(quickActions).slice(0, 6)
+        };
+    }
+
     buildDailyFocus(context = {}, assistantProfile = {}) {
+        if (!this.isStudentContext(context)) {
+            return this.buildWorkforceDailyFocus(context, assistantProfile);
+        }
+
         const mtss = context.mtss || {};
         const classroom = context.classroom || {};
         const emotional = context.emotional || {};
@@ -270,7 +473,7 @@ class AIChatService {
 
         if ((mtss.openTasks || []).length > 0) {
             focusItems.push('Complete your active MTSS tasks first.');
-            quickActions.push(`Review my MTSS tasks for today`);
+            quickActions.push('Review my MTSS tasks for today');
         } else {
             focusItems.push('No urgent MTSS task is recorded today. Focus on class consistency.');
             quickActions.push('Help me make a study plan for today');
@@ -417,6 +620,700 @@ class AIChatService {
         return /don't have access|do not have access|cannot access|can't access|private school portal|school portal|i don't have access|i cannot see your|don't have the complete list/i.test(value);
     }
 
+    wantsStructuredVisualization(userMessage = '') {
+        const text = String(userMessage || '').toLowerCase();
+        return /(chart|table|tabel|grafik|graph|diagram|visual|visualisasi|dashboard|pie chart|bar chart|line chart|perhitungan|analytics|analitik|summary dalam bentuk)/i.test(text);
+    }
+
+    hasVisualizationLimitation(text = '') {
+        const value = String(text || '').toLowerCase();
+        return /can't create actual charts?|cannot create actual charts?|can't create charts?|cannot create charts?|can't create tables?|cannot create tables?|i can't create/i.test(value);
+    }
+
+    hasGeneralLimitationClaim(text = '') {
+        const value = String(text || '').toLowerCase();
+        return /\bi can't\b|\bi cannot\b|i do not have access|i don't have access|cannot access|can't access/i.test(value);
+    }
+
+    toTierValue(tierCode = '') {
+        const normalized = String(tierCode || '').toLowerCase().replace(/\s+/g, '');
+        if (normalized === 'tier3' || normalized === '3') return 3;
+        if (normalized === 'tier2' || normalized === '2') return 2;
+        return 1;
+    }
+
+    buildMtssVisualizationWidgets(context = {}) {
+        const mtss = context?.mtss || {};
+        const interventions = Array.isArray(mtss.interventions) ? mtss.interventions : [];
+        const assignments = Array.isArray(mtss.assignments) ? mtss.assignments : [];
+        const openTasks = Array.isArray(mtss.openTasks) ? mtss.openTasks : [];
+        const currentTierLabel = mtss.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded';
+
+        if (!mtss.hasProfile && interventions.length === 0 && assignments.length === 0 && openTasks.length === 0) {
+            return [];
+        }
+
+        const tierChartData = interventions.map((entry = {}) => {
+            const tierLabel = entry.tier || this.toTierLabel(entry.tierCode);
+            return {
+                label: entry.label || entry.type || 'Support',
+                tierLabel,
+                tierValue: this.toTierValue(entry.tierCode || tierLabel),
+                status: String(entry.status || 'monitoring'),
+                strategyCount: Array.isArray(entry.strategies) ? entry.strategies.length : 0
+            };
+        });
+
+        const activeAssignments = assignments.filter((entry = {}) =>
+            String(entry.status || '').toLowerCase() === 'active'
+        );
+
+        const assignmentRows = activeAssignments.slice(0, 8).map((entry = {}) => ({
+            tier: entry.tier || this.toTierLabel(entry.tierCode || 'tier1'),
+            mentor: this.normalizeMessageText(entry.mentorName || 'MTSS Mentor', 80),
+            focus: this.normalizeMessageText((entry.focusAreas || []).join(', ') || entry.strategyName || 'General support', 120),
+            status: this.normalizeMessageText(entry.status || 'active', 24)
+        }));
+
+        const taskRows = openTasks.slice(0, 8).map((taskText, index) => ({
+            no: index + 1,
+            task: this.normalizeMessageText(taskText, 160)
+        }));
+
+        const widgets = [
+            {
+                id: 'mtss_snapshot_stats',
+                type: 'stats',
+                title: 'MTSS Snapshot',
+                subtitle: 'Live data from current student records',
+                items: [
+                    { label: 'Current Tier', value: currentTierLabel },
+                    { label: 'Assignments', value: Number(mtss.assignmentCount || assignments.length || 0) },
+                    { label: 'Active Assignments', value: Number(mtss.activeAssignmentCount || activeAssignments.length || 0) },
+                    { label: 'Open Tasks', value: openTasks.length }
+                ]
+            }
+        ];
+
+        if (tierChartData.length > 0) {
+            widgets.push({
+                id: 'mtss_tier_subject_chart',
+                type: 'bar_chart',
+                title: 'MTSS Tier by Subject',
+                subtitle: 'Higher tier means higher support intensity',
+                xKey: 'label',
+                yKey: 'tierValue',
+                yDomain: [0, 3],
+                yTicks: [1, 2, 3],
+                data: tierChartData
+            });
+        }
+
+        if (assignmentRows.length > 0) {
+            widgets.push({
+                id: 'mtss_active_assignment_table',
+                type: 'table',
+                title: 'Active MTSS Assignments',
+                columns: [
+                    { key: 'tier', label: 'Tier' },
+                    { key: 'mentor', label: 'Mentor' },
+                    { key: 'focus', label: 'Focus Area' },
+                    { key: 'status', label: 'Status' }
+                ],
+                rows: assignmentRows
+            });
+        }
+
+        if (taskRows.length > 0) {
+            widgets.push({
+                id: 'mtss_open_tasks_table',
+                type: 'table',
+                title: 'Open MTSS Tasks',
+                columns: [
+                    { key: 'no', label: '#' },
+                    { key: 'task', label: 'Task' }
+                ],
+                rows: taskRows
+            });
+        }
+
+        return widgets;
+    }
+
+    buildClassroomVisualizationWidgets(context = {}) {
+        const classroom = context?.classroom || {};
+        const teachers = Array.isArray(classroom.teachers) ? classroom.teachers : [];
+        if (!teachers.length) return [];
+
+        return [
+            {
+                id: 'classroom_teacher_table',
+                type: 'table',
+                title: 'Classroom Teachers',
+                subtitle: `Class ${classroom.className || 'Not recorded'} | Grade ${classroom.grade || 'Not recorded'}`,
+                columns: [
+                    { key: 'name', label: 'Teacher' },
+                    { key: 'role', label: 'Role' },
+                    { key: 'subjects', label: 'Subjects' }
+                ],
+                rows: teachers.slice(0, 12).map((teacher = {}) => ({
+                    name: this.normalizeMessageText(teacher.displayName || teacher.name || 'Teacher', 80),
+                    role: this.normalizeMessageText(teacher.primaryRoleLabel || 'Teacher', 40),
+                    subjects: this.normalizeMessageText((teacher.subjects || []).join(', ') || '-', 140)
+                }))
+            }
+        ];
+    }
+
+    wantsStudyPlan(userMessage = '') {
+        const text = String(userMessage || '').toLowerCase();
+        return /(study plan|daily plan|jadwal|rencana belajar|after school|what should i do|apa yang harus|break.*steps|langkah demi langkah|time block|to do list|checklist)/i.test(text);
+    }
+
+    wantsCapabilitiesOverview(userMessage = '') {
+        const text = String(userMessage || '').toLowerCase();
+        return /(what can you do|bisa apa aja|bisa ngapain|capabilities|fitur|kemampuan|fungsi|lebih advance|se advance|assistant pribadi|personal assistant|bantu apa aja)/i.test(text);
+    }
+
+    parsePreferredStudyMinutes(value = '') {
+        const raw = String(value || '').trim().toLowerCase();
+        if (!raw) return null;
+
+        const fullMatch = raw.match(/^([0-9]{1,2})(?::([0-9]{2}))?\s*(am|pm)?$/i);
+        if (!fullMatch) return null;
+
+        let hours = Number(fullMatch[1] || 0);
+        const minutes = Number(fullMatch[2] || 0);
+        const meridiem = String(fullMatch[3] || '').toLowerCase();
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes < 0 || minutes > 59) {
+            return null;
+        }
+
+        if (meridiem) {
+            if (hours === 12) {
+                hours = meridiem === 'am' ? 0 : 12;
+            } else if (meridiem === 'pm') {
+                hours += 12;
+            }
+        }
+
+        if (hours < 0 || hours > 23) return null;
+        return (hours * 60) + minutes;
+    }
+
+    toClockLabel(totalMinutes = 0) {
+        const normalized = Math.max(0, Number(totalMinutes || 0)) % (24 * 60);
+        const hours = Math.floor(normalized / 60);
+        const minutes = normalized % 60;
+        return `${String(hours).padStart(2, '0')}.${String(minutes).padStart(2, '0')}`;
+    }
+
+    buildStudyTimelineItems(context = {}) {
+        const assistant = context?.assistant || {};
+        const mtss = context?.mtss || {};
+        const isStudent = this.isStudentContext(context);
+        const focusAreas = Array.isArray(mtss.focusAreas) ? mtss.focusAreas.filter(Boolean) : [];
+        const openTasks = Array.isArray(mtss.openTasks) ? mtss.openTasks.filter(Boolean) : [];
+        const preferredStudyMinutes = this.parsePreferredStudyMinutes(assistant?.habits?.preferredStudyTime || '');
+        const sessionMinutes = Math.max(15, Number(assistant?.habits?.focusSessionMinutes || 25));
+        const baseMinutes = Number.isFinite(preferredStudyMinutes) ? preferredStudyMinutes : (15 * 60) + 30;
+        const primaryFocus = this.normalizeMessageText(
+            focusAreas[0] || openTasks[0] || (isStudent ? 'Class priority review' : 'Highest-impact assignment review'),
+            120
+        );
+        const secondaryFocus = this.normalizeMessageText(
+            focusAreas[1] || openTasks[1] || (isStudent ? 'Homework follow-up' : 'Operational follow-up'),
+            120
+        );
+
+        return [
+            {
+                time: this.toClockLabel(baseMinutes),
+                title: 'Warm-up and prioritize',
+                detail: `Open your top priority: ${primaryFocus}.`
+            },
+            {
+                time: this.toClockLabel(baseMinutes + 10),
+                title: 'Deep focus session 1',
+                detail: `${sessionMinutes} minutes on ${primaryFocus}. Keep distractions off.`
+            },
+            {
+                time: this.toClockLabel(baseMinutes + 10 + sessionMinutes),
+                title: 'Reset break',
+                detail: 'Take 8-10 minutes break, hydrate, and stretch.'
+            },
+            {
+                time: this.toClockLabel(baseMinutes + 20 + sessionMinutes),
+                title: 'Deep focus session 2',
+                detail: `${sessionMinutes} minutes on ${secondaryFocus}.`
+            },
+            {
+                time: this.toClockLabel(baseMinutes + 20 + (sessionMinutes * 2)),
+                title: 'Reflect and submit',
+                detail: 'Summarize progress, mark done tasks, and prepare tomorrow\'s first step.'
+            }
+        ];
+    }
+
+    buildStudyPlanWidgets(context = {}) {
+        const mtss = context?.mtss || {};
+        const isStudent = this.isStudentContext(context);
+        const openTasks = Array.isArray(mtss.openTasks) ? mtss.openTasks.filter(Boolean) : [];
+        const focusAreas = Array.isArray(mtss.focusAreas) ? mtss.focusAreas.filter(Boolean) : [];
+        const checklistItems = [];
+
+        openTasks.slice(0, 5).forEach((taskText, index) => {
+            checklistItems.push({
+                text: this.normalizeMessageText(taskText, 140),
+                priority: index === 0 ? 'high' : 'medium'
+            });
+        });
+
+        if (checklistItems.length === 0) {
+            focusAreas.slice(0, 3).forEach((area, index) => {
+                checklistItems.push({
+                    text: `Practice ${this.normalizeMessageText(area, 80)} for 20 minutes`,
+                    priority: index === 0 ? 'high' : 'medium'
+                });
+            });
+        }
+
+        if (checklistItems.length === 0) {
+            if (isStudent) {
+                checklistItems.push(
+                    { text: 'Review today\'s class notes for 15 minutes', priority: 'high' },
+                    { text: 'Complete one pending homework item', priority: 'medium' },
+                    { text: 'Message your teacher if you feel stuck', priority: 'medium' }
+                );
+            } else {
+                checklistItems.push(
+                    { text: 'Review top-priority assignment and define first action', priority: 'high' },
+                    { text: 'Block one deep-focus slot for execution', priority: 'medium' },
+                    { text: 'Send one follow-up update to relevant stakeholder', priority: 'medium' }
+                );
+            }
+        }
+
+        return [
+            {
+                id: 'study_timeline_plan',
+                type: 'timeline',
+                title: 'Smart Study Timeline',
+                subtitle: 'Adaptive daily plan based on your profile',
+                items: this.buildStudyTimelineItems(context)
+            },
+            {
+                id: 'study_task_checklist',
+                type: 'checklist',
+                title: 'Today Checklist',
+                items: checklistItems.slice(0, 6)
+            }
+        ];
+    }
+
+    buildAssistantCapabilityWidgets(context = {}) {
+        const mtss = context?.mtss || {};
+        const classroom = context?.classroom || {};
+        const teacherCount = Number(classroom?.teacherCount || 0);
+        const taskCount = Array.isArray(mtss?.openTasks) ? mtss.openTasks.length : 0;
+        const isStudent = this.isStudentContext(context);
+        const roleLabel = context?.actor?.roleLabel || 'Workforce';
+
+        return [
+            {
+                id: 'assistant_capabilities',
+                type: 'capabilities',
+                title: 'Advanced Assistant Skills',
+                subtitle: 'Personalized, data-grounded, and action-oriented',
+                items: [
+                    {
+                        icon: '🧠',
+                        title: 'Context Memory',
+                        description: 'Maintains session memory summary so long chat stays on track.'
+                    },
+                    {
+                        icon: '📊',
+                        title: 'Live Data Insight',
+                        description: isStudent
+                            ? `Can analyze your MTSS records (${taskCount} open task(s)) with visual outputs.`
+                            : `Can analyze your role data, assignment snapshot, and priorities (${taskCount} open task(s)) with visual outputs.`
+                    },
+                    {
+                        icon: '🗂️',
+                        title: isStudent ? 'Teacher + Class Intelligence' : 'Role + Team Context',
+                        description: isStudent
+                            ? `Uses your class mapping with ${teacherCount} linked teacher(s).`
+                            : `Uses your ${roleLabel.toLowerCase()} profile, unit context, and related operational signals.`
+                    },
+                    {
+                        icon: '🧭',
+                        title: 'Action Routing',
+                        description: isStudent
+                            ? 'Can route you to profile, check-in, support hub, AI chat, and MTSS portal flows.'
+                            : 'Can route you across profile, support hub, dashboards, MTSS flows, and assistant workspace.'
+                    },
+                    {
+                        icon: '🎯',
+                        title: 'Daily Coaching',
+                        description: isStudent
+                            ? 'Generates timeline plans, checklists, and next best actions.'
+                            : 'Generates practical workday plans, checklists, and prioritized next actions.'
+                    }
+                ]
+            }
+        ];
+    }
+
+    buildStudentActionChipsWidget(context = {}, userMessage = '') {
+        const mtss = context?.mtss || {};
+        const focusAreas = Array.isArray(mtss.focusAreas) ? mtss.focusAreas.filter(Boolean) : [];
+        const preferredFocus = this.normalizeMessageText(focusAreas[0] || 'my hardest subject', 80);
+
+        return {
+            id: 'assistant_quick_actions',
+            type: 'action_chips',
+            title: 'Try Next',
+            actions: [
+                {
+                    label: 'Open Manual Check-in',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_manual_emotional_checkin',
+                        navigateTo: '/student/emotional-checkin/manual',
+                        label: 'Manual Emotional Check-in'
+                    }
+                },
+                {
+                    label: 'Open AI Check-in',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_ai_emotional_checkin',
+                        navigateTo: '/student/emotional-checkin/ai',
+                        label: 'AI Emotional Check-in'
+                    }
+                },
+                {
+                    label: 'Build My Study Plan',
+                    action: {
+                        type: 'prefill',
+                        value: 'Help me build a concrete study plan for today with time blocks and first action.'
+                    }
+                },
+                {
+                    label: 'Break Goal Into Steps',
+                    action: {
+                        type: 'prefill',
+                        value: 'Break my current goal into simple and actionable steps.'
+                    }
+                },
+                {
+                    label: `Coach Me: ${preferredFocus}`,
+                    action: {
+                        type: 'prefill',
+                        value: `Coach me step by step for ${preferredFocus} and give me 3 quick exercises.`
+                    }
+                },
+                {
+                    label: 'Open Profile',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_student_profile',
+                        navigateTo: '/profile',
+                        label: 'Profile'
+                    }
+                },
+                {
+                    label: 'Open MTSS Portal',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_mtss_student_portal',
+                        navigateTo: '/mtss/student-portal',
+                        label: 'MTSS Student Portal'
+                    }
+                }
+            ]
+        };
+    }
+
+    buildWorkforceVisualizationWidgets(context = {}) {
+        const workforce = context?.workforce || {};
+        const mtss = context?.mtss || {};
+        const tierMap = workforce?.assignmentsByTier && typeof workforce.assignmentsByTier === 'object'
+            ? workforce.assignmentsByTier
+            : {};
+        const tierChartRows = Object.entries(tierMap)
+            .map(([tierCode, count]) => ({
+                label: this.toTierLabel(tierCode),
+                tierValue: this.toTierValue(tierCode),
+                tierLabel: this.toTierLabel(tierCode),
+                count: Number(count || 0)
+            }))
+            .sort((a, b) => b.tierValue - a.tierValue);
+
+        const assignmentRows = Array.isArray(mtss.assignments)
+            ? mtss.assignments.slice(0, 10).map((entry = {}) => ({
+                tier: entry.tier || this.toTierLabel(entry.tierCode || 'tier1'),
+                status: this.normalizeMessageText(entry.status || 'active', 24),
+                focus: this.normalizeMessageText((entry.focusAreas || []).join(', ') || entry.strategyName || '-', 140)
+            }))
+            : [];
+
+        const widgets = [
+            {
+                id: 'workforce_snapshot_stats',
+                type: 'stats',
+                title: 'Workforce Snapshot',
+                subtitle: 'Live internal context for your role',
+                items: [
+                    { label: 'Role', value: workforce.roleLabel || context?.actor?.roleLabel || 'Workforce' },
+                    { label: 'Active Assignments', value: Number(workforce.activeMentorAssignments || mtss.activeAssignmentCount || 0) },
+                    { label: 'Mentored Students', value: Number(workforce.totalMentoredStudents || 0) },
+                    { label: 'Open Tasks', value: Array.isArray(mtss.openTasks) ? mtss.openTasks.length : 0 }
+                ]
+            }
+        ];
+
+        if (tierChartRows.length > 0) {
+            widgets.push({
+                id: 'workforce_assignment_tier_chart',
+                type: 'bar_chart',
+                title: 'Assignment Tier Mix',
+                subtitle: 'Distribution of your active mentoring tiers',
+                xKey: 'label',
+                yKey: 'count',
+                yDomain: [0, Math.max(...tierChartRows.map((entry) => entry.count), 1)],
+                data: tierChartRows
+            });
+        }
+
+        if (assignmentRows.length > 0) {
+            widgets.push({
+                id: 'workforce_assignment_table',
+                type: 'table',
+                title: 'Active Assignment Details',
+                columns: [
+                    { key: 'tier', label: 'Tier' },
+                    { key: 'status', label: 'Status' },
+                    { key: 'focus', label: 'Focus' }
+                ],
+                rows: assignmentRows
+            });
+        }
+
+        return widgets;
+    }
+
+    buildWorkforceActionChipsWidget(context = {}) {
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const actions = [
+            {
+                label: 'Open Support Hub',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_support_hub',
+                    navigateTo: '/support-hub',
+                    label: 'Support Hub'
+                }
+            },
+            {
+                label: 'Open Emotional Check-in',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_staff_emotional_checkin',
+                    navigateTo: '/emotional-checkin/staff',
+                    label: 'Emotional Check-in'
+                }
+            },
+            {
+                label: 'Plan My Workday',
+                action: {
+                    type: 'prefill',
+                    value: 'Help me create a practical workday plan with priorities, time blocks, and first action.'
+                }
+            },
+            {
+                label: 'Open Profile',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_profile',
+                    navigateTo: '/profile',
+                    label: 'Profile'
+                }
+            }
+        ];
+
+        if (['teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+            actions.push({
+                label: 'Open MTSS Teacher',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_mtss_teacher_dashboard',
+                    navigateTo: '/mtss/teacher',
+                    label: 'MTSS Teacher Dashboard'
+                }
+            });
+        }
+
+        if (['admin', 'superadmin', 'directorate'].includes(role)) {
+            actions.push({
+                label: 'Open MTSS Admin',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_mtss_admin_dashboard',
+                    navigateTo: '/mtss/admin',
+                    label: 'MTSS Admin Dashboard'
+                }
+            });
+        }
+
+        if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+            actions.push({
+                label: 'Open Emotional Dashboard',
+                action: {
+                    type: 'navigate',
+                    intent: 'open_emotional_dashboard',
+                    navigateTo: '/emotional-checkin/dashboard',
+                    label: 'Emotional Dashboard'
+                }
+            });
+        }
+
+        return {
+            id: 'assistant_quick_actions',
+            type: 'action_chips',
+            title: 'Try Next',
+            actions: actions.slice(0, 8)
+        };
+    }
+
+    buildActionChipsWidget(context = {}, userMessage = '') {
+        if (!this.isStudentContext(context)) {
+            return this.buildWorkforceActionChipsWidget(context);
+        }
+
+        return this.buildStudentActionChipsWidget(context, userMessage);
+    }
+
+    dedupeWidgets(widgets = []) {
+        const dedupedWidgets = [];
+        const seen = new Set();
+        widgets.forEach((widget, index) => {
+            if (!widget || typeof widget !== 'object') return;
+            const widgetId = widget.id || `${widget.type || 'widget'}-${index}`;
+            if (seen.has(widgetId)) return;
+            seen.add(widgetId);
+            dedupedWidgets.push(widget);
+        });
+        return dedupedWidgets.slice(0, 8);
+    }
+
+    buildWorkforceResponseWidgets(userMessage = '', context = {}) {
+        const text = String(userMessage || '').toLowerCase();
+        const widgets = [];
+        const needsVisualization = this.wantsStructuredVisualization(text);
+        const needsStudyPlan = this.wantsStudyPlan(text);
+        const needsCapabilities = this.wantsCapabilitiesOverview(text);
+        const needsActionableFlow = /(help me|bantu|next|lanjut|action|what should i do|apa yang harus|daily)/i.test(text);
+        const asksWorkSnapshot = /(mtss|tier|assignment|task|progress|dashboard|mentor|support)/i.test(text);
+
+        if (needsVisualization || asksWorkSnapshot) {
+            widgets.push(...this.buildWorkforceVisualizationWidgets(context));
+        }
+
+        if (needsStudyPlan) {
+            widgets.push(...this.buildStudyPlanWidgets(context));
+        }
+
+        if (needsCapabilities) {
+            widgets.push(...this.buildAssistantCapabilityWidgets(context));
+        }
+
+        if (needsVisualization || needsStudyPlan || needsCapabilities || needsActionableFlow || asksWorkSnapshot) {
+            widgets.push(this.buildWorkforceActionChipsWidget(context));
+        }
+
+        return this.dedupeWidgets(widgets);
+    }
+
+    buildResponseWidgets(userMessage = '', context = {}) {
+        if (!this.isStudentContext(context)) {
+            return this.buildWorkforceResponseWidgets(userMessage, context);
+        }
+
+        const text = String(userMessage || '').toLowerCase();
+        const widgets = [];
+        const needsVisualization = this.wantsStructuredVisualization(text);
+        const needsStudyPlan = this.wantsStudyPlan(text);
+        const needsCapabilities = this.wantsCapabilitiesOverview(text);
+        const needsActionableFlow = /(help me|bantu|next|lanjut|action|what should i do|apa yang harus|daily)/i.test(text);
+        const asksMtssSnapshot = this.isMtssQuestion(text) || /(subject|mata pelajaran|tier|support|intervention|assignment|task|progress|mtss)/i.test(text);
+        const asksClassroomSnapshot = this.isClassroomQuestion(text) || /(teacher|guru|class|kelas|homeroom|wali kelas)/i.test(text);
+
+        if (needsVisualization && (asksMtssSnapshot || !asksClassroomSnapshot)) {
+            widgets.push(...this.buildMtssVisualizationWidgets(context));
+        }
+
+        if (needsVisualization && asksClassroomSnapshot) {
+            widgets.push(...this.buildClassroomVisualizationWidgets(context));
+        }
+
+        if (!needsVisualization && asksMtssSnapshot) {
+            widgets.push(...this.buildMtssVisualizationWidgets(context).filter((widget) => widget.type === 'stats').slice(0, 1));
+        }
+
+        if (!needsVisualization && asksClassroomSnapshot) {
+            widgets.push(...this.buildClassroomVisualizationWidgets(context).slice(0, 1));
+        }
+
+        if (needsStudyPlan) {
+            widgets.push(...this.buildStudyPlanWidgets(context));
+        }
+
+        if (needsCapabilities) {
+            widgets.push(...this.buildAssistantCapabilityWidgets(context));
+        }
+
+        if (needsVisualization || needsStudyPlan || needsCapabilities || needsActionableFlow) {
+            widgets.push(this.buildActionChipsWidget(context, userMessage));
+        }
+
+        return this.dedupeWidgets(widgets);
+    }
+
+    buildVisualizationReadyReply(context = {}) {
+        const preferredName = context?.student?.preferredName || context?.student?.name || 'there';
+        const mtss = context?.mtss || {};
+        const tierLabel = mtss.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded';
+        const openTaskCount = Array.isArray(mtss.openTasks) ? mtss.openTasks.length : 0;
+        const activeAssignmentCount = Number(mtss.activeAssignmentCount || 0);
+        const workforce = context?.workforce || {};
+
+        if (!this.isStudentContext(context)) {
+            return `Absolutely, ${preferredName}. I generated visual cards from your latest workforce records below.
+Quick snapshot: ${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}, ${activeAssignmentCount} active assignment(s), and ${openTaskCount} open task(s).`;
+        }
+
+        return `Absolutely, ${preferredName}. I generated visual cards from your latest records below.
+Quick snapshot: current MTSS tier ${tierLabel}, ${activeAssignmentCount} active assignment(s), and ${openTaskCount} open MTSS task(s).`;
+    }
+
+    buildCapabilitiesReadyReply(context = {}) {
+        const preferredName = context?.student?.preferredName || context?.student?.name || 'there';
+        const mtss = context?.mtss || {};
+        const classroom = context?.classroom || {};
+        const teacherCount = Number(classroom.teacherCount || 0);
+        const openTaskCount = Array.isArray(mtss.openTasks) ? mtss.openTasks.length : 0;
+        const workforce = context?.workforce || {};
+
+        if (!this.isStudentContext(context)) {
+            return `Absolutely, ${preferredName}. I can support you as a full personal workforce assistant, not only chat.
+I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, and trigger quick navigation actions for role-specific workflows. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
+        }
+
+        return `Absolutely, ${preferredName}. I can support you as a full personal school assistant, not only chat.
+I can read your latest records, generate visual insights, build adaptive study timelines, produce actionable checklists, and trigger quick navigation actions for key student workflows. Right now I can already use your MTSS/task snapshot (${openTaskCount} open task(s)) and your classroom mapping (${teacherCount} linked teacher(s)) to give concrete, personalized guidance.`;
+    }
+
     buildGroundedGeneralReply(context, userMessage = '') {
         const preferredName = context?.student?.preferredName || context?.student?.name || 'Student';
         const classroom = context?.classroom || {};
@@ -437,6 +1334,23 @@ class AIChatService {
             ? `You currently have ${openTasks.length} active MTSS task(s): ${openTasks.slice(0, 3).join('; ')}.`
             : 'You currently have no active MTSS tasks recorded.';
 
+        if (!this.isStudentContext(context)) {
+            const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(context?.actor?.role || '');
+            const department = context?.actor?.department || context?.workforce?.department || 'not recorded';
+            const unit = context?.actor?.unit || context?.workforce?.unit || 'not recorded';
+            const activeAssignments = Number(context?.workforce?.activeMentorAssignments || mtss.activeAssignmentCount || 0);
+            const taskLineWorkforce = openTasks.length
+                ? `You currently have ${openTasks.length} open task(s): ${openTasks.slice(0, 3).join('; ')}.`
+                : 'You currently have no open tasks recorded from your current assignment snapshot.';
+
+            return `Hi ${preferredName}! I can help using your current workforce records.
+Role: ${roleLabel || 'Workforce'} | Department: ${department} | Unit: ${unit}
+Active assignment snapshot: ${activeAssignments}.
+${taskLineWorkforce}
+
+Tell me your exact next request (for example: "open support hub", "show my assignment tiers", "build my work plan", or "open MTSS dashboard"), and I will execute it concretely.`;
+        }
+
         return `Hi ${preferredName}! I can help using your current school records.
 Class: ${className} | Grade: ${grade}
 Current MTSS tier snapshot: ${tierLabel}.
@@ -452,6 +1366,24 @@ Tell me exactly what you want next (for example: "show all my teachers", "make a
         const interventions = Array.isArray(mtss.interventions) ? mtss.interventions : [];
         const assignments = Array.isArray(mtss.assignments) ? mtss.assignments : [];
         const openTasks = Array.isArray(mtss.openTasks) ? mtss.openTasks : [];
+
+        if (!this.isStudentContext(context)) {
+            const activeAssignments = assignments.filter((entry) => entry.status === 'active');
+            const assignmentLines = activeAssignments.length
+                ? activeAssignments.map((entry) => `- ${entry.tier}: ${(entry.focusAreas || []).join(', ') || entry.strategyName || 'General support'} (${entry.status})`).join('\n')
+                : '- No active assignments right now.';
+            const taskLines = openTasks.length
+                ? openTasks.map((task) => `- ${task}`).join('\n')
+                : '- No open tasks recorded right now.';
+
+            return `Hi ${preferredName}! I checked your current workforce MTSS/assignment snapshot.
+
+Active assignments:
+${assignmentLines}
+
+Open tasks:
+${taskLines}`;
+        }
 
         if (!mtss.hasProfile) {
             return `Hi ${preferredName}! I checked your current MTSS records and I cannot find an MTSS profile yet. Please ask your teacher or MTSS admin to create/update your MTSS profile first.`;
@@ -492,84 +1424,212 @@ ${mentorLines}`;
         return /probably have|you could ask|ask your parents|ask your friends|might know|check your school information|check your school portal/i.test(value);
     }
 
+    getAllowedNavigationRoutes(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        const routes = new Set([
+            '/profile',
+            '/profile/personal-stats',
+            '/profile/emotional-history',
+            '/profile/emotional-patterns',
+            '/ai-assistant'
+        ]);
+
+        if (this.isStudentRole(normalizedRole)) {
+            [
+                '/student/support-hub',
+                '/student/emotional-checkin',
+                '/student/emotional-checkin/manual',
+                '/student/emotional-checkin/ai',
+                '/student/emotional-checkin/face-scan',
+                '/student/ai-chat',
+                '/mtss/student-portal'
+            ].forEach((entry) => routes.add(entry));
+            return routes;
+        }
+
+        [
+            '/support-hub',
+            '/emotional-checkin/staff',
+            '/emotional-checkin',
+            '/mtss',
+            '/select-role'
+        ].forEach((entry) => routes.add(entry));
+
+        if (['teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
+            routes.add('/emotional-checkin/teacher-dashboard');
+            routes.add('/mtss/teacher');
+        }
+
+        if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
+            routes.add('/emotional-checkin/dashboard');
+            routes.add('/emotional-checkin/not-submitted');
+        }
+
+        if (['admin', 'superadmin', 'directorate'].includes(normalizedRole)) {
+            routes.add('/mtss/admin');
+            routes.add('/user-management');
+        }
+
+        return routes;
+    }
+
+    isAllowedNavigationRoute(path = '', role = '') {
+        const target = String(path || '').trim();
+        return this.getAllowedNavigationRoutes(role).has(target);
+    }
+
+    buildNavigateAction(intent, navigateTo, label, confidence = 0.9, role = '') {
+        if (!this.isAllowedNavigationRoute(navigateTo, role)) return null;
+        return {
+            type: 'navigate',
+            intent,
+            navigateTo,
+            label,
+            autoNavigate: true,
+            confidence
+        };
+    }
+
     detectClientAction(userMessage = '', context = {}) {
         const text = String(userMessage || '').toLowerCase().trim();
         if (!text) return null;
+        const role = this.normalizeRole(context?.actor?.role || context?.student?.role || '');
+        const isStudent = this.isStudentRole(role);
 
-        const wantsNavigation = /(bantu.*ke halaman|tolong.*ke halaman|pindah(kan)? ke|arahin|arahkan|redirect|go to|open|navigate|buka(\s+halaman)?|masuk ke)/i.test(text);
-        const wantsActionHelp = /(bantu(in)?|tolong|help me|could you|can you|please)/i.test(text);
-        const mentionsCheckin = /(emotional\s*check[\s-]?in|check[\s-]?in|chekcin|chekin|checkin|check in)/i.test(text);
-        const mentionsManual = /(manual|tulis manual|manual check[\s-]?in)/i.test(text);
-        const mentionsFaceScan = /(face scan|scan wajah|analisis wajah|kamera|camera|selfie|\/student\/emotional-checkin\/face-scan)/i.test(text);
-        const mentionsAI = /(ai analysis|ai check[\s-]?in|analisis ai|ai analisis|\/student\/emotional-checkin\/ai)/i.test(text) || mentionsFaceScan;
-        const mentionsSupportHub = /(support hub|halaman support|student support|wellbeing activity)/i.test(text);
-        const mentionsEmotional = /(emotional|emosi|wellbeing|check[\s-]?in)/i.test(text);
-        const mentionsPortal = /(student portal|portal student|mtss portal)/i.test(text);
+        const wantsNavigation = /(bawa(kan)?|antar(kan)?|mau ke|ingin ke|ke halaman|pindah(kan)?|arahin|arahkan|redirect|go to|open|navigate|buka(\s+halaman)?|masuk ke|take me|bring me|visit|show me)/i.test(text);
+        const wantsActionHelp = /(bantu(in)?|tolong|help me|could you|can you|please|dong|donk|plz)/i.test(text);
+        const hasDirectRouteMention = /\/(?:student|profile|mtss|support|emotional-checkin|ai-assistant|user-management)\//i.test(text);
+        const navigationContext = wantsNavigation || wantsActionHelp || hasDirectRouteMention;
+        if (!navigationContext) return null;
 
-        if ((wantsNavigation || wantsActionHelp) && mentionsManual && mentionsCheckin) {
-            return {
-                type: 'navigate',
-                intent: 'open_manual_emotional_checkin',
-                navigateTo: '/student/emotional-checkin/manual',
-                label: 'Manual Emotional Check-in',
-                autoNavigate: true,
-                confidence: 0.99
-            };
+        const mentionsProfileStats = /(personal stats|statistik personal|my stats|halaman stats|statistik saya)/i.test(text);
+        const mentionsProfileHistory = /(emotional history|riwayat emosi|history emosi|riwayat check[\s-]?in|histori emosi)/i.test(text);
+        const mentionsProfileInsights = /(emotional patterns?|emotion insights?|insight emosi|pola emosi|trend emosi|tren emosi)/i.test(text);
+        const mentionsProfile = /(halaman\s+profile|halaman\s+profil|my profile|profile page|profile|profil|akun saya|account settings|pengaturan akun|settings profile|setting profile)/i.test(text);
+        const mentionsAssistantPage = /(ai assistant|assistant chat|chat ai|jarvis|ai chat|open assistant|buka assistant|personal assistant)/i.test(text);
+
+        if (mentionsAssistantPage) {
+            return this.buildNavigateAction(
+                'open_ai_assistant',
+                isStudent ? '/student/ai-chat' : '/ai-assistant',
+                'AI Assistant',
+                0.99,
+                role
+            );
         }
 
-        if ((wantsNavigation || wantsActionHelp) && mentionsFaceScan) {
-            return {
-                type: 'navigate',
-                intent: 'open_face_scan_emotional_checkin',
-                navigateTo: '/student/emotional-checkin/face-scan',
-                label: 'Face Scan Emotional Check-in',
-                autoNavigate: true,
-                confidence: 0.985
-            };
+        if (mentionsProfileStats) {
+            return this.buildNavigateAction('open_profile_personal_stats', '/profile/personal-stats', 'Personal Stats', 0.99, role);
         }
 
-        if ((wantsNavigation || wantsActionHelp) && mentionsAI && (mentionsEmotional || /check[\s-]?in|scan|face|wajah|mood|emosi|emotion/i.test(text))) {
-            return {
-                type: 'navigate',
-                intent: 'open_ai_emotional_checkin',
-                navigateTo: '/student/emotional-checkin/ai',
-                label: 'AI Emotional Check-in',
-                autoNavigate: true,
-                confidence: 0.98
-            };
+        if (mentionsProfileHistory) {
+            return this.buildNavigateAction('open_profile_emotional_history', '/profile/emotional-history', 'Emotional History', 0.99, role);
         }
 
-        if (wantsNavigation && mentionsEmotional) {
-            return {
-                type: 'navigate',
-                intent: 'open_emotional_checkin_home',
-                navigateTo: '/student/emotional-checkin',
-                label: 'Emotional Check-in',
-                autoNavigate: true,
-                confidence: 0.96
-            };
+        if (mentionsProfileInsights) {
+            return this.buildNavigateAction('open_profile_emotional_patterns', '/profile/emotional-patterns', 'Emotional Insights', 0.99, role);
         }
 
-        if ((wantsNavigation || wantsActionHelp) && mentionsSupportHub) {
-            return {
-                type: 'navigate',
-                intent: 'open_student_support_hub',
-                navigateTo: '/student/support-hub',
-                label: 'Student Support Hub',
-                autoNavigate: true,
-                confidence: 0.94
-            };
+        if (mentionsProfile) {
+            return this.buildNavigateAction('open_profile', '/profile', 'Profile', 0.985, role);
         }
 
-        if ((wantsNavigation || wantsActionHelp) && mentionsPortal) {
-            return {
-                type: 'navigate',
-                intent: 'open_mtss_student_portal',
-                navigateTo: '/mtss/student-portal',
-                label: 'MTSS Student Portal',
-                autoNavigate: true,
-                confidence: 0.9
-            };
+        if (isStudent) {
+            const mentionsCheckin = /(emotional\s*check[\s-]?in|check[\s-]?in|chekcin|chekin|checkin|check in|cek emosi|wellbeing)/i.test(text);
+            const mentionsManual = /(manual|tulis manual|manual check[\s-]?in)/i.test(text);
+            const mentionsFaceScan = /(face scan|scan wajah|analisis wajah|kamera|camera|selfie|\/student\/emotional-checkin\/face-scan)/i.test(text);
+            const mentionsAI = /(ai analysis|ai check[\s-]?in|analisis ai|ai analisis|\/student\/emotional-checkin\/ai|emotion ai)/i.test(text) || mentionsFaceScan;
+            const mentionsSupportHub = /(support hub|halaman support|student support|wellbeing activity|hub support)/i.test(text);
+            const mentionsPortal = /(student portal|portal student|mtss portal|portal mtss)/i.test(text);
+            const mentionsAIChat = /(ai chat|chat ai|jarvis|asisten ai|assistant chat|\/student\/ai-chat)/i.test(text);
+
+            if (mentionsManual && mentionsCheckin) {
+                return this.buildNavigateAction('open_manual_emotional_checkin', '/student/emotional-checkin/manual', 'Manual Emotional Check-in', 0.99, role);
+            }
+
+            if (mentionsFaceScan) {
+                return this.buildNavigateAction('open_face_scan_emotional_checkin', '/student/emotional-checkin/face-scan', 'Face Scan Emotional Check-in', 0.985, role);
+            }
+
+            if (mentionsAI && (mentionsCheckin || /scan|face|wajah|mood|emosi|emotion/i.test(text))) {
+                return this.buildNavigateAction('open_ai_emotional_checkin', '/student/emotional-checkin/ai', 'AI Emotional Check-in', 0.98, role);
+            }
+
+            if (mentionsAIChat) {
+                return this.buildNavigateAction('open_student_ai_chat', '/student/ai-chat', 'AI Chat', 0.975, role);
+            }
+
+            if (mentionsSupportHub) {
+                return this.buildNavigateAction('open_student_support_hub', '/student/support-hub', 'Student Support Hub', 0.97, role);
+            }
+
+            if (mentionsCheckin) {
+                return this.buildNavigateAction('open_emotional_checkin_home', '/student/emotional-checkin', 'Emotional Check-in', 0.96, role);
+            }
+
+            if (mentionsPortal) {
+                return this.buildNavigateAction('open_mtss_student_portal', '/mtss/student-portal', 'MTSS Student Portal', 0.93, role);
+            }
+
+            const routedIntent = assistantOrchestrator.detectIntent(text);
+            if (routedIntent?.type === 'navigate' && this.isAllowedNavigationRoute(routedIntent.navigateTo, role)) {
+                return routedIntent;
+            }
+
+            return null;
+        }
+
+        const mentionsSupportHub = /(support hub|halaman support|wellbeing activity|hub support)/i.test(text);
+        const mentionsCheckin = /(emotional\s*check[\s-]?in|check[\s-]?in|checkin|check in|cek emosi|wellbeing)/i.test(text);
+        const mentionsTeacherDashboard = /(teacher dashboard|dashboard teacher|mentor dashboard)/i.test(text);
+        const mentionsDashboard = /(dashboard|unit dashboard|emotional dashboard)/i.test(text);
+        const mentionsMtss = /(mtss|mentor assignment|intervention dashboard|portal mtss)/i.test(text);
+        const mentionsRoleSelection = /(role selection|select role|pilih role|pilih peran)/i.test(text);
+        const mentionsUserManagement = /(user management|manage users|manajemen user|kelola user)/i.test(text);
+
+        if (mentionsSupportHub) {
+            return this.buildNavigateAction('open_support_hub', '/support-hub', 'Support Hub', 0.98, role);
+        }
+
+        if (mentionsCheckin) {
+            return this.buildNavigateAction('open_staff_emotional_checkin', '/emotional-checkin/staff', 'Emotional Check-in', 0.98, role);
+        }
+
+        if (mentionsTeacherDashboard) {
+            return this.buildNavigateAction('open_teacher_dashboard', '/emotional-checkin/teacher-dashboard', 'Teacher Dashboard', 0.97, role);
+        }
+
+        if (mentionsDashboard) {
+            if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+                return this.buildNavigateAction('open_emotional_dashboard', '/emotional-checkin/dashboard', 'Emotional Dashboard', 0.97, role);
+            }
+            return this.buildNavigateAction('open_teacher_dashboard', '/emotional-checkin/teacher-dashboard', 'Teacher Dashboard', 0.95, role);
+        }
+
+        if (mentionsMtss) {
+            if (['admin', 'superadmin', 'directorate'].includes(role) && /(admin|lead|manage|kelola)/i.test(text)) {
+                return this.buildNavigateAction('open_mtss_admin_dashboard', '/mtss/admin', 'MTSS Admin Dashboard', 0.95, role);
+            }
+            if (['teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+                return this.buildNavigateAction('open_mtss_teacher_dashboard', '/mtss/teacher', 'MTSS Teacher Dashboard', 0.95, role);
+            }
+            return this.buildNavigateAction('open_mtss_role_selection', '/mtss', 'MTSS', 0.93, role);
+        }
+
+        if (mentionsRoleSelection) {
+            return this.buildNavigateAction('open_role_selection', '/select-role', 'Role Selection', 0.93, role);
+        }
+
+        if (mentionsUserManagement) {
+            return this.buildNavigateAction('open_user_management', '/user-management', 'User Management', 0.92, role);
+        }
+
+        const directRouteMatch = text.match(/\/[a-z0-9/_-]+/i);
+        if (directRouteMatch) {
+            const directRoute = String(directRouteMatch[0] || '').trim();
+            if (this.isAllowedNavigationRoute(directRoute, role)) {
+                return this.buildNavigateAction('open_direct_route', directRoute, 'Requested Page', 0.95, role);
+            }
         }
 
         return null;
@@ -578,7 +1638,10 @@ ${mentorLines}`;
     buildNavigationConfirmationMessage(action = {}, context = {}) {
         const preferredName = context?.student?.preferredName || context?.student?.name || 'there';
         const targetLabel = action?.label || 'that page';
-        return `Absolutely, ${preferredName}. I’m opening ${targetLabel} for you now so you can continue right away.`;
+        const workspaceLabel = this.isStudentContext(context)
+            ? 'student workspace'
+            : `${context?.actor?.roleLabel || 'workforce'} workspace`;
+        return `Absolutely, ${preferredName}. Opening ${targetLabel} now and keeping you inside your ${workspaceLabel}.`;
     }
 
     normalizeValue(value = '') {
@@ -1028,6 +2091,18 @@ ${mentorLines}`;
         const grade = classroom.grade || context?.student?.grade || 'not recorded';
         const teachers = Array.isArray(classroom.teachers) ? classroom.teachers : [];
 
+        if (!this.isStudentContext(context)) {
+            const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(context?.actor?.role || '');
+            const department = context?.actor?.department || context?.workforce?.department || 'not recorded';
+            const unit = context?.actor?.unit || context?.workforce?.unit || 'not recorded';
+            return `Hi ${preferredName}! You are currently in workforce scope.
+Role: ${roleLabel}
+Department: ${department}
+Unit: ${unit}
+
+Classroom teacher mapping is not part of your current user scope, but I can show your assignment/workflow dashboard next.`;
+        }
+
         if (!teachers.length) {
             return `Hi ${preferredName}! I checked your class records. Your class is ${className} and your grade is ${grade}. Teacher assignments are not recorded in the current class records yet.`;
         }
@@ -1047,12 +2122,24 @@ ${teacherLines}`;
     /**
      * Build personalized context for student
      */
-    async buildStudentContext(userId) {
+    async buildStudentContext(userId, options = {}) {
+        const { forceRefresh = false, user: providedUser = null } = options;
+        if (!forceRefresh) {
+            const cached = this.getCachedContext(userId);
+            if (cached && this.isStudentContext(cached)) {
+                return cached;
+            }
+        }
+
         try {
             // 1. Get user info
-            const user = await this.resolveUserProfile(userId);
+            const user = providedUser || await this.resolveUserProfile(userId);
             if (!user) {
                 throw new Error('User not found');
+            }
+
+            if (!this.isStudentRole(user.role)) {
+                return this.buildWorkforceContext(userId, { ...options, user });
             }
 
             const fullName = String(user.name || '').trim();
@@ -1069,15 +2156,36 @@ ${teacherLines}`;
             let assignmentSnapshot = [];
             let openTasks = [];
 
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const recentCheckInsPromise = StudentEmotionalCheckin.find({
+                userId,
+                date: { $gte: sevenDaysAgo }
+            })
+                .sort({ date: -1 })
+                .limit(5)
+                .select('date weatherType selectedMoods presenceLevel capacityLevel aiAnalysis')
+                .lean();
+
             try {
-                // Try to find MTSS student by matching name or email
-                mtssProfile = await MTSSStudent.findOne({
-                    $or: [
-                        { email: user.email },
-                        { name: { $regex: new RegExp(fullName || preferredName, 'i') } }
-                    ],
-                    status: 'active'
-                }).lean();
+                if (user.email) {
+                    mtssProfile = await MTSSStudent.findOne({
+                        email: user.email,
+                        status: 'active'
+                    })
+                        .select('name email currentGrade className interventions status tier type')
+                        .lean();
+                }
+
+                if (!mtssProfile && (fullName || preferredName)) {
+                    const escapedName = String(fullName || preferredName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    mtssProfile = await MTSSStudent.findOne({
+                        name: { $regex: new RegExp(escapedName, 'i') },
+                        status: 'active'
+                    })
+                        .select('name email currentGrade className interventions status tier type')
+                        .lean();
+                }
 
                 if (mtssProfile) {
                     normalizedInterventions = this.normalizeInterventions(mtssProfile.interventions);
@@ -1092,8 +2200,8 @@ ${teacherLines}`;
                         studentIds: mtssProfile._id,
                         status: { $in: ['active', 'paused'] }
                     })
+                        .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId')
                         .populate('mentorId', 'name username nickname gender email role')
-                        .populate('strategyId', 'title description')
                         .lean();
 
                     assignmentSnapshot = this.buildAssignmentSnapshot(mentorAssignments);
@@ -1104,18 +2212,7 @@ ${teacherLines}`;
             }
 
             const classroom = await this.buildClassroomContext(user, mentorAssignments);
-
-            // 3. Get recent emotional check-ins (last 7 days)
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-            const recentCheckIns = await StudentEmotionalCheckin.find({
-                userId: userId,
-                date: { $gte: sevenDaysAgo }
-            })
-                .sort({ date: -1 })
-                .limit(5)
-                .lean();
+            const recentCheckIns = await recentCheckInsPromise;
 
             // 4. Analyze emotional patterns
             const emotionalSummary = this.analyzeEmotionalPatterns(recentCheckIns);
@@ -1136,6 +2233,12 @@ ${teacherLines}`;
                     role: user.role,
                     email: user.email,
                     userId: userId.toString()
+                },
+                actor: {
+                    kind: 'student',
+                    role: this.normalizeRole(user.role) || 'student',
+                    roleLabel: 'Student',
+                    scope: 'student'
                 },
                 mtss: {
                     hasProfile: !!mtssProfile,
@@ -1162,34 +2265,7 @@ ${teacherLines}`;
                     focusAreas: this.extractFocusAreas(mentorAssignments)
                 },
                 classroom,
-                assistant: {
-                    assistantName: this.getDefaultAssistantName(userId),
-                    communicationStyle: {
-                        tone: 'friendly',
-                        responseLength: 'balanced',
-                        explanationStyle: 'mixed',
-                        emojiLevel: 'medium'
-                    },
-                    habits: {
-                        preferredStudyTime: null,
-                        checkInFrequency: 'daily',
-                        focusSessionMinutes: 25
-                    },
-                    preferences: {
-                        language: 'English',
-                        motivationalStyle: 'mixed'
-                    },
-                    memoryHighlights: {
-                        interests: [],
-                        goals: [],
-                        challenges: [],
-                        strengths: []
-                    },
-                    daily: {
-                        focusItems: [],
-                        quickActions: []
-                    }
-                },
+                assistant: this.buildDefaultAssistantRuntime(userId),
                 emotional: {
                     recentCheckIns: recentCheckIns.length,
                     summary: emotionalSummary,
@@ -1201,13 +2277,15 @@ ${teacherLines}`;
                         capacityLevel: recentCheckIns[0].capacityLevel,
                         aiAnalysis: recentCheckIns[0].aiAnalysis
                     } : null
-                }
+                },
+                scope: 'student'
             };
 
+            this.setCachedContext(userId, context);
             return context;
         } catch (error) {
             console.error('Error building student context:', error);
-            return {
+            const fallbackContext = {
                 student: {
                     name: 'Student',
                     preferredName: 'Student',
@@ -1217,6 +2295,12 @@ ${teacherLines}`;
                     role: 'student',
                     email: null,
                     userId: userId.toString()
+                },
+                actor: {
+                    kind: 'student',
+                    role: 'student',
+                    roleLabel: 'Student',
+                    scope: 'student'
                 },
                 mtss: {
                     hasProfile: false,
@@ -1240,37 +2324,255 @@ ${teacherLines}`;
                     seTeachers: [],
                     gradeTeachers: []
                 },
-                assistant: {
-                    assistantName: this.getDefaultAssistantName(userId),
-                    communicationStyle: {
-                        tone: 'friendly',
-                        responseLength: 'balanced',
-                        explanationStyle: 'mixed',
-                        emojiLevel: 'medium'
+                assistant: this.buildDefaultAssistantRuntime(userId),
+                emotional: {
+                    recentCheckIns: 0,
+                    summary: {
+                        trend: 'no_data',
+                        averagePresence: 0,
+                        averageCapacity: 0,
+                        commonMoods: [],
+                        commonWeather: []
                     },
-                    habits: {
-                        preferredStudyTime: null,
-                        checkInFrequency: 'daily',
-                        focusSessionMinutes: 25
-                    },
-                    preferences: {
-                        language: 'English',
-                        motivationalStyle: 'mixed'
-                    },
-                    memoryHighlights: {
-                        interests: [],
-                        goals: [],
-                        challenges: [],
-                        strengths: []
-                    },
-                    daily: {
-                        focusItems: [],
-                        quickActions: []
-                    }
+                    lastCheckIn: null
                 },
-                emotional: { recentCheckIns: 0, summary: {} }
+                scope: 'student'
+            };
+
+            return fallbackContext;
+        }
+    }
+
+    async buildWorkforceContext(userId, options = {}) {
+        const { forceRefresh = false, user: providedUser = null } = options;
+        if (!forceRefresh) {
+            const cached = this.getCachedContext(userId);
+            if (cached && !this.isStudentContext(cached)) {
+                return cached;
+            }
+        }
+
+        try {
+            const user = providedUser || await this.resolveUserProfile(userId);
+            if (!user) {
+                throw new Error('User not found');
+            }
+
+            if (this.isStudentRole(user.role)) {
+                return this.buildStudentContext(userId, { ...options, user, forceRefresh });
+            }
+
+            const normalizedRole = this.normalizeRole(user.role) || 'staff';
+            const roleLabel = this.getWorkforceRoleLabel(normalizedRole);
+            const fullName = String(user.name || '').trim();
+            const nickname = String(user.nickname || user.username || '').trim();
+            const preferredName = nickname || fullName || 'Team member';
+
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const recentCheckInsPromise = EmotionalCheckin.find({
+                userId,
+                date: { $gte: sevenDaysAgo }
+            })
+                .sort({ date: -1 })
+                .limit(5)
+                .select('date weatherType selectedMoods presenceLevel capacityLevel aiAnalysis')
+                .lean();
+
+            const isMentorRole = ['teacher', 'se_teacher', 'head_unit'].includes(normalizedRole);
+            const mentorAssignmentsPromise = isMentorRole
+                ? MentorAssignment.find({
+                    mentorId: userId,
+                    status: { $in: ['active', 'paused'] }
+                })
+                    .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId studentIds')
+                    .populate('mentorId', 'name username nickname gender email role')
+                    .lean()
+                : Promise.resolve([]);
+
+            const [recentCheckIns, mentorAssignments] = await Promise.all([
+                recentCheckInsPromise,
+                mentorAssignmentsPromise
+            ]);
+
+            const assignmentSnapshot = this.buildAssignmentSnapshot(mentorAssignments);
+            const openTasks = this.buildMtssActionItems(assignmentSnapshot);
+            const focusAreas = this.extractFocusAreas(mentorAssignments);
+            const emotionalSummary = this.analyzeEmotionalPatterns(recentCheckIns);
+            const currentTier = this.getCurrentTier(
+                assignmentSnapshot.map((assignment) => ({ tier: assignment.tierCode }))
+            );
+
+            const uniqueStudentIds = new Set();
+            mentorAssignments.forEach((assignment = {}) => {
+                const studentIds = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+                studentIds.forEach((entry) => {
+                    const key = String(entry?._id || entry || '').trim();
+                    if (key) uniqueStudentIds.add(key);
+                });
+            });
+            const uniqueStudentCount = uniqueStudentIds.size;
+
+            const flaggedSelfCheckins = recentCheckIns.filter((entry = {}) => Boolean(entry?.aiAnalysis?.needsSupport)).length;
+            const assignmentsByTier = assignmentSnapshot.reduce((acc, assignment = {}) => {
+                const tierCode = String(assignment.tierCode || 'tier1').toLowerCase();
+                acc[tierCode] = Number(acc[tierCode] || 0) + 1;
+                return acc;
+            }, {});
+
+            const context = {
+                student: {
+                    name: fullName || preferredName,
+                    preferredName,
+                    nickname: nickname || null,
+                    grade: user.jobPosition || roleLabel,
+                    className: user.unit || user.department || null,
+                    role: normalizedRole,
+                    email: user.email || null,
+                    userId: userId.toString()
+                },
+                actor: {
+                    kind: 'workforce',
+                    role: normalizedRole,
+                    roleLabel,
+                    scope: 'workforce',
+                    department: user.department || null,
+                    unit: user.unit || null,
+                    jobPosition: user.jobPosition || null
+                },
+                mtss: {
+                    hasProfile: assignmentSnapshot.length > 0,
+                    currentTier,
+                    interventions: [],
+                    activeInterventions: [],
+                    assignments: assignmentSnapshot,
+                    openTasks,
+                    assignmentCount: assignmentSnapshot.length,
+                    activeAssignmentCount: assignmentSnapshot.filter((assignment) => assignment.status === 'active').length,
+                    mentors: [],
+                    focusAreas
+                },
+                classroom: {
+                    className: user.unit || user.department || null,
+                    shortClassName: user.unit || user.department || null,
+                    grade: roleLabel,
+                    teachers: [],
+                    teacherCount: 0,
+                    homeroomTeachers: [],
+                    seTeachers: [],
+                    gradeTeachers: []
+                },
+                workforce: {
+                    roleLabel,
+                    department: user.department || null,
+                    unit: user.unit || null,
+                    jobPosition: user.jobPosition || null,
+                    activeMentorAssignments: assignmentSnapshot.filter((assignment) => assignment.status === 'active').length,
+                    totalMentoredStudents: uniqueStudentCount,
+                    flaggedSelfCheckins,
+                    assignmentsByTier
+                },
+                assistant: this.buildDefaultAssistantRuntime(userId),
+                emotional: {
+                    recentCheckIns: recentCheckIns.length,
+                    summary: emotionalSummary,
+                    lastCheckIn: recentCheckIns[0] ? {
+                        date: recentCheckIns[0].date,
+                        weatherType: recentCheckIns[0].weatherType,
+                        moods: recentCheckIns[0].selectedMoods,
+                        presenceLevel: recentCheckIns[0].presenceLevel,
+                        capacityLevel: recentCheckIns[0].capacityLevel,
+                        aiAnalysis: recentCheckIns[0].aiAnalysis
+                    } : null
+                },
+                scope: 'workforce'
+            };
+
+            this.setCachedContext(userId, context);
+            return context;
+        } catch (error) {
+            console.error('Error building workforce context:', error);
+            return {
+                student: {
+                    name: 'Team member',
+                    preferredName: 'Team member',
+                    nickname: null,
+                    grade: 'Workforce',
+                    className: null,
+                    role: 'staff',
+                    email: null,
+                    userId: userId.toString()
+                },
+                actor: {
+                    kind: 'workforce',
+                    role: 'staff',
+                    roleLabel: 'Staff',
+                    scope: 'workforce',
+                    department: null,
+                    unit: null,
+                    jobPosition: null
+                },
+                mtss: {
+                    hasProfile: false,
+                    currentTier: null,
+                    interventions: [],
+                    activeInterventions: [],
+                    assignments: [],
+                    openTasks: [],
+                    assignmentCount: 0,
+                    activeAssignmentCount: 0,
+                    mentors: [],
+                    focusAreas: []
+                },
+                classroom: {
+                    className: null,
+                    shortClassName: null,
+                    grade: null,
+                    teachers: [],
+                    teacherCount: 0,
+                    homeroomTeachers: [],
+                    seTeachers: [],
+                    gradeTeachers: []
+                },
+                workforce: {
+                    roleLabel: 'Staff',
+                    department: null,
+                    unit: null,
+                    jobPosition: null,
+                    activeMentorAssignments: 0,
+                    totalMentoredStudents: 0,
+                    flaggedSelfCheckins: 0,
+                    assignmentsByTier: {}
+                },
+                assistant: this.buildDefaultAssistantRuntime(userId),
+                emotional: {
+                    recentCheckIns: 0,
+                    summary: {
+                        trend: 'no_data',
+                        averagePresence: 0,
+                        averageCapacity: 0,
+                        commonMoods: [],
+                        commonWeather: []
+                    },
+                    lastCheckIn: null
+                },
+                scope: 'workforce'
             };
         }
+    }
+
+    async buildUserContext(userId, options = {}) {
+        const user = options.user || await this.resolveUserProfile(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (this.isStudentRole(user.role)) {
+            return this.buildStudentContext(userId, { ...options, user });
+        }
+
+        return this.buildWorkforceContext(userId, { ...options, user });
     }
 
     /**
@@ -1413,7 +2715,36 @@ ${teacherLines}`;
         return Array.from(areas);
     }
 
-    buildModelOptionsFromAssistant(assistant = {}) {
+    parseModelList(value = '') {
+        return String(value || '')
+            .split(',')
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+    }
+
+    resolveRoleBasedModelConfig(context = {}) {
+        const legacyPrimary = process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview:free';
+        const studentPrimary = process.env.OPENROUTER_MODEL_STUDENT || legacyPrimary;
+        const workforcePrimary = process.env.OPENROUTER_MODEL_WORKFORCE || 'stepfun/step-3.5-flash:free';
+        const studentFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_STUDENT || process.env.OPENROUTER_FALLBACK_MODELS || '');
+        const workforceFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_WORKFORCE || '');
+
+        if (this.isStudentContext(context)) {
+            return {
+                scope: 'student',
+                primaryModel: studentPrimary,
+                fallbackModels: studentFallback
+            };
+        }
+
+        return {
+            scope: 'workforce',
+            primaryModel: workforcePrimary,
+            fallbackModels: workforceFallback
+        };
+    }
+
+    buildModelOptionsFromAssistant(assistant = {}, context = {}) {
         const style = assistant.communicationStyle || {};
         const lengthMap = {
             short: 650,
@@ -1426,17 +2757,20 @@ ${teacherLines}`;
             friendly: 0.4,
             cheerful: 0.45
         };
+        const roleModelConfig = this.resolveRoleBasedModelConfig(context);
 
         return {
             maxTokens: lengthMap[style.responseLength] || 1000,
-            temperature: toneTemperatureMap[style.tone] ?? 0.4
+            temperature: toneTemperatureMap[style.tone] ?? 0.4,
+            model: roleModelConfig.primaryModel,
+            fallbackModels: roleModelConfig.fallbackModels
         };
     }
 
     /**
      * Build AI system prompt with student context
      */
-    buildSystemPrompt(context) {
+    buildStudentSystemPrompt(context) {
         const { student, mtss, classroom, emotional, assistant } = context;
         const preferredName = student.preferredName || student.name || 'Student';
         const gradeLabel = student.grade && student.grade !== 'unknown' ? student.grade : 'school';
@@ -1477,6 +2811,7 @@ ${teacherLines}`;
         const motivationalStyle = assistant?.preferences?.motivationalStyle || 'mixed';
         const preferredStudyTime = assistant?.habits?.preferredStudyTime || 'not set';
         const focusSessionMinutes = assistant?.habits?.focusSessionMinutes || 25;
+        const twinSummary = assistantOrchestrator.summarizeTwinForPrompt(context?.twin || null);
 
         let prompt = `You are ${assistantName}, the dedicated personal AI assistant for ${preferredName}, a ${gradeLabel} student.
 You are not a generic chatbot. You are their daily assistant for school planning, study execution, emotional check-ins, and practical life support in school context.
@@ -1539,6 +2874,9 @@ ${assistantInterestLines}
 Today's focus recommendations:
 ${assistantFocusLines}
 
+Personal Learning Twin (memory graph, distilled):
+${twinSummary || '- Twin memory is still warming up for this student.'}
+
 Response guidelines:
 - Use casual, age-appropriate language (like chatting with a friend)
 - Be warm and encouraging, but never condescending
@@ -1554,6 +2892,8 @@ Response guidelines:
 - For class/teacher questions, list teacher names from the classroom snapshot above and do not answer generically.
 - When mentioning teachers, use their display names exactly as listed in the classroom snapshot (for example: "Ms. Tata").
 - For planning questions ("today", "daily", "jadwal", "what should I do"), always return a concrete short plan with time blocks and first action.
+- If the student asks for chart/table/visualization, never say you cannot create charts or tables. Explain the insight and assume visual cards are available in the UI.
+- You can rely on interactive UI widgets (charts, tables, timelines, checklists, and quick actions) to support your response.
 - End most responses with one practical next action the student can do now.
 
 CRITICAL LANGUAGE REQUIREMENT:
@@ -1615,6 +2955,99 @@ CRITICAL LANGUAGE REQUIREMENT:
 - Keep tone friendly, warm, and age-appropriate`;
 
         return prompt;
+    }
+
+    buildWorkforceSystemPrompt(context) {
+        const { student, actor, workforce, mtss, emotional, assistant } = context;
+        const preferredName = student?.preferredName || student?.name || 'Team member';
+        const assistantName = assistant?.assistantName || 'Nova';
+        const roleLabel = actor?.roleLabel || this.getWorkforceRoleLabel(actor?.role || '');
+        const assignmentLines = (mtss?.assignments || []).length
+            ? mtss.assignments
+                .slice(0, 10)
+                .map((assignment) => `- ${assignment.tier} | ${assignment.status} | focus: ${(assignment.focusAreas || []).join(', ') || assignment.strategyName || 'General support'}`)
+                .join('\n')
+            : '- No active mentor assignment rows recorded.';
+        const taskLines = (mtss?.openTasks || []).length
+            ? mtss.openTasks.map((task) => `- ${task}`).join('\n')
+            : '- No open tasks recorded from current assignment snapshot.';
+        const assistantGoalLines = (assistant?.memoryHighlights?.goals || []).length
+            ? assistant.memoryHighlights.goals.map((goal) => `- ${goal}`).join('\n')
+            : '- No personal goals recorded yet.';
+        const assistantChallengeLines = (assistant?.memoryHighlights?.challenges || []).length
+            ? assistant.memoryHighlights.challenges.map((challenge) => `- ${challenge}`).join('\n')
+            : '- No challenges recorded yet.';
+        const assistantFocusLines = (assistant?.daily?.focusItems || []).length
+            ? assistant.daily.focusItems.map((focus) => `- ${focus}`).join('\n')
+            : '- Keep momentum by prioritizing your top-impact tasks.';
+        const twinSummary = assistantOrchestrator.summarizeTwinForPrompt(context?.twin || null);
+
+        const prompt = `You are ${assistantName}, the dedicated personal AI assistant for ${preferredName}.
+You support this user as a professional daily copilot inside MWS IntegraLearn workforce workspace.
+
+User identity (authoritative data from database):
+- Full name: ${student?.name || 'Unknown'}
+- Preferred name / nickname: ${preferredName}
+- Role: ${roleLabel || 'Workforce'}
+- Department: ${actor?.department || workforce?.department || 'Not recorded'}
+- Unit: ${actor?.unit || workforce?.unit || 'Not recorded'}
+- Position: ${actor?.jobPosition || workforce?.jobPosition || 'Not recorded'}
+- Email: ${student?.email || 'Unknown'}
+
+Internal data access rules (mandatory):
+- You already have access to internal records provided in this prompt.
+- Never claim that you cannot access private portal data.
+- If a field is empty, state "not recorded in current records".
+- Give direct, concrete answers grounded in the snapshot below.
+
+Workforce snapshot (internal data):
+- Active mentor assignments: ${workforce?.activeMentorAssignments || mtss?.activeAssignmentCount || 0}
+- Total mentored students (snapshot): ${workforce?.totalMentoredStudents || 0}
+- Recent self check-ins needing support: ${workforce?.flaggedSelfCheckins || 0}
+- Current assignment tier signal: ${mtss?.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded'}
+Assignment details:
+${assignmentLines}
+Open tasks:
+${taskLines}
+
+Personal assistant profile (memory):
+- Assistant name to use: ${assistantName}
+- Tone: ${assistant?.communicationStyle?.tone || 'friendly'}
+- Response length preference: ${assistant?.communicationStyle?.responseLength || 'balanced'}
+- Explanation style: ${assistant?.communicationStyle?.explanationStyle || 'mixed'}
+- Motivational style: ${assistant?.preferences?.motivationalStyle || 'mixed'}
+Personal goals:
+${assistantGoalLines}
+Known challenges:
+${assistantChallengeLines}
+Today's focus recommendations:
+${assistantFocusLines}
+
+Personal learning twin (distilled):
+${twinSummary || '- Twin memory is still warming up for this user.'}
+
+Response guidelines:
+- Be concise, professional, and practical.
+- Use supportive but non-childish tone.
+- Provide actionable steps (prioritized checklist, timeline, next action).
+- For dashboard/assignment/MTSS questions, include concrete numbers from snapshot.
+- For workflow commands (open profile/support-hub/dashboard/check-in), confirm clearly and keep the user in role-appropriate workspace.
+- If user asks for chart/table/visualization, assume UI cards/charts/tables are available and describe the insight.
+- Never invent unverified organizational data; if missing, say not recorded.
+- End with one practical next action.
+
+Critical language requirement:
+- Always respond in English, regardless of user input language.`;
+
+        return prompt;
+    }
+
+    buildSystemPrompt(context = {}) {
+        if (this.isStudentContext(context)) {
+            return this.buildStudentSystemPrompt(context);
+        }
+
+        return this.buildWorkforceSystemPrompt(context);
     }
 
     /**
@@ -1777,7 +3210,7 @@ CRITICAL LANGUAGE REQUIREMENT:
 
         const memoryLines = scoredCandidates
             .map(({ message = {} }) => {
-                const roleLabel = message.role === 'assistant' ? 'Assistant' : 'Student';
+                const roleLabel = message.role === 'assistant' ? 'Assistant' : 'User';
                 const content = this.normalizeMessageText(message.content || '', 170);
                 if (!content) return null;
                 return `- ${roleLabel}: ${content}`;
@@ -1788,8 +3221,9 @@ CRITICAL LANGUAGE REQUIREMENT:
             return '';
         }
 
-        const preferredName = context?.student?.preferredName || context?.student?.name || 'Student';
+        const preferredName = context?.student?.preferredName || context?.student?.name || 'User';
         const assistantName = context?.assistant?.assistantName || '';
+        const actorRoleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(context?.actor?.role || '');
         const grade = context?.classroom?.grade || context?.student?.grade || '';
         const className = context?.classroom?.className || context?.student?.className || '';
         const mtss = context?.mtss || {};
@@ -1798,10 +3232,13 @@ CRITICAL LANGUAGE REQUIREMENT:
 
         const snapshotLines = [
             `Session: ${conversation.sessionId}`,
-            `Student: ${preferredName}`,
+            `User: ${preferredName}`,
             assistantName ? `Assistant nickname: ${assistantName}` : '',
+            actorRoleLabel ? `Role: ${actorRoleLabel}` : '',
             grade || className ? `Class profile: Grade ${grade || 'N/A'} - ${className || 'N/A'}` : '',
-            mtss?.hasProfile ? `MTSS baseline tier: ${mtss.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded'}` : 'MTSS profile: not available'
+            mtss?.hasProfile
+                ? `MTSS baseline tier: ${mtss.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded'}`
+                : 'MTSS profile: not available'
         ].filter(Boolean);
 
         if (focusAreas.length > 0) {
@@ -1854,7 +3291,7 @@ CRITICAL LANGUAGE REQUIREMENT:
         if (!memory) return '';
 
         return `Use the session memory below as factual long-term context from earlier turns.
-Never invent details that are not present in memory, live chat messages, or student database context.
+Never invent details that are not present in memory, live chat messages, or user database context.
 If information is missing, ask a short clarification question.
 
 ${memory}`;
@@ -1864,14 +3301,27 @@ ${memory}`;
      * Generate AI response
      */
     async chat(userId, userMessage, sessionId = null) {
+        const lockKey = this.getSessionLockKey(userId, sessionId);
+        return this.runWithSessionLock(lockKey, () =>
+            this.processChatRequest(userId, userMessage, sessionId)
+        );
+    }
+
+    async processChatRequest(userId, userMessage, sessionId = null) {
         let conversation = null;
         try {
-            // 1. Build student context
-            const context = await this.buildStudentContext(userId);
+            // 1. Build user context (student or workforce)
+            const context = await this.buildUserContext(userId);
             const assistantProfileDoc = await this.getOrCreateAssistantProfile(userId);
             const assistantSignals = this.extractAssistantSignals(userMessage);
             this.applyAssistantSignals(assistantProfileDoc, assistantSignals);
             context.assistant = this.buildAssistantSnapshot(context, assistantProfileDoc.toObject());
+            const twinSnapshot = await twinRepository.getSnapshot(userId);
+            context.twin = twinSnapshot || null;
+
+            if (twinSnapshot?.assistantName && !assistantSignals.assistantName) {
+                context.assistant.assistantName = String(twinSnapshot.assistantName);
+            }
 
             // 2. Get or create conversation
             conversation = await this.getOrCreateConversation(userId, sessionId);
@@ -1916,12 +3366,28 @@ ${memory}`;
                 this.refreshSessionMemorySummary(conversation, context);
                 await conversation.save();
 
+                assistantOrchestrator.queueTwinUpdate({
+                    userId,
+                    sessionId: conversation.sessionId,
+                    userMessage,
+                    assistantMessage: actionMessage,
+                    context,
+                    assistantName: context.assistant?.assistantName,
+                    clientAction,
+                    uiWidgets: []
+                });
+
                 return {
                     sessionId: conversation.sessionId,
                     message: actionMessage,
                     clientAction,
+                    uiWidgets: [],
                     context: {
+                        scope: context.scope || (this.isStudentContext(context) ? 'student' : 'workforce'),
+                        actor: context.actor || null,
                         student: context.student,
+                        user: context.student,
+                        workforce: context.workforce || null,
                         hasSupport: context.mtss.hasProfile,
                         emotionalTrend: context.emotional.summary.trend,
                         assistant: {
@@ -1931,6 +3397,15 @@ ${memory}`;
                         memory: {
                             enabled: Boolean(String(conversation.conversationSummary || '').trim()),
                             updatedAt: conversation.summaryUpdatedAt || null
+                        },
+                        twin: {
+                            enabled: Boolean(twinSnapshot),
+                            riskLevel: String(twinSnapshot?.dynamicState?.riskLevel || 'low'),
+                            confidenceScore: Number(twinSnapshot?.dynamicState?.confidenceScore || 0.5),
+                            engagementScore: Number(twinSnapshot?.dynamicState?.engagementScore || 0.5),
+                            preferredWidgets: Array.isArray(twinSnapshot?.workspace?.preferredWidgets)
+                                ? twinSnapshot.workspace.preferredWidgets.slice(0, 6)
+                                : []
                         }
                     }
                 };
@@ -1938,10 +3413,10 @@ ${memory}`;
 
             // 5. Build AI prompt with context
             const systemPrompt = this.buildSystemPrompt(context);
-            const sessionMemorySummary = this.refreshSessionMemorySummary(conversation, context);
-            const sessionMemoryPrompt = this.buildSessionMemoryPrompt(sessionMemorySummary);
 
             // 6. Prepare conversation history (limit to last N messages for context window)
+            const sessionMemorySummary = this.refreshSessionMemorySummary(conversation, context);
+            const sessionMemoryPrompt = this.buildSessionMemoryPrompt(sessionMemorySummary);
             const recentMessages = conversation.messages.slice(-this.maxMessagesInContext);
             const chatMessages = [
                 { role: 'system', content: systemPrompt },
@@ -1961,7 +3436,7 @@ ${memory}`;
                 throw new Error('OpenRouter chat service unavailable');
             }
 
-            const modelOptions = this.buildModelOptionsFromAssistant(context.assistant);
+            const modelOptions = this.buildModelOptionsFromAssistant(context.assistant, context);
 
             const aiResponse = await openRouterChat.generateContent(chatMessages, modelOptions);
 
@@ -1997,9 +3472,36 @@ ${memory}`;
                 forcedReplies.push(this.buildGroundedGeneralReply(context, userMessage));
             }
 
+            if (this.wantsStructuredVisualization(userMessage) && this.hasVisualizationLimitation(responseText)) {
+                forcedReplies.push(this.buildVisualizationReadyReply(context));
+            }
+
+            if (this.wantsCapabilitiesOverview(userMessage) && this.hasGeneralLimitationClaim(responseText)) {
+                forcedReplies.push(this.buildCapabilitiesReadyReply(context));
+            }
+
             if (forcedReplies.length > 0) {
                 responseText = Array.from(new Set(forcedReplies.map((value) => String(value).trim()).filter(Boolean))).join('\n\n');
             }
+
+            const baseWidgets = this.buildResponseWidgets(userMessage, context);
+            const workspaceResult = await assistantOrchestrator.buildWorkspaceResponse({
+                userId,
+                userMessage,
+                context,
+                baseWidgets,
+                twinSnapshot
+            });
+            const uiWidgets = workspaceResult.uiWidgets;
+            const resolvedTwinContext = workspaceResult.twinContext || {
+                enabled: Boolean(twinSnapshot),
+                riskLevel: String(twinSnapshot?.dynamicState?.riskLevel || 'low'),
+                confidenceScore: Number(twinSnapshot?.dynamicState?.confidenceScore || 0.5),
+                engagementScore: Number(twinSnapshot?.dynamicState?.engagementScore || 0.5),
+                preferredWidgets: Array.isArray(twinSnapshot?.workspace?.preferredWidgets)
+                    ? twinSnapshot.workspace.preferredWidgets.slice(0, 6)
+                    : []
+            };
 
             // 8. Add AI response to conversation
             conversation.messages.push({
@@ -2011,7 +3513,8 @@ ${memory}`;
                         hasMTSSProfile: context.mtss.hasProfile,
                         hasEmotionalData: !!context.emotional.lastCheckIn,
                         activeInterventions: context.mtss.activeInterventions.length
-                    }
+                    },
+                    uiWidgets: uiWidgets.length > 0 ? uiWidgets : undefined
                 }
             });
 
@@ -2019,8 +3522,8 @@ ${memory}`;
             this.detectPatternsAndUpdateMetadata(conversation, userMessage, responseText, context);
             await this.refreshAssistantMetrics(assistantProfileDoc);
             assistantProfileDoc.memory.notes = this.mergeMemoryList(assistantProfileDoc.memory.notes, [
-                asksMtss ? 'Student asked MTSS/progress tracking.' : '',
-                asksClassroom ? 'Student asked class/teacher information.' : ''
+                asksMtss ? 'User asked MTSS/progress tracking.' : '',
+                asksClassroom ? 'User asked class/teacher information.' : ''
             ]);
             await assistantProfileDoc.save();
             this.refreshSessionMemorySummary(conversation, context);
@@ -2028,10 +3531,21 @@ ${memory}`;
             // 10. Save conversation
             await conversation.save();
 
+            assistantOrchestrator.queueTwinUpdate({
+                userId,
+                sessionId: conversation.sessionId,
+                userMessage,
+                assistantMessage: responseText,
+                context,
+                assistantName: context.assistant?.assistantName,
+                clientAction,
+                uiWidgets
+            });
+
             // 11. Return response
             // Trigger alert generation every 10 messages after initial 15 messages (Phase 2 feature)
             // This prevents spam while still providing timely insights
-            if (conversation.messages.length >= 15 && conversation.messages.length % 10 === 0) {
+            if (this.isStudentContext(context) && conversation.messages.length >= 15 && conversation.messages.length % 10 === 0) {
                 // Run alert generation in background (non-blocking)
                 setImmediate(async () => {
                     try {
@@ -2048,8 +3562,13 @@ ${memory}`;
                 sessionId: conversation.sessionId,
                 message: responseText.trim(),
                 clientAction: clientAction || null,
+                uiWidgets,
                 context: {
+                    scope: context.scope || (this.isStudentContext(context) ? 'student' : 'workforce'),
+                    actor: context.actor || null,
                     student: context.student,
+                    user: context.student,
+                    workforce: context.workforce || null,
                     hasSupport: context.mtss.hasProfile,
                     emotionalTrend: context.emotional.summary.trend,
                     assistant: {
@@ -2059,7 +3578,8 @@ ${memory}`;
                     memory: {
                         enabled: Boolean(String(conversation.conversationSummary || '').trim()),
                         updatedAt: conversation.summaryUpdatedAt || null
-                    }
+                    },
+                    twin: resolvedTwinContext
                 }
             };
 
@@ -2091,6 +3611,7 @@ ${memory}`;
             return {
                 sessionId: conversation?.sessionId || sessionId || `chat_${Date.now()}_${userId}`,
                 message: fallbackMessage,
+                uiWidgets: [],
                 error: true,
                 errorCode,
                 ...(process.env.NODE_ENV !== 'production'
@@ -2195,7 +3716,7 @@ ${memory}`;
     }
 
     async getAssistantProfile(userId) {
-        const context = await this.buildStudentContext(userId);
+        const context = await this.buildUserContext(userId);
         const profileDoc = await this.getOrCreateAssistantProfile(userId);
         const normalized = this.ensureAssistantProfileShape(profileDoc.toObject(), userId);
 
@@ -2217,9 +3738,14 @@ ${memory}`;
         await profileDoc.save();
 
         const assistant = this.buildAssistantSnapshot(context, profileDoc.toObject());
+        const twinSnapshot = await twinRepository.getSnapshot(userId);
         return {
+            scope: context.scope || (this.isStudentContext(context) ? 'student' : 'workforce'),
+            actor: context.actor || null,
             assistant,
             student: context.student,
+            user: context.student,
+            workforce: context.workforce || null,
             classroom: {
                 className: context.classroom?.className || context.student?.className || null,
                 grade: context.classroom?.grade || context.student?.grade || null
@@ -2228,6 +3754,20 @@ ${memory}`;
                 hasProfile: context.mtss?.hasProfile || false,
                 currentTier: context.mtss?.currentTier ? this.toTierLabel(context.mtss.currentTier) : 'Not recorded',
                 activeAssignmentCount: context.mtss?.activeAssignmentCount || 0
+            },
+            twin: {
+                enabled: Boolean(twinSnapshot),
+                riskLevel: String(twinSnapshot?.dynamicState?.riskLevel || 'low'),
+                confidenceScore: Number(twinSnapshot?.dynamicState?.confidenceScore || 0.5),
+                engagementScore: Number(twinSnapshot?.dynamicState?.engagementScore || 0.5),
+                preferredWidgets: Array.isArray(twinSnapshot?.workspace?.preferredWidgets)
+                    ? twinSnapshot.workspace.preferredWidgets.slice(0, 6)
+                    : [],
+                memoryHighlights: {
+                    goals: Array.isArray(twinSnapshot?.memoryGraph?.goals) ? twinSnapshot.memoryGraph.goals.slice(0, 3) : [],
+                    challenges: Array.isArray(twinSnapshot?.memoryGraph?.challenges) ? twinSnapshot.memoryGraph.challenges.slice(0, 3) : [],
+                    strengths: Array.isArray(twinSnapshot?.memoryGraph?.strengths) ? twinSnapshot.memoryGraph.strengths.slice(0, 3) : []
+                }
             }
         };
     }
@@ -2291,7 +3831,15 @@ ${memory}`;
 
         await profileDoc.save();
 
-        const context = await this.buildStudentContext(userId);
+        const context = await this.buildUserContext(userId);
+        const twinDoc = await twinRepository.getOrCreate(userId, {
+            assistantName: profileDoc.assistantName,
+            preferredName: context?.student?.preferredName || context?.student?.name || 'User'
+        });
+        if (String(twinDoc.assistantName || '') !== String(profileDoc.assistantName || '')) {
+            twinDoc.assistantName = String(profileDoc.assistantName || twinDoc.assistantName || 'Nova');
+            await twinDoc.save();
+        }
         return this.buildAssistantSnapshot(context, profileDoc.toObject());
     }
 
@@ -2300,9 +3848,16 @@ ${memory}`;
      */
     async getConversationHistory(userId, sessionId, limit = 50) {
         try {
+            const safeLimit = Math.min(200, Math.max(10, parseInt(limit, 10) || 50));
             const conversation = await AIConversation.findOne({
                 userId,
                 sessionId
+            }, {
+                sessionId: 1,
+                title: 1,
+                conversationSummary: 1,
+                summaryUpdatedAt: 1,
+                messages: { $slice: -safeLimit }
             }).lean();
 
             if (!conversation) {
@@ -2313,12 +3868,13 @@ ${memory}`;
                 };
             }
 
-            const messages = conversation.messages
-                .slice(-limit)
+            const safeMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+            const messages = safeMessages
                 .map(msg => ({
                     role: msg.role,
                     content: msg.content,
-                    timestamp: msg.timestamp
+                    timestamp: msg.timestamp,
+                    metadata: msg.metadata || {}
                 }));
 
             return {
@@ -2345,13 +3901,24 @@ ${memory}`;
      */
     async getUserConversations(userId, limit = 10) {
         try {
+            const safeLimit = Math.min(30, Math.max(5, parseInt(limit, 10) || 10));
             const conversations = await AIConversation.find({
                 userId,
                 status: { $in: ['active', 'archived'] }
             })
                 .sort({ lastActivity: -1 })
-                .limit(limit)
-                .select('sessionId title status lastActivity messages conversationSummary summaryUpdatedAt')
+                .limit(safeLimit)
+                .select({
+                    sessionId: 1,
+                    title: 1,
+                    status: 1,
+                    lastActivity: 1,
+                    messageCount: 1,
+                    lastMessagePreview: 1,
+                    conversationSummary: 1,
+                    summaryUpdatedAt: 1,
+                    messages: { $slice: -1 }
+                })
                 .lean();
 
             return conversations.map(conv => ({
@@ -2359,8 +3926,12 @@ ${memory}`;
                 title: conv.title,
                 status: conv.status || 'active',
                 lastActivity: conv.lastActivity,
-                messageCount: conv.messages?.length || 0,
-                preview: conv.messages?.[conv.messages.length - 1]?.content.substring(0, 50) || '',
+                messageCount: Number(conv.messageCount || 0),
+                preview: String(
+                    conv.lastMessagePreview
+                    || conv.messages?.[0]?.content
+                    || ''
+                ).slice(0, 70),
                 hasMemorySummary: Boolean(String(conv.conversationSummary || '').trim()),
                 memorySummaryUpdatedAt: conv.summaryUpdatedAt || null
             }));

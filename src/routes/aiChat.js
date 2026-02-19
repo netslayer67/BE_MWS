@@ -44,14 +44,14 @@ router.post('/conversations/:sessionId/archive', aiChatController.archiveConvers
 /**
  * @route   GET /api/v1/ai-chat/assistant-profile
  * @desc    Get personal assistant profile and daily focus
- * @access  Private
+ * @access  Private (all authenticated roles)
  */
 router.get('/assistant-profile', aiChatController.getAssistantProfile);
 
 /**
  * @route   PATCH /api/v1/ai-chat/assistant-profile
  * @desc    Update personal assistant preferences
- * @access  Private
+ * @access  Private (all authenticated roles)
  */
 router.patch('/assistant-profile', aiChatController.updateAssistantProfile);
 

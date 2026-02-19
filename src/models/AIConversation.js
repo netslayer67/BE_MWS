@@ -21,12 +21,9 @@ const messageSchema = new mongoose.Schema({
         default: Date.now
     },
     metadata: {
-        // Optional metadata for context
-        emotionDetected: String,
-        topicCategory: String, // 'academic', 'emotional', 'social', 'general'
-        strugglesDetected: [String], // e.g., ['fractions', 'anxiety']
-        interventionRelated: mongoose.Schema.Types.ObjectId, // Reference to MentorAssignment if related
-        confidence: Number
+        // Flexible payload for assistant metadata (client actions, widgets, analytics context)
+        type: mongoose.Schema.Types.Mixed,
+        default: undefined
     }
 }, { _id: true });
 
@@ -52,6 +49,20 @@ const aiConversationSchema = new mongoose.Schema({
         type: String,
         trim: true,
         default: 'New Conversation'
+    },
+    messageCount: {
+        type: Number,
+        default: 0
+    },
+    lastMessagePreview: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    lastMessageRole: {
+        type: String,
+        enum: ['user', 'assistant', 'system', ''],
+        default: ''
     },
     messages: [messageSchema],
 
@@ -129,12 +140,27 @@ const aiConversationSchema = new mongoose.Schema({
 aiConversationSchema.index({ userId: 1, lastActivity: -1 });
 aiConversationSchema.index({ sessionId: 1, userId: 1 });
 aiConversationSchema.index({ status: 1, lastActivity: -1 });
+aiConversationSchema.index({ userId: 1, status: 1, lastActivity: -1 });
 aiConversationSchema.index({ 'teacherInsights.needsIntervention': 1 });
 
 // Auto-update lastActivity on message push
 aiConversationSchema.pre('save', function(next) {
     if (this.isModified('messages')) {
         this.lastActivity = Date.now();
+        const totalMessages = Array.isArray(this.messages) ? this.messages.length : 0;
+        this.messageCount = totalMessages;
+
+        if (totalMessages > 0) {
+            const lastMessage = this.messages[totalMessages - 1] || {};
+            this.lastMessageRole = String(lastMessage.role || '');
+            this.lastMessagePreview = String(lastMessage.content || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 160);
+        } else {
+            this.lastMessageRole = '';
+            this.lastMessagePreview = '';
+        }
     }
     next();
 });

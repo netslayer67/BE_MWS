@@ -192,7 +192,7 @@ const archiveConversation = async (req, res) => {
 };
 
 /**
- * Get personal AI assistant profile/dashboard for current student
+ * Get personal AI assistant profile/dashboard for current authenticated user
  */
 const getAssistantProfile = async (req, res) => {
     try {
@@ -220,7 +220,7 @@ const getAssistantProfile = async (req, res) => {
 };
 
 /**
- * Update personal AI assistant preferences for current student
+ * Update personal AI assistant preferences for current authenticated user
  */
 const updateAssistantProfile = async (req, res) => {
     try {
