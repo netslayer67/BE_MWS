@@ -55,4 +55,11 @@ router.get('/assistant-profile', aiChatController.getAssistantProfile);
  */
 router.patch('/assistant-profile', aiChatController.updateAssistantProfile);
 
+/**
+ * @route   POST /api/v1/ai-chat/execute-operation
+ * @desc    Execute whitelisted assistant automation operation
+ * @access  Private (authenticated users)
+ */
+router.post('/execute-operation', aiChatController.executeOperation);
+
 module.exports = router;
