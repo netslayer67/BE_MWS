@@ -6,6 +6,7 @@ const winston = require('winston');
 // Import configurations
 const connectDB = require('./config/database');
 const googleAI = require('./config/googleAI');
+const openRouterChat = require('./config/openRouterChat');
 const { initSocket } = require('./config/socket');
 const slackSocketService = require('./services/slackSocketService');
 const { createCorsOriginChecker, validateCorsConfiguration } = require('./config/cors');
@@ -100,6 +101,18 @@ const initializeApp = async () => {
                 winston.error('Google AI connection failed - application cannot start without AI');
                 process.exit(1);
             }
+        }
+
+        // Test OpenRouter chat connection for student AI chat (non-blocking)
+        try {
+            const chatConnected = await openRouterChat.testConnection();
+            if (chatConnected) {
+                winston.info('OpenRouter chat connection successful');
+            } else {
+                winston.warn('OpenRouter chat connection test returned false - student AI chat may use fallback responses');
+            }
+        } catch (chatError) {
+            winston.warn(`OpenRouter chat unavailable - student AI chat may use fallback responses: ${chatError.message}`);
         }
 
         // Initialize Slack Socket Mode (non-blocking)
