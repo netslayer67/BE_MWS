@@ -12,6 +12,7 @@ services:
       - NODE_ENV=production
       - PORT=3003
       - FRONTEND_URL=https://app.millenniaws.sch.id
+      - CORS_ORIGINS=https://app.millenniaws.sch.id,http://localhost:5173
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
@@ -21,6 +22,15 @@ services:
       - GOOGLE_REDIRECT_URL=https://app.millenniaws.sch.id/auth/google/callback
       - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
       - GOOGLE_AI_MODEL=gemini-flash-latest
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+      - OPENROUTER_MODEL=arcee-ai/trinity-large-preview:free
+      - OPENROUTER_FALLBACK_MODELS=
+      - OPENROUTER_MAX_TOKENS=1024
+      - OPENROUTER_TEMPERATURE=0.4
+      - OPENROUTER_MIN_DELAY_MS=600
+      - OPENROUTER_HTTP_REFERER=https://app.millenniaws.sch.id
+      - OPENROUTER_APP_NAME=IntegraLearn AI Chat
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
       - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
@@ -46,7 +56,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "3003:80"
     networks:
       - mws-network
 

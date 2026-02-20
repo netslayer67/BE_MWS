@@ -1,8 +1,52 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
+const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const STUDENT_DAILY_LIMIT_PER_TYPE = 2;
+const DEFAULT_DAILY_LIMIT_PER_TYPE = 1;
+
+const getCheckinModelForRole = (role) => (
+    role === 'student' ? StudentEmotionalCheckin : EmotionalCheckin
+);
+
+const getCheckinModelForUser = (user = {}) => getCheckinModelForRole(user?.role);
+
+const getDailyCheckinLimitByRole = (role) => (
+    role === 'student' ? STUDENT_DAILY_LIMIT_PER_TYPE : DEFAULT_DAILY_LIMIT_PER_TYPE
+);
+
+const getDailyCheckinLimitsForUser = (user = {}) => {
+    const limit = getDailyCheckinLimitByRole(user?.role);
+    return {
+        manual: limit,
+        ai: limit
+    };
+};
+
+const manualCheckinFilter = {
+    $or: [
+        { aiEmotionScan: { $exists: false } },
+        { aiEmotionScan: null }
+    ]
+};
+
+const aiCheckinFilter = {
+    aiEmotionScan: { $exists: true, $ne: null }
+};
+
+const countDocumentsSafe = async (Model, query) => {
+    if (Model && typeof Model.countDocuments === 'function') {
+        return Model.countDocuments(query);
+    }
+    if (Model && typeof Model.findOne === 'function') {
+        const found = await Model.findOne(query);
+        return found ? 1 : 0;
+    }
+    return 0;
+};
 
 const normalizeObjectId = (id) => {
     if (!id) {
@@ -153,11 +197,78 @@ const studentMatchesTeacherScopes = (student, scopes = []) => {
     });
 };
 
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const resolveUnitLabel = (rawUnit = '') => {
+    const normalized = normalizeTextValue(rawUnit);
+    if (!normalized) return '';
+    if (normalized.includes('elementary')) return 'Elementary';
+    if (normalized.includes('junior high')) return 'Junior High';
+    if (normalized.includes('kindergarten') || normalized.includes('kindy') || normalized.includes('pelangi')) return 'Kindergarten';
+    return normalizeSpaces(rawUnit);
+};
+
+const getUnitGradeBandLabel = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return 'Grade 1-6';
+    if (normalized === 'junior high') return 'Grade 7-9';
+    if (normalized === 'kindergarten') return 'Kindergarten';
+    return 'All Grades';
+};
+
+const buildUnitGradeRegex = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return /^grade\s*[1-6]\b/i;
+    if (normalized === 'junior high') return /^grade\s*[7-9]\b/i;
+    if (normalized === 'kindergarten') return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    return null;
+};
+
+const buildGradeRegexFromQuery = (grade = '') => {
+    const normalized = normalizeTextValue(grade);
+    if (!normalized) return null;
+
+    const gradeMatch = normalized.match(/grade\s*(\d+)/i) || normalized.match(/^(\d+)$/);
+    if (gradeMatch) {
+        return new RegExp(`^grade\\s*${gradeMatch[1]}\\b`, 'i');
+    }
+
+    if (/(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i.test(normalized)) {
+        return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    }
+
+    return new RegExp(escapeRegex(normalizeSpaces(grade)), 'i');
+};
+
 const findAnyUserById = async (userId, select) => {
     if (!userId) return null;
     const student = await UserStudent.findById(userId).select(select);
     if (student) return student;
     return User.findById(userId).select(select);
+};
+
+const isNoSupportSelection = (value) => {
+    if (value == null) return true;
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === '' || normalized === 'no_need' || normalized === 'no-need';
+};
+
+const extractSupportContactUserId = (rawValue) => {
+    if (rawValue && typeof rawValue === 'object' && rawValue._id) {
+        rawValue = rawValue._id;
+    }
+    if (isNoSupportSelection(rawValue)) {
+        return null;
+    }
+    if (typeof rawValue !== 'string') {
+        return null;
+    }
+    const candidate = rawValue.trim();
+    if (!mongoose.Types.ObjectId.isValid(candidate)) {
+        return null;
+    }
+    return candidate;
 };
 
 const formatCheckinSnapshot = (checkin) => {
@@ -187,6 +298,203 @@ const formatCheckinSnapshot = (checkin) => {
             department: supportContact.department,
             unit: supportContact.unit
         } : null
+    };
+};
+
+const getNumericValue = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+const roundOneDecimal = (value) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return Math.round(value * 10) / 10;
+};
+
+const toISODateKey = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    parsed.setHours(0, 0, 0, 0);
+    return parsed.toISOString().split('T')[0];
+};
+
+const isDateWithinWindow = (value, start, end) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.getTime() >= start.getTime() && parsed.getTime() <= end.getTime();
+};
+
+const deriveMoodStateFromCheckin = (checkin = {}) => {
+    const explicit = normalizeTextValue(checkin.aiAnalysis?.emotionalState || '');
+    if (['positive', 'balanced', 'challenging', 'depleted'].includes(explicit)) {
+        return explicit;
+    }
+
+    const presence = getNumericValue(checkin.presenceLevel);
+    const capacity = getNumericValue(checkin.capacityLevel);
+    if (presence == null && capacity == null) {
+        return 'balanced';
+    }
+
+    const basis = [];
+    if (presence != null) basis.push(presence);
+    if (capacity != null) basis.push(capacity);
+    const average = basis.reduce((sum, item) => sum + item, 0) / basis.length;
+
+    if (average >= 7.5) return 'positive';
+    if (average <= 3.5) return 'challenging';
+    if (average <= 5) return 'depleted';
+    return 'balanced';
+};
+
+const buildStudentProgressPayload = (historyCheckins = []) => {
+    const sortedHistory = [...historyCheckins].sort((a, b) => {
+        const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+        const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+        return aTime - bTime;
+    });
+
+    if (!sortedHistory.length) {
+        return {
+            submissionsLast14Days: 0,
+            averagePresence: null,
+            averageCapacity: null,
+            supportAlertsLast14Days: 0,
+            moodBreakdown: {
+                positive: 0,
+                balanced: 0,
+                depleted: 0,
+                challenging: 0
+            },
+            topMoods: [],
+            trend: [],
+            recentNotes: []
+        };
+    }
+
+    const dayMap = new Map();
+    const moodCountMap = new Map();
+    const moodBreakdown = {
+        positive: 0,
+        balanced: 0,
+        depleted: 0,
+        challenging: 0
+    };
+
+    let totalPresence = 0;
+    let totalCapacity = 0;
+    let presenceCount = 0;
+    let capacityCount = 0;
+    let supportAlerts = 0;
+
+    sortedHistory.forEach((checkin) => {
+        const dayKey = toISODateKey(checkin.date || checkin.submittedAt);
+        if (!dayKey) return;
+
+        if (!dayMap.has(dayKey)) {
+            dayMap.set(dayKey, {
+                date: dayKey,
+                submissions: 0,
+                presenceTotal: 0,
+                presenceCount: 0,
+                capacityTotal: 0,
+                capacityCount: 0,
+                moodCounts: {},
+                needsSupport: false
+            });
+        }
+
+        const dayEntry = dayMap.get(dayKey);
+        dayEntry.submissions += 1;
+
+        const presence = getNumericValue(checkin.presenceLevel);
+        if (presence != null) {
+            dayEntry.presenceTotal += presence;
+            dayEntry.presenceCount += 1;
+            totalPresence += presence;
+            presenceCount += 1;
+        }
+
+        const capacity = getNumericValue(checkin.capacityLevel);
+        if (capacity != null) {
+            dayEntry.capacityTotal += capacity;
+            dayEntry.capacityCount += 1;
+            totalCapacity += capacity;
+            capacityCount += 1;
+        }
+
+        const moodState = deriveMoodStateFromCheckin(checkin);
+        dayEntry.moodCounts[moodState] = (dayEntry.moodCounts[moodState] || 0) + 1;
+        moodBreakdown[moodState] = (moodBreakdown[moodState] || 0) + 1;
+
+        if (checkin.aiAnalysis?.needsSupport) {
+            dayEntry.needsSupport = true;
+            supportAlerts += 1;
+        }
+
+        (Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [])
+            .map((mood) => normalizeSpaces(String(mood || '')).toLowerCase())
+            .filter(Boolean)
+            .forEach((mood) => {
+                moodCountMap.set(mood, (moodCountMap.get(mood) || 0) + 1);
+            });
+    });
+
+    const trend = [...dayMap.values()]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((dayEntry) => {
+            const dominantMoodState = Object.entries(dayEntry.moodCounts)
+                .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
+
+            return {
+                date: dayEntry.date,
+                submissions: dayEntry.submissions,
+                presence: dayEntry.presenceCount > 0 ? roundOneDecimal(dayEntry.presenceTotal / dayEntry.presenceCount) : null,
+                capacity: dayEntry.capacityCount > 0 ? roundOneDecimal(dayEntry.capacityTotal / dayEntry.capacityCount) : null,
+                moodState: dominantMoodState,
+                needsSupport: dayEntry.needsSupport
+            };
+        });
+
+    const recentNotes = [...sortedHistory]
+        .sort((a, b) => {
+            const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+            const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+            return bTime - aTime;
+        })
+        .map((checkin) => {
+            const reflection = normalizeSpaces(checkin.userReflection || '');
+            const detailNote = normalizeSpaces(checkin.details || '');
+            const note = reflection || detailNote;
+            if (!note) return null;
+
+            return {
+                id: checkin._id,
+                date: checkin.date || checkin.submittedAt,
+                note,
+                source: reflection ? 'reflection' : 'details',
+                weatherType: checkin.weatherType || null,
+                selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+                needsSupport: Boolean(checkin.aiAnalysis?.needsSupport)
+            };
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+    const topMoods = [...moodCountMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([mood, count]) => ({ mood, count }));
+
+    return {
+        submissionsLast14Days: sortedHistory.length,
+        averagePresence: presenceCount > 0 ? roundOneDecimal(totalPresence / presenceCount) : null,
+        averageCapacity: capacityCount > 0 ? roundOneDecimal(totalCapacity / capacityCount) : null,
+        supportAlertsLast14Days: supportAlerts,
+        moodBreakdown,
+        topMoods,
+        trend,
+        recentNotes
     };
 };
 
@@ -227,30 +535,30 @@ const buildPersonalInsights = (summary, todaySnapshot, streaks, periodSummary) =
     const insights = [];
 
     if (!todaySnapshot) {
-        insights.push('Belum ada check-in hari ini. Luangkan waktu 2 menit untuk mencatat kondisi emosimu.');
+        insights.push('No check-in yet today. Take 2 minutes to record how you\'re feeling.');
     }
 
     if (!summary.totalCheckins) {
-        insights.push('Mulai catat emosi secara rutin agar AI dapat menyiapkan insight personal untukmu.');
+        insights.push('Start checking in regularly so AI can prepare personalized insights for you.');
         return insights.slice(0, 3);
     }
 
     if (typeof summary.averagePresence === 'number' && summary.averagePresence > 0 && summary.averagePresence < 5) {
-        insights.push('Presence rata-rata masih di bawah 5. Pertimbangkan micro break atau jeda singkat sepanjang hari.');
+        insights.push('Your average presence is still below 5. Consider taking micro breaks or short pauses throughout the day.');
     } else if (typeof summary.averagePresence === 'number' && summary.averagePresence >= 7.5) {
-        insights.push('Presence kamu stabil dan tinggi. Pertahankan ritme kerja yang seimbang seperti sekarang.');
+        insights.push('Your presence is stable and high. Keep maintaining your balanced work rhythm.');
     }
 
     if (summary.aiSupportDays > 0) {
-        insights.push(`AI mendeteksi kebutuhan dukungan sebanyak ${summary.aiSupportDays} hari. Manfaatkan support contact jika diperlukan.`);
+        insights.push(`AI detected support needs on ${summary.aiSupportDays} days. Consider using support contacts if needed.`);
     }
 
     if (streaks.current >= 3) {
-        insights.push(`Keren! Kamu konsisten check-in selama ${streaks.current} hari berturut-turut.`);
+        insights.push(`Awesome! You've been consistently checking in for ${streaks.current} days in a row.`);
     }
 
     if (periodSummary?.challengingDays >= periodSummary?.positiveDays && periodSummary?.challengingDays > 0) {
-        insights.push('Dalam 30 hari terakhir, emosi menantang muncul lebih sering. Coba tinjau ulang rekomendasi AI di riwayat check-in.');
+        insights.push('In the last 30 days, challenging emotions appeared more often. Try reviewing AI recommendations in your check-in history.');
     }
 
     return insights.slice(0, 3);
@@ -349,14 +657,14 @@ const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
 };
 
 // Update user's emotional patterns for AI learning
-const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection) => {
+const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection, userRole = null) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const CheckinModel = getCheckinModelForRole(userRole);
 
         if (!aiEmotionScan) return;
 
         // Get user's recent emotional history (last 30 check-ins)
-        const recentCheckins = await EmotionalCheckin.find({
+        const recentCheckins = await CheckinModel.find({
             userId,
             aiEmotionScan: { $exists: true }
         })
@@ -455,7 +763,7 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
         }
 
         // Update the current check-in with emotional patterns
-        const currentCheckin = await EmotionalCheckin.findOne({
+        const currentCheckin = await CheckinModel.findOne({
             userId,
             submittedAt: { $gte: new Date(Date.now() - 60000) } // Last minute
         }).sort({ submittedAt: -1 });
@@ -485,16 +793,16 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
 // Submit emotional check-in
 const submitCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -509,32 +817,25 @@ const submitCheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingManualCheckin = await EmotionalCheckin.findOne({
+        const manualCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ] // Manual check-in has no AI scan (missing or null)
+            ...manualCheckinFilter
         });
 
-        if (existingManualCheckin) {
-            return sendError(res, 'You have already completed a manual check-in today. You can only do AI analysis or wait until tomorrow.', 409);
+        if (manualCheckinsToday >= limits.manual) {
+            return sendError(
+                res,
+                `You have reached today's manual check-in limit (${limits.manual}/${limits.manual}). Please continue with AI analysis or try again tomorrow.`,
+                409
+            );
         }
 
-        // Handle support contact - extract ObjectId if object is provided
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                // For AI scans, this should be the ObjectId string
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact and gracefully normalize "No Need" values.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🔍 Processing support contact:', {
             input: req.body.supportContactUserId,
@@ -609,11 +910,11 @@ const submitCheckin = async (req, res) => {
 
         // Update user's emotional patterns for AI learning
         console.log('🧠 Updating user emotional patterns...');
-        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection);
+        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection, req.user.role);
         console.log('✅ User emotional patterns updated');
 
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
@@ -623,7 +924,7 @@ const submitCheckin = async (req, res) => {
         // Populate support contact details if exists
         let populatedCheckin = checkin;
         if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            populatedCheckin = await CheckinModel.findById(checkin._id)
                 .populate('supportContactUserId', 'name role department');
         }
 
@@ -795,15 +1096,15 @@ const submitCheckin = async (req, res) => {
 // Get today's check-in for the current user
 const getTodayCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             userId: req.user.id,
             date: {
                 $gte: today,
@@ -816,7 +1117,7 @@ const getTodayCheckin = async (req, res) => {
         }
 
         // Populate user name for today's checkin
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -840,42 +1141,51 @@ const getTodayCheckin = async (req, res) => {
 // Get today's check-in status (for UI to show available options)
 const getTodayCheckinStatus = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Check for manual check-in (no aiEmotionScan)
-        const manualCheckin = await EmotionalCheckin.findOne({
+        const baseTodayQuery = {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
-            },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ]
-        });
+            }
+        };
 
-        // Check for AI check-in (has aiEmotionScan)
-        const aiCheckin = await EmotionalCheckin.findOne({
-            userId: req.user.id,
-            date: {
-                $gte: today,
-                $lt: tomorrow
-            },
-            aiEmotionScan: { $exists: true, $ne: null }
-        });
+        const [manualCount, aiCount, manualCheckin, aiCheckin] = await Promise.all([
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }),
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }).sort({ submittedAt: -1 }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }).sort({ submittedAt: -1 })
+        ]);
 
         const status = {
-            hasManualCheckin: !!manualCheckin,
-            hasAICheckin: !!aiCheckin,
-            canDoManual: !manualCheckin,
-            canDoAI: !aiCheckin,
+            manualCount,
+            aiCount,
+            manualLimit: limits.manual,
+            aiLimit: limits.ai,
+            hasManualCheckin: manualCount >= limits.manual,
+            hasAICheckin: aiCount >= limits.ai,
+            canDoManual: manualCount < limits.manual,
+            canDoAI: aiCount < limits.ai,
             manualCheckinTime: manualCheckin?.submittedAt,
             aiCheckinTime: aiCheckin?.submittedAt
         };
@@ -890,10 +1200,10 @@ const getTodayCheckinStatus = async (req, res) => {
 // Get check-in results with AI analysis
 const getCheckinResults = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             _id: req.params.id,
             userId: req.user.id
         }).populate('supportContactUserId', 'name role department');
@@ -903,7 +1213,7 @@ const getCheckinResults = async (req, res) => {
         }
 
         // Populate user name for check-in results
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -927,7 +1237,6 @@ const getCheckinResults = async (req, res) => {
 // Get check-in history with pagination and optional user filtering for dashboard
 const getCheckinHistory = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError, getPaginationInfo } = require('../utils/response');
 
         const page = parseInt(req.query.page) || 1;
@@ -937,6 +1246,8 @@ const getCheckinHistory = async (req, res) => {
         // Build query - allow filtering by userId with role-based checks
         const query = {};
         const requestedUserId = req.query.userId;
+        let queryRole = req.user.role;
+
         if (requestedUserId) {
             // If requesting another user's data, enforce permissions
             const isSelf = String(requestedUserId) === String(req.user.id);
@@ -954,10 +1265,14 @@ const getCheckinHistory = async (req, res) => {
                 }
             }
             query.userId = requestedUserId;
+            const requestedUser = await findAnyUserById(requestedUserId, 'role');
+            queryRole = requestedUser?.role || req.user.role;
         } else {
             // Default to current user's history if no userId specified
             query.userId = req.user.id;
         }
+
+        const CheckinModel = getCheckinModelForRole(queryRole);
 
         // Add date filtering if provided
         if (req.query.startDate || req.query.endDate) {
@@ -971,10 +1286,10 @@ const getCheckinHistory = async (req, res) => {
         }
 
         // Get total count
-        const total = await EmotionalCheckin.countDocuments(query);
+        const total = await countDocumentsSafe(CheckinModel, query);
 
         // Get check-ins with pagination
-        const checkins = await EmotionalCheckin.find(query)
+        const checkins = await CheckinModel.find(query)
             .sort({ date: -1, submittedAt: -1 })
             .skip(skip)
             .limit(limit)
@@ -1001,13 +1316,23 @@ const getCheckinHistory = async (req, res) => {
 
 const getTeacherDailyCheckins = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = StudentEmotionalCheckin;
+        const viewerRole = req.user?.role;
+        const isTeacherRole = viewerRole === 'teacher' || viewerRole === 'se_teacher';
+        const isPrincipalView = ['head_unit', 'directorate', 'admin', 'superadmin'].includes(viewerRole);
+        const requestedGrade = normalizeSpaces(String(req.query.grade || ''));
+        const requestedClassName = normalizeSpaces(String(req.query.className || ''));
+        const requestedUnit = resolveUnitLabel(req.query.unit || '');
 
-        const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
-        if (!teacherScopes.length) {
-            return sendError(res, 'No classroom assignments found for this teacher', 403);
-        }
+        let scopedStudents = [];
+        const scopeMeta = {
+            mode: isTeacherRole ? 'class' : 'unit',
+            viewerRole,
+            unit: null,
+            gradeBand: null,
+            className: requestedClassName || null
+        };
 
         const dateParam = req.query.date ? new Date(req.query.date) : new Date();
         if (Number.isNaN(dateParam.getTime())) {
@@ -1019,17 +1344,86 @@ const getTeacherDailyCheckins = async (req, res) => {
         const endDate = new Date(dateParam);
         endDate.setHours(23, 59, 59, 999);
 
-        const students = await UserStudent.find({
-            role: 'student',
-            isActive: true
-        }).select('name email nickname currentGrade className');
+        if (isTeacherRole) {
+            const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
+            if (!teacherScopes.length) {
+                return sendError(res, 'No classroom assignments found for this teacher', 403);
+            }
 
-        const scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            const students = await UserStudent.find({
+                role: 'student',
+                isActive: true
+            }).select('name email nickname currentGrade className unit department');
+
+            scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            scopeMeta.gradeBand = 'Assigned Classes';
+            scopeMeta.classAssignments = Array.from(new Set(
+                (req.user?.classes || [])
+                    .map((assignment = {}) => {
+                        const grade = normalizeSpaces(assignment.grade || '');
+                        const className = normalizeSpaces(assignment.className || '');
+                        return `${grade}${grade && className ? ' - ' : ''}${className}`.trim();
+                    })
+                    .filter(Boolean)
+            ));
+        } else if (isPrincipalView) {
+            const viewerUnit = resolveUnitLabel(req.user?.unit || req.user?.department || '');
+            const effectiveUnit = viewerRole === 'head_unit'
+                ? viewerUnit
+                : (requestedUnit || viewerUnit);
+
+            const studentFilter = {
+                role: 'student',
+                isActive: true
+            };
+
+            if (effectiveUnit) {
+                studentFilter.$or = [
+                    { unit: effectiveUnit },
+                    { department: effectiveUnit }
+                ];
+            }
+
+            const explicitGradeRegex = buildGradeRegexFromQuery(requestedGrade);
+            const unitGradeRegex = buildUnitGradeRegex(effectiveUnit);
+            if (explicitGradeRegex) {
+                studentFilter.currentGrade = explicitGradeRegex;
+            } else if (unitGradeRegex) {
+                studentFilter.currentGrade = unitGradeRegex;
+            }
+
+            if (requestedClassName) {
+                studentFilter.className = new RegExp(escapeRegex(requestedClassName), 'i');
+            }
+
+            scopedStudents = await UserStudent.find(studentFilter)
+                .select('name email nickname currentGrade className unit department');
+
+            scopeMeta.unit = effectiveUnit || null;
+            scopeMeta.gradeBand = requestedGrade || (effectiveUnit ? getUnitGradeBandLabel(effectiveUnit) : 'All Grades');
+        } else {
+            return sendError(res, 'Role is not allowed to access student daily dashboard', 403);
+        }
+
+        scopedStudents.sort((a, b) => {
+            const gradeA = normalizeSpaces(a.currentGrade || '');
+            const gradeB = normalizeSpaces(b.currentGrade || '');
+            if (gradeA !== gradeB) return gradeA.localeCompare(gradeB);
+            const classA = normalizeSpaces(a.className || '');
+            const classB = normalizeSpaces(b.className || '');
+            if (classA !== classB) return classA.localeCompare(classB);
+            return normalizeSpaces(a.name || '').localeCompare(normalizeSpaces(b.name || ''));
+        });
+
         const studentIds = scopedStudents.map((student) => student._id);
 
         if (!studentIds.length) {
-            return sendSuccess(res, 'No students matched your class assignments', {
+            const noMatchMessage = isTeacherRole
+                ? 'No students matched your class assignments'
+                : 'No students matched your unit scope';
+            return sendSuccess(res, noMatchMessage, {
                 date: startDate.toISOString(),
+                scope: scopeMeta,
                 stats: {
                     totalStudents: 0,
                     submittedToday: 0,
@@ -1040,17 +1434,30 @@ const getTeacherDailyCheckins = async (req, res) => {
             });
         }
 
-        const checkins = await EmotionalCheckin.find({
+        const trendStartDate = new Date(startDate);
+        trendStartDate.setDate(trendStartDate.getDate() - 13);
+
+        const checkins = await CheckinModel.find({
             userId: { $in: studentIds },
-            date: { $gte: startDate, $lte: endDate }
+            date: { $gte: trendStartDate, $lte: endDate }
         }).sort({ date: -1, submittedAt: -1 });
 
+        const historyByStudent = new Map();
         const checkinMap = new Map();
         const needsSupportSet = new Set();
+
         checkins.forEach((checkin) => {
             const key = checkin.userId.toString();
-            if (!checkinMap.has(key)) {
-                checkinMap.set(key, checkin);
+
+            if (!historyByStudent.has(key)) {
+                historyByStudent.set(key, []);
+            }
+            historyByStudent.get(key).push(checkin);
+
+            if (isDateWithinWindow(checkin.date, startDate, endDate)) {
+                if (!checkinMap.has(key)) {
+                    checkinMap.set(key, checkin);
+                }
                 if (checkin.aiAnalysis?.needsSupport) {
                     needsSupportSet.add(key);
                 }
@@ -1058,6 +1465,7 @@ const getTeacherDailyCheckins = async (req, res) => {
         });
 
         const studentsPayload = scopedStudents.map((student) => {
+            const studentHistory = historyByStudent.get(student._id.toString()) || [];
             const checkin = checkinMap.get(student._id.toString());
             return {
                 id: student._id,
@@ -1066,12 +1474,14 @@ const getTeacherDailyCheckins = async (req, res) => {
                 nickname: student.nickname,
                 currentGrade: student.currentGrade,
                 className: student.className,
-                checkin: checkin ? formatCheckinSnapshot(checkin) : null
+                checkin: checkin ? formatCheckinSnapshot(checkin) : null,
+                progress: buildStudentProgressPayload(studentHistory)
             };
         });
 
         sendSuccess(res, 'Teacher daily check-ins retrieved', {
             date: startDate.toISOString(),
+            scope: scopeMeta,
             stats: {
                 totalStudents: scopedStudents.length,
                 submittedToday: checkinMap.size,
@@ -1098,16 +1508,16 @@ const getAvailableContacts = async (req, res) => {
         let contactableRoles = [];
         switch (userRole) {
             case 'student':
-                contactableRoles = ['counselor', 'teacher', 'directorate'];
+                contactableRoles = ['support_staff', 'teacher', 'se_teacher', 'directorate', 'head_unit'];
                 break;
             case 'teacher':
             case 'staff':
             case 'support_staff':
             case 'se_teacher':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'head_unit':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'directorate':
                 contactableRoles = ['directorate', 'head_unit']; // Can contact other directors and head units
@@ -1137,7 +1547,7 @@ const getAvailableContacts = async (req, res) => {
                 jobPosition: contact.jobPosition || 'N/A'
             })),
             {
-                id: 'no_need',
+                id: 'no-need',
                 name: 'No Need',
                 role: 'N/A',
                 department: 'N/A',
@@ -1363,15 +1773,16 @@ const buildVisionFallbackResult = (seed = Date.now()) => {
 // Submit AI emotion scan check-in (separate from manual check-in)
 const submitAICheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
+        const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -1386,28 +1797,25 @@ const submitAICheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingAICheckin = await EmotionalCheckin.findOne({
+        const aiCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: true, $ne: null } // AI check-in has AI scan data
+            ...aiCheckinFilter
         });
 
-        if (existingAICheckin) {
-            return sendError(res, 'You have already completed an AI analysis check-in today. You can only do manual check-in or wait until tomorrow.', 409);
+        if (aiCheckinsToday >= limits.ai) {
+            return sendError(
+                res,
+                `You have reached today's AI analysis check-in limit (${limits.ai}/${limits.ai}). Please continue with manual check-in or try again tomorrow.`,
+                409
+            );
         }
 
-        // Handle support contact for AI scans
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact for AI scans and normalize "No Need" variants.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🤖 AI Check-in support contact processing:', {
             input: req.body.supportContactUserId,
@@ -1493,7 +1901,7 @@ const submitAICheckin = async (req, res) => {
         aiAnalysis.personalizedGreeting = personalizedGreeting;
 
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
@@ -1503,7 +1911,7 @@ const submitAICheckin = async (req, res) => {
         // Populate support contact details if exists
         let populatedCheckin = checkin;
         if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+            populatedCheckin = await CheckinModel.findById(checkin._id)
                 .populate('supportContactUserId', 'name role department');
         }
 
@@ -1616,12 +2024,12 @@ const submitAICheckin = async (req, res) => {
 };
 
 const getPersonalDashboard = async (req, res) => {
-    const EmotionalCheckin = require('../models/EmotionalCheckin');
     const { sendSuccess, sendError } = require('../utils/response');
 
     try {
         const userId = req.user.id;
         const objectId = normalizeObjectId(userId);
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         if (!objectId) {
             return sendError(res, 'Unable to resolve user profile for dashboard', 400);
@@ -1643,18 +2051,18 @@ const getPersonalDashboard = async (req, res) => {
             streakBuckets,
             last30DaysCheckins
         ] = await Promise.all([
-            EmotionalCheckin.findOne({
+            CheckinModel.findOne({
                 userId,
                 date: { $gte: todayStart, $lt: todayEnd }
             })
                 .populate('supportContactUserId', 'name role department unit email')
                 .lean(),
-            EmotionalCheckin.find({ userId })
+            CheckinModel.find({ userId })
                 .populate('supportContactUserId', 'name role department unit')
                 .sort({ date: -1 })
                 .limit(5)
                 .lean(),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1677,7 +2085,7 @@ const getPersonalDashboard = async (req, res) => {
                     }
                 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 {
                     $match: {
                         userId: objectId,
@@ -1694,7 +2102,7 @@ const getPersonalDashboard = async (req, res) => {
                 { $sort: { count: -1 } },
                 { $limit: 6 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1705,7 +2113,7 @@ const getPersonalDashboard = async (req, res) => {
                 },
                 { $sort: { '_id': -1 } }
             ]),
-            EmotionalCheckin.find({
+            CheckinModel.find({
                 userId,
                 date: { $gte: thirtyDaysAgo }
             })
@@ -1748,8 +2156,8 @@ const getPersonalDashboard = async (req, res) => {
             today: {
                 status: todaySnapshot ? 'completed' : 'pending',
                 message: todaySnapshot
-                    ? 'Check-in hari ini sudah tercatat'
-                    : 'Belum ada check-in untuk hari ini',
+                    ? 'Today\'s check-in is recorded'
+                    : 'No check-in yet for today',
                 checkin: todaySnapshot
             },
             overall: {

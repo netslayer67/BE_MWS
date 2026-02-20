@@ -22,6 +22,8 @@ const {
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
 
 const normalizeValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const toExactRegex = (value = '') => new RegExp(`^${escapeRegex(value)}$`, 'i');
 
 const normalizeList = (value) =>
     typeof value === 'string'
@@ -169,6 +171,24 @@ const sanitizeStudentPayload = (payload = {}) => {
 const applyViewerScope = (filter = {}, viewer = {}) => {
     // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
+        return filter;
+    }
+
+    // Students can only access their own MTSS student record by identity fields.
+    if (viewer.role === 'student') {
+        const clauses = [];
+        if (viewer.email) clauses.push({ email: toExactRegex(viewer.email) });
+        if (viewer.username) clauses.push({ username: toExactRegex(viewer.username) });
+        if (viewer.nickname) clauses.push({ nickname: toExactRegex(viewer.nickname) });
+        if (viewer.name) clauses.push({ name: toExactRegex(viewer.name) });
+
+        filter.$and = filter.$and || [];
+        if (clauses.length) {
+            filter.$and.push({ $or: clauses });
+        } else {
+            // Explicit deny-all fallback if we cannot identify the student user.
+            filter.$and.push({ _id: null });
+        }
         return filter;
     }
 
@@ -407,7 +427,7 @@ const loadMentorsByGrade = async (grades = []) => {
                     { 'classes.grade': new RegExp(`^${grade}(\\s|$)`, 'i') }
                 ]
             })
-                .select('name email username jobPosition unit classes')
+                .select('name email username gender jobPosition unit classes')
                 .lean();
 
             // Filter mentors to only those whose class assignments match the grade
@@ -448,7 +468,7 @@ const loadMentorsByGradeAndClass = async (grade = '', className = '') => {
     const mentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     // Filter mentors who have class assignments matching BOTH grade AND className
@@ -487,7 +507,7 @@ const loadMentorsByClassKeys = async (classKeys = []) => {
     const allMentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     const filteredMentors = (allMentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
@@ -551,6 +571,9 @@ const buildFallbackSummary = (mentors = []) => {
             .map((mentor) => ({
                 id: mentor?._id?.toString?.() || mentor?._id,
                 name: mentor?.name,
+                nickname: mentor?.username,
+                username: mentor?.username,
+                gender: mentor?.gender,
                 email: mentor?.email,
                 jobPosition: mentor?.jobPosition,
                 unit: mentor?.unit,
@@ -601,8 +624,8 @@ const listStudents = async (req, res) => {
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
-                  .populate('mentorId', 'name email username jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+                  .populate('mentorId', 'name email username gender jobPosition')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
                   .lean()
             : [];
 
@@ -645,9 +668,16 @@ const getStudent = async (req, res) => {
             return sendError(res, 'Student not found', 404);
         }
 
+        // Enforce viewer scope for single-student endpoint as well.
+        const scopedFilter = applyViewerScope({ _id: student._id }, req.user);
+        const canAccess = await MTSSStudent.exists(scopedFilter);
+        if (!canAccess) {
+            return sendError(res, 'Insufficient permissions to view this student', 403);
+        }
+
         const assignments = await MentorAssignment.find({ studentIds: student._id })
-            .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+            .populate('mentorId', 'name email username gender jobPosition')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -707,6 +737,9 @@ const getStudent = async (req, res) => {
                 monitoringMethod: assignment.monitoringMethod || null,
                 monitoringFrequency: assignment.monitoringFrequency || null,
                 mentor: assignment.mentorId?.name || 'MTSS Mentor',
+                mentorNickname: assignment.mentorId?.username || null,
+                mentorUsername: assignment.mentorId?.username || null,
+                mentorGender: assignment.mentorId?.gender || null,
                 mentorEmail: assignment.mentorId?.email || null,
                 startDate: assignment.startDate,
                 endDate: assignment.endDate,
@@ -727,6 +760,15 @@ const getStudent = async (req, res) => {
 
         // Add interventionDetails to payload
         payload.interventionDetails = interventionDetails;
+        payload.assignmentCount = assignments.length;
+        payload.activeAssignmentCount = assignments.filter((assignment) => assignment.status === 'active').length;
+        payload.lastAssignmentAt = assignments
+            .map((assignment) => assignment.updatedAt || assignment.endDate || assignment.startDate || null)
+            .filter(Boolean)
+            .map((value) => new Date(value))
+            .filter((value) => !Number.isNaN(value.getTime()))
+            .sort((a, b) => b - a)[0]?.toISOString() || null;
+        payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

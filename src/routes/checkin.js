@@ -13,7 +13,7 @@ const {
     getAvailableContacts,
     analyzeEmotion
 } = require('../controllers/checkinController');
-const { authenticate, requireStaffOrTeacher, requireTeacherAccess } = require('../middleware/auth');
+const { authenticate, requireStaffOrTeacher, authorize } = require('../middleware/auth');
 const { validate, validateQuery } = require('../middleware/validation');
 const { emotionalCheckinSchema, paginationSchema, dateRangeSchema } = require('../utils/validationSchemas');
 
@@ -76,8 +76,8 @@ router.get('/results/:id', getCheckinResults);
 // Get check-in history with pagination and date filtering
 router.get('/history', validateQuery(paginationSchema), validateQuery(dateRangeSchema), getCheckinHistory);
 
-// Teacher daily dashboard for student check-ins
-router.get('/teacher/dashboard', requireTeacherAccess, getTeacherDailyCheckins);
+// Student daily dashboard for teacher + principal + elevated roles
+router.get('/teacher/dashboard', authorize('teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'), getTeacherDailyCheckins);
 
 // Get available support contacts
 router.get('/contacts/available', getAvailableContacts);
