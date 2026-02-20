@@ -66,17 +66,36 @@ const INTENTS = [
         label: 'MTSS Student Portal',
         navigateTo: '/mtss/student-portal',
         patterns: [/(student portal|portal student|mtss portal|portal mtss)/i]
+    },
+    {
+        intent: 'open_mtss_teacher_dashboard',
+        label: 'MTSS Teacher Dashboard',
+        navigateTo: '/mtss/teacher',
+        patterns: [
+            /(mtss teacher|teacher mtss|dashboard mtss teacher|mtss dashboard teacher)/i,
+            /(create|buat|make|new|rancang|update|perbarui|ubah).*(intervention|intervensi|mtss plan|rencana mtss)/i,
+            /(log|update|catat|tulis).*(progress|progres|check[\s-]?in|perkembangan)/i,
+            /(my students|students saya|siswa saya|student roster|daftar siswa|monitor siswa)/i,
+            /(monitor|pantau|lihat progres|view intervention)/i
+        ]
+    },
+    {
+        intent: 'open_mtss_admin_dashboard',
+        label: 'MTSS Admin Dashboard',
+        navigateTo: '/mtss/admin',
+        patterns: [/(mtss admin|admin mtss|dashboard mtss admin)/i]
     }
 ];
 
 const NAV_CUE = /(bawa(kan)?|antar(kan)?|mau ke|ingin ke|ke halaman|pindah(kan)?|arahin|arahkan|redirect|go to|open|navigate|buka(\s+halaman)?|masuk ke|take me|bring me|visit|show me)/i;
 const HELP_CUE = /(bantu(in)?|tolong|help me|could you|can you|please|dong|donk|plz)/i;
+const MTSS_CUE = /(intervention|intervensi|mtss|check[\s-]?in\s+siswa|log\s+progress|student roster|daftar siswa)/i;
 
 const detect = (userMessage = '') => {
     const text = String(userMessage || '').toLowerCase().trim();
     if (!text) return null;
 
-    const hasCue = NAV_CUE.test(text) || HELP_CUE.test(text) || /\/(?:student|profile|mtss)\//i.test(text);
+    const hasCue = NAV_CUE.test(text) || HELP_CUE.test(text) || MTSS_CUE.test(text) || /\/(?:student|profile|mtss)\//i.test(text);
     if (!hasCue) return null;
 
     for (const item of INTENTS) {

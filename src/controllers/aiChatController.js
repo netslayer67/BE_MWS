@@ -247,6 +247,52 @@ const updateAssistantProfile = async (req, res) => {
     }
 };
 
+/**
+ * Execute a safe assistant operation (whitelisted automation)
+ */
+const executeOperation = async (req, res) => {
+    try {
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const operation = String(req.body?.operation || '').trim();
+        const payload = req.body?.payload || {};
+        const sessionId = req.body?.sessionId || null;
+        if (!operation) {
+            return res.status(400).json({
+                success: false,
+                message: 'Operation is required'
+            });
+        }
+
+        const result = await aiChatService.executeOperation(userId, {
+            operation,
+            payload,
+            sessionId
+        });
+
+        return res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        const message = error?.message || 'Failed to execute assistant operation';
+        let status = 500;
+        if (/required|unsupported/i.test(message)) status = 400;
+        if (/not found/i.test(message)) status = 404;
+        if (/only available|only the assigned mentor/i.test(message)) status = 403;
+        return res.status(status).json({
+            success: false,
+            message
+        });
+    }
+};
+
 module.exports = {
     sendMessage,
     getConversationHistory,
@@ -254,5 +300,6 @@ module.exports = {
     startNewConversation,
     archiveConversation,
     getAssistantProfile,
-    updateAssistantProfile
+    updateAssistantProfile,
+    executeOperation
 };
