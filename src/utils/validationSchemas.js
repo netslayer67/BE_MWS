@@ -88,16 +88,8 @@ const emotionalCheckinSchema = Joi.object({
         .max(500)
         .optional()
         .allow('')
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('overwhelmed', 'scattered', 'anxious', 'sad', 'lonely')).min(1),
-            then: Joi.string().min(10).messages({
-                'string.min': 'When feeling overwhelmed, anxious, or low, sharing more details (at least 10 characters) can help us provide better support'
-            }),
-            otherwise: Joi.optional()
-        })
         .messages({
-            'string.max': 'Please keep your details under 500 characters to maintain focus',
-            'string.min': 'When experiencing challenging emotions, a bit more detail helps us understand and support you better'
+            'string.max': 'Please keep your details under 500 characters to maintain focus'
         }),
 
     presenceLevel: Joi.number()
@@ -105,13 +97,6 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'scattered')).min(1),
-            then: Joi.number().max(7).messages({
-                'number.max': 'When feeling tired or overwhelmed, presence levels above 7 may need additional context'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Presence level must be between 1 and 10',
             'number.max': 'Presence level must be between 1 and 10',
@@ -123,13 +108,6 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'anxious')).min(1),
-            then: Joi.number().max(6).messages({
-                'number.max': 'When feeling tired or anxious, capacity levels above 6 may indicate you need additional support'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Capacity level must be between 1 and 10',
             'number.max': 'Capacity level must be between 1 and 10',
