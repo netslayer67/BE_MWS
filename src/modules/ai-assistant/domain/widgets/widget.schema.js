@@ -3,7 +3,12 @@ const DEFAULT_MAX_TABLE_ROWS = 8;
 const DEFAULT_MAX_CHART_POINTS = 20;
 const ALLOWED_EXECUTE_OPERATIONS = new Set([
     'create_mtss_intervention',
-    'append_mtss_progress_checkin'
+    'append_mtss_progress_checkin',
+    'assign_students_to_mtss_mentor',
+    'assign_intervention_mentor',
+    'reassign_mtss_assignment_mentor',
+    'update_mtss_assignment_status',
+    'update_mtss_goal_completion'
 ]);
 
 const ALLOWED_WIDGET_TYPES = new Set([
@@ -47,9 +52,31 @@ const toText = (value, maxLen = 220) => String(value || '')
     .trim()
     .slice(0, maxLen);
 
+const toMultilineText = (value, maxLen = 260) => String(value || '')
+    .replace(/&lt;br\s*\/?&gt;/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxLen);
+
 const toNumber = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toNumberLike = (value, fallback = 0) => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const normalized = value.replace(/,/g, '').trim();
+        const match = normalized.match(/-?\d+(?:\.\d+)?/);
+        if (match) {
+            const parsed = Number(match[0]);
+            if (Number.isFinite(parsed)) return parsed;
+        }
+    }
+    return fallback;
 };
 
 const toItems = (value) => (Array.isArray(value) ? value : []);
@@ -151,10 +178,20 @@ const normalizeBarChartWidget = (widget = {}) => ({
     data: toItems(widget.data)
         .slice(0, DEFAULT_MAX_CHART_POINTS)
         .map((entry = {}) => {
+            const labelSource = entry[widget.xKey] || entry.label || entry.tierLabel || entry.name;
+            const valueSource = entry[widget.yKey] || entry.value || entry.tierValue || entry.count || entry.total;
+            const numericValue = toNumberLike(valueSource, 0);
             const normalized = { ...entry };
-            normalized.label = toText(entry.label, 80);
-            normalized.tierLabel = toText(entry.tierLabel, 80);
-            normalized.tierValue = toNumber(entry.tierValue, 0);
+            normalized.label = toText(labelSource, 80);
+            normalized.tierLabel = toText(entry.tierLabel || labelSource, 80);
+            normalized.value = numericValue;
+            normalized.tierValue = numericValue;
+            if (widget.xKey) {
+                normalized[widget.xKey] = toText(labelSource, 80);
+            }
+            if (widget.yKey) {
+                normalized[widget.yKey] = numericValue;
+            }
             return normalized;
         })
 });
@@ -173,7 +210,7 @@ const normalizeTableWidget = (widget = {}) => {
         .map((row = {}) => {
             const next = {};
             columns.forEach((column) => {
-                next[column.key] = toText(row[column.key], 180);
+                next[column.key] = toMultilineText(row[column.key], 280);
             });
             return next;
         });
@@ -198,7 +235,7 @@ const normalizeTimelineWidget = (widget = {}) => ({
         .map((item = {}) => ({
             time: toText(item.time, 24),
             title: toText(item.title, 120),
-            detail: toText(item.detail, 220)
+            detail: toMultilineText(item.detail, 260)
         }))
 });
 

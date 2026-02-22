@@ -80,6 +80,7 @@ router.get('/google/callback',
                 email: dbUser.email,
                 role: dbUser.role, // This is the authoritative role from database
                 username: dbUser.username,
+                gender: dbUser.gender,
                 department: dbUser.department,
                 jobLevel: dbUser.jobLevel,
                 unit: dbUser.unit,
@@ -191,6 +192,7 @@ router.post('/login', require('../middleware/validation').validate(require('../u
                 currentGrade: user.currentGrade,
                 className: user.className,
                 nickname: user.nickname,
+                gender: user.gender,
                 joinAcademicYear: user.joinAcademicYear,
                 dashboardAccess,
                 dashboardRole: dashboardAccess.effectiveRole

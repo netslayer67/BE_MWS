@@ -7,8 +7,10 @@ const EmotionalCheckin = require('../models/EmotionalCheckin');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const StudentAIAssistantProfile = require('../models/StudentAIAssistantProfile');
-const { INTERVENTION_TYPES, TIER_LABELS } = require('../constants/mtss');
+const notificationService = require('./notificationService');
+const { INTERVENTION_TYPES, INTERVENTION_TYPE_KEYS, TIER_LABELS } = require('../constants/mtss');
 const { assistantOrchestrator, twinRepository } = require('../modules/ai-assistant');
+const { normalizeAssistantIntentText } = require('../utils/assistantIntentNormalizer');
 
 class AIChatService {
     constructor() {
@@ -36,6 +38,8 @@ class AIChatService {
             'superadmin',
             'counselor'
         ]);
+        this.mtssMentorRoleSet = new Set(['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'principal', 'admin', 'directorate']);
+        this.mtssAutomationRoleSet = new Set(['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin']);
     }
 
     getSessionLockKey(userId, sessionId = null) {
@@ -138,6 +142,7 @@ class AIChatService {
             teacher: 'Teacher',
             se_teacher: 'SE Teacher',
             head_unit: 'Head Unit',
+            principal: 'Principal',
             directorate: 'Directorate',
             admin: 'Admin',
             superadmin: 'Superadmin',
@@ -152,12 +157,20 @@ class AIChatService {
 
     isMtssCapableWorkforceRole(role = '') {
         const normalizedRole = this.normalizeRole(role);
-        return ['teacher', 'se_teacher', 'head_unit', 'directorate'].includes(normalizedRole);
+        return ['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate'].includes(normalizedRole);
     }
 
     isMtssAdminRole(role = '') {
         const normalizedRole = this.normalizeRole(role);
-        return ['head_unit', 'directorate', 'admin', 'superadmin'].includes(normalizedRole);
+        return ['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(normalizedRole);
+    }
+
+    isMtssAutomationRole(role = '') {
+        return this.mtssAutomationRoleSet.has(this.normalizeRole(role));
+    }
+
+    isEligibleMtssMentorRole(role = '') {
+        return this.mtssMentorRoleSet.has(this.normalizeRole(role));
     }
 
     normalizeTierCode(tier = 'tier2') {
@@ -673,6 +686,9 @@ class AIChatService {
                 tierCode: String(assignment.tier || 'tier1').toLowerCase(),
                 tier: this.toTierLabel(assignment.tier || 'tier1'),
                 status: assignment.status || 'active',
+                mentorId: assignment.mentorId?._id?.toString?.() || assignment.mentorId?._id || assignment.mentorId || null,
+                mentorName: assignment.mentorId?.name || assignment.mentorId?.username || 'MTSS Mentor',
+                mentorRole: assignment.mentorId?.role || null,
                 focusAreas: Array.isArray(assignment.focusAreas) ? assignment.focusAreas.filter(Boolean) : [],
                 strategyName: assignment.strategyName || null,
                 monitoringMethod: assignment.monitoringMethod || null,
@@ -711,19 +727,27 @@ class AIChatService {
         return Array.from(new Set(items)).slice(0, 8);
     }
 
-    isMtssQuestion(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    isMtssQuestion(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         const hasMtssKeyword = /(mtss|tier|intervention|focus area|mentor|assignment|support plan|support program|support tier)/i.test(text);
         const hasTaskKeyword = /(tugas|task|homework|goal|next step)/i.test(text);
         return hasMtssKeyword || (hasTaskKeyword && /(mtss|tier|intervention|mentor|support)/i.test(text));
     }
 
-    detectMtssWorkflowIntent(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    wantsMtssSprintPlan(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
+        if (!text) return false;
+        const asksPlan = /(20[\s-]?minute|20 menit|triage|sprint|daily plan|rencana harian|monitoring plan|plan for this focus|make.*plan|help me make)/i.test(text);
+        const hasMtssContext = /(mtss|assignment|mentor|focus|intervention|tier|check[\s-]?in|progress|monitor)/i.test(text);
+        return asksPlan && hasMtssContext;
+    }
+
+    detectMtssWorkflowIntent(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         if (!text) return null;
 
-        if (/(create|buat|make|new|rancang|susun|update|revise|perbarui|ubah).*(intervention|intervensi|plan|rencana|mtss)/i.test(text)
-            || /(intervention|intervensi|mtss).*(create|buat|plan|rencana|update|revise|perbarui|ubah)/i.test(text)) {
+        if (/(create|buat|make|new|rancang|susun|update|revise|perbarui|ubah).*(intervention|intervensi|mtss intervention|support plan|rti plan)/i.test(text)
+            || /(intervention|intervensi|mtss intervention).*(create|buat|make|new|update|revise|perbarui|ubah)/i.test(text)) {
             return 'create_intervention';
         }
 
@@ -747,6 +771,26 @@ class AIChatService {
             return 'find_strategy';
         }
 
+        if (/(\bassign(?:ed|ing)?\b|\ballocate\b|alokasi|pasang|hubungkan|link).*(mentor|students|student|siswa|murid|intervention|intervensi)/i.test(text)
+            || /(mentor|intervention|intervensi).*(\bassign(?:ed|ing)?\b|\ballocate\b|alokasi|pasang|hubungkan|link)/i.test(text)) {
+            return 'assign_mentor';
+        }
+
+        if (/(\breassign(?:ed|ing)?\b|replace|ganti|switch).*(mentor|assignment|penanggung)/i.test(text)
+            || /(mentor|assignment).*(\breassign(?:ed|ing)?\b|replace|ganti|switch)/i.test(text)) {
+            return 'reassign_mentor';
+        }
+
+        if (/(update|set|ubah|change).*(status|active|paused|completed|closed|selesai|ditutup)/i.test(text)
+            || /(status).*(assignment|intervention|intervensi|mtss)/i.test(text)) {
+            return 'update_status';
+        }
+
+        if (/(complete|mark|selesaikan|tandai).*(goal|target|sasaran)/i.test(text)
+            || /(goal|target).*(complete|mark|selesai|tandai)/i.test(text)) {
+            return 'update_goal';
+        }
+
         return null;
     }
 
@@ -755,8 +799,8 @@ class AIChatService {
         return /don't have access|do not have access|cannot access|can't access|private school portal|school portal|i don't have access|i cannot see your|don't have the complete list/i.test(value);
     }
 
-    wantsStructuredVisualization(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    wantsStructuredVisualization(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         return /(chart|table|tabel|grafik|graph|diagram|visual|visualisasi|dashboard|pie chart|bar chart|line chart|perhitungan|analytics|analitik|summary dalam bentuk)/i.test(text);
     }
 
@@ -900,13 +944,13 @@ class AIChatService {
         ];
     }
 
-    wantsStudyPlan(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    wantsStudyPlan(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         return /(study plan|daily plan|jadwal|rencana belajar|after school|what should i do|apa yang harus|break.*steps|langkah demi langkah|time block|to do list|checklist)/i.test(text);
     }
 
-    wantsCapabilitiesOverview(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    wantsCapabilitiesOverview(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         return /(what can you do|bisa apa aja|bisa ngapain|capabilities|fitur|kemampuan|fungsi|lebih advance|se advance|assistant pribadi|personal assistant|bantu apa aja)/i.test(text);
     }
 
@@ -1238,37 +1282,127 @@ class AIChatService {
         return widgets;
     }
 
+    getDaysSince(dateValue) {
+        if (!dateValue) return null;
+        const parsed = new Date(dateValue);
+        if (Number.isNaN(parsed.getTime())) return null;
+        const now = new Date();
+        const diffMs = now.getTime() - parsed.getTime();
+        if (!Number.isFinite(diffMs)) return null;
+        return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    }
+
+    buildMtssTriageRows(enrichedAssignments = []) {
+        const list = Array.isArray(enrichedAssignments) ? enrichedAssignments : [];
+        const grouped = new Map();
+
+        list.forEach((assignment = {}) => {
+            const students = Array.isArray(assignment.students) ? assignment.students : [];
+            const studentNames = students.map((student = {}) => String(student.name || '').trim()).filter(Boolean);
+            const primaryStudent = students[0] || {};
+            const studentLabel = studentNames.join(', ') || 'Student';
+            const gradeClass = [primaryStudent.grade, primaryStudent.className].filter(Boolean).join(' / ') || 'Not recorded';
+            const tier = assignment.tier || this.toTierLabel(assignment.tierCode || 'tier1');
+            const status = this.normalizeMessageText(String(assignment.status || 'active'), 24);
+            const rawFocuses = Array.isArray(assignment.focusAreas) ? assignment.focusAreas : [];
+            const fallbackFocus = assignment.strategyName || 'General support';
+            const focusAreas = rawFocuses.filter(Boolean).length > 0 ? rawFocuses.filter(Boolean) : [fallbackFocus];
+            const openGoals = Array.isArray(assignment.goals)
+                ? assignment.goals.filter((goal = {}) => !goal.completed).length
+                : 0;
+            const lastCheckInDate = assignment.lastCheckInDate || null;
+            const daysSince = this.getDaysSince(lastCheckInDate);
+            const lastCheckInLabel = this.toShortDate(lastCheckInDate) || 'No check-in yet';
+            const key = [
+                studentLabel.toLowerCase(),
+                gradeClass.toLowerCase(),
+                tier.toLowerCase(),
+                status.toLowerCase()
+            ].join('::');
+
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    student: this.normalizeMessageText(studentLabel, 70),
+                    gradeClass: this.normalizeMessageText(gradeClass, 46),
+                    tier: this.normalizeMessageText(tier, 24),
+                    status,
+                    focusSet: new Set(),
+                    openGoals,
+                    lastCheckInDate,
+                    lastCheckInLabel,
+                    daysSince
+                });
+            }
+
+            const entry = grouped.get(key);
+            focusAreas.forEach((focus) => {
+                const normalizedFocus = this.normalizeMessageText(focus, 60);
+                if (normalizedFocus) entry.focusSet.add(normalizedFocus);
+            });
+            entry.openGoals = Math.max(entry.openGoals, openGoals);
+
+            if (daysSince !== null && (entry.daysSince === null || daysSince > entry.daysSince)) {
+                entry.daysSince = daysSince;
+                entry.lastCheckInDate = lastCheckInDate;
+                entry.lastCheckInLabel = lastCheckInLabel;
+            }
+        });
+
+        return Array.from(grouped.values())
+            .map((entry) => {
+                const focusAreas = Array.from(entry.focusSet);
+                const focusCount = focusAreas.length;
+                let priorityScore = 0;
+                if (focusCount > 1) priorityScore += 3;
+                if (entry.daysSince !== null && entry.daysSince > 30) priorityScore += 2;
+                else if (entry.daysSince !== null && entry.daysSince > 14) priorityScore += 1;
+                if (entry.openGoals > 1) priorityScore += 2;
+                const priority = priorityScore >= 5 ? 'high' : (priorityScore >= 3 ? 'medium' : 'normal');
+                const lastCheckIn = entry.daysSince === null
+                    ? entry.lastCheckInLabel
+                    : `${entry.lastCheckInLabel} (${entry.daysSince}d)`;
+
+                return {
+                    student: entry.student,
+                    gradeClass: entry.gradeClass,
+                    tier: entry.tier,
+                    status: entry.status,
+                    focusAreas: this.normalizeMessageText(focusAreas.join(', '), 120),
+                    openGoals: entry.openGoals,
+                    lastCheckIn,
+                    daysSince: entry.daysSince === null ? 9999 : entry.daysSince,
+                    priority
+                };
+            })
+            .sort((a, b) => {
+                const priorityRank = { high: 3, medium: 2, normal: 1 };
+                const byPriority = (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0);
+                if (byPriority !== 0) return byPriority;
+                const byDays = (b.daysSince || 0) - (a.daysSince || 0);
+                if (byDays !== 0) return byDays;
+                return (b.openGoals || 0) - (a.openGoals || 0);
+            });
+    }
+
     buildMtssStudentTableWidget(enrichedAssignments = []) {
         const list = Array.isArray(enrichedAssignments) ? enrichedAssignments : [];
         if (list.length === 0) return null;
-
-        const rows = list.slice(0, 12).map((assignment = {}) => {
-            const students = Array.isArray(assignment.students) ? assignment.students : [];
-            const studentNames = students.map((student = {}) => student.name).filter(Boolean).join(', ') || 'Student';
-            const primaryStudent = students[0] || {};
-            const gradeClass = [primaryStudent.grade, primaryStudent.className].filter(Boolean).join(' / ') || 'Not recorded';
-            const focusAreas = (assignment.focusAreas || []).join(', ') || assignment.strategyName || 'General support';
-            const openGoals = (assignment.goals || []).filter((goal = {}) => !goal.completed).length;
-            const completedGoals = (assignment.goals || []).filter((goal = {}) => goal.completed).length;
-            const goalProgress = `${completedGoals}/${(assignment.goals || []).length || 0}`;
-            const lastCheckIn = this.toShortDate(assignment.lastCheckInDate) || 'No check-in yet';
-
-            return {
-                student: this.normalizeMessageText(studentNames, 70),
-                gradeClass: this.normalizeMessageText(gradeClass, 40),
-                tier: this.normalizeMessageText(assignment.tier || this.toTierLabel(assignment.tierCode || 'tier1'), 24),
-                status: this.normalizeMessageText(String(assignment.status || 'active'), 24),
-                focusAreas: this.normalizeMessageText(focusAreas, 100),
-                goals: `${goalProgress} (${openGoals} open)`,
-                lastCheckIn
-            };
-        });
+        const triageRows = this.buildMtssTriageRows(list).slice(0, 12);
+        const rows = triageRows.map((row = {}) => ({
+            student: row.student,
+            gradeClass: row.gradeClass,
+            tier: row.tier,
+            status: row.status,
+            focusAreas: row.focusAreas,
+            goals: `${row.openGoals || 0} open`,
+            lastCheckIn: row.lastCheckIn
+        }));
 
         return {
             id: 'workforce_mtss_student_roster',
             type: 'table',
             title: 'Your MTSS Students',
-            subtitle: `${list.length} active intervention assignment(s)`,
+            subtitle: `${list.length} active intervention assignment(s) | merged by student`,
             columns: [
                 { key: 'student', label: 'Student' },
                 { key: 'gradeClass', label: 'Grade / Class' },
@@ -1280,6 +1414,95 @@ class AIChatService {
             ],
             rows
         };
+    }
+
+    buildMtssSprintTableWidget(enrichedAssignments = []) {
+        const triageRows = this.buildMtssTriageRows(enrichedAssignments).slice(0, 8);
+        if (triageRows.length === 0) return null;
+
+        return {
+            id: 'workforce_mtss_triage_table',
+            type: 'table',
+            title: 'Today Triage Queue',
+            subtitle: 'Overdue and high-complexity students first',
+            columns: [
+                { key: 'student', label: 'Student' },
+                { key: 'lastCheckIn', label: 'Last Check-in' },
+                { key: 'openGoals', label: 'Open Goals' },
+                { key: 'focusAreas', label: 'Focus Areas' },
+                { key: 'priority', label: 'Priority' }
+            ],
+            rows: triageRows.map((row = {}) => ({
+                student: row.student,
+                lastCheckIn: row.lastCheckIn,
+                openGoals: row.openGoals,
+                focusAreas: row.focusAreas,
+                priority: row.priority
+            }))
+        };
+    }
+
+    buildMtssSprintChecklistWidget() {
+        return {
+            id: 'workforce_mtss_sprint_steps',
+            type: 'checklist',
+            title: '20-Minute Sprint Steps',
+            items: [
+                { text: '0:00-02:30 Scan dashboard: overdue >14d, open goals >1, focus balance.', priority: 'high' },
+                { text: '02:30-05:00 Pick one student for deep check-in using priority order.', priority: 'high' },
+                { text: '05:00-14:00 Do deep check: problem, one evidence point, one next action.', priority: 'medium' },
+                { text: '14:00-17:00 Submit check-in and tag: monitor / follow-up / escalate.', priority: 'medium' },
+                { text: '17:00-20:00 Set tomorrow target and close sprint.', priority: 'low' }
+            ]
+        };
+    }
+
+    buildMtssSprintReply(context = {}) {
+        const workforce = context?.workforce || {};
+        const assignments = Array.isArray(workforce?.enrichedAssignments) ? workforce.enrichedAssignments : [];
+        const triageRows = this.buildMtssTriageRows(assignments);
+        const activeAssignments = Number(workforce.activeMentorAssignments || context?.mtss?.activeAssignmentCount || triageRows.length || 0);
+        const overdueCount = triageRows.filter((row = {}) => Number(row.daysSince || 0) > 14).length;
+        const openGoalsOverOne = triageRows.filter((row = {}) => Number(row.openGoals || 0) > 1).length;
+        const target = triageRows[0] || null;
+        const targetLine = target
+            ? `Today's suggested deep check-in target: **${target.student}** (${target.priority} priority, ${target.lastCheckIn}).`
+            : 'Today\'s suggested deep check-in target: **pick the highest overdue student first**.';
+
+        return [
+            '### 20-Minute Sprint (Super Clear)',
+            `Goal: scan **${activeAssignments} active assignments** and complete **1 deep check-in** without overload.`,
+            '',
+            `Quick triage numbers: **Overdue >14d: ${overdueCount}**, **Open goals >1: ${openGoalsOverOne}**.`,
+            '',
+            '1. **0:00-02:30 Dashboard Scan**',
+            '- Check 3 flags: overdue >14d, open goals >1, focus imbalance.',
+            '',
+            '2. **02:30-05:00 Pick One Student**',
+            '- Priority order: multi-focus (SEL+Behavior) -> longest since last check-in -> open goals >1.',
+            '',
+            '3. **05:00-14:00 Deep Check (9 min)**',
+            '- Capture only 3 points: main issue, one evidence datapoint, one next action.',
+            '',
+            '4. **14:00-17:00 Submit + Tag**',
+            '- Submit note and tag: `monitor` / `follow-up` / `escalate`.',
+            '',
+            '5. **17:00-20:00 Rotate**',
+            '- Set tomorrow priority student and close sprint.',
+            '',
+            targetLine,
+            '',
+            '**Check-in note template (ready to use):**',
+            '- Date: ' + (this.toShortDate(new Date()) || new Date().toISOString().slice(0, 10)),
+            '- Student: ' + (target?.student || 'Selected student'),
+            '- Focus: ' + (target?.focusAreas || 'SEL / Behavior'),
+            '- Summary: [1 sentence observation]',
+            '- Progress: [compared to baseline]',
+            '- Next Steps: [1 concrete action for next session]',
+            '- Celebration: [milestone if any]',
+            '',
+            '**Next click:** open **MTSS Teacher Dashboard** and start `Quick Check-in` for the selected student.'
+        ].join('\n');
     }
 
     buildMtssProgressTimelineWidget(assignment = {}) {
@@ -1311,18 +1534,117 @@ class AIChatService {
         };
     }
 
+    buildMtssAutomationPlannerWidgets(context = {}, options = {}) {
+        const assignmentList = Array.isArray(options?.assignments) ? options.assignments : [];
+        const selectedAssignment = options?.assignment && typeof options.assignment === 'object' ? options.assignment : {};
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const canAutomate = this.isMtssAutomationRole(role);
+
+        const operationRows = [
+            {
+                operation: 'Create Intervention',
+                command: 'create_mtss_intervention',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Creates structured MTSS intervention plan'
+            },
+            {
+                operation: 'Log Progress',
+                command: 'append_mtss_progress_checkin',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Adds objective progress evidence'
+            },
+            {
+                operation: 'Assign Students',
+                command: 'assign_students_to_mtss_mentor',
+                scope: canAutomate ? (isAdmin ? 'Admin + mentor' : 'Self mentor') : 'Disabled',
+                impact: 'Links students to mentor assignment'
+            },
+            {
+                operation: 'Assign Mentor by Subject',
+                command: 'assign_intervention_mentor',
+                scope: canAutomate ? (isAdmin ? 'Admin + mentor' : 'Self mentor') : 'Disabled',
+                impact: 'Maps mentor to intervention type'
+            },
+            {
+                operation: 'Update Assignment Status',
+                command: 'update_mtss_assignment_status',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Keeps assignment lifecycle clean'
+            },
+            {
+                operation: 'Update Goal Completion',
+                command: 'update_mtss_goal_completion',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Tracks achieved milestones'
+            }
+        ];
+
+        const checklistItems = [
+            {
+                text: `Confirm target student(s): ${assignmentList.length > 0 ? `${assignmentList.length} assignment context loaded` : 'select manually'}`,
+                priority: 'high'
+            },
+            {
+                text: `Confirm mentor ownership: ${isAdmin ? 'admin override enabled' : 'mentor must be yourself unless policy allows'}`,
+                priority: 'high'
+            },
+            {
+                text: `Confirm assignment scope: ${selectedAssignment?.id ? `assignment ${String(selectedAssignment.id).slice(0, 8)}...` : 'choose assignment before execute'}`,
+                priority: 'medium'
+            },
+            {
+                text: 'Review strategy, tier, and measurable target before submit',
+                priority: 'medium'
+            },
+            {
+                text: 'Add next-step note so downstream team can continue smoothly',
+                priority: 'low'
+            }
+        ];
+
+        return [
+            {
+                id: 'workforce_mtss_automation_matrix',
+                type: 'table',
+                title: 'MTSS Automation Matrix',
+                subtitle: 'Execution capability by role and operation',
+                columns: [
+                    { key: 'operation', label: 'Operation' },
+                    { key: 'command', label: 'Command' },
+                    { key: 'scope', label: 'Role Scope' },
+                    { key: 'impact', label: 'Impact' }
+                ],
+                rows: operationRows
+            },
+            {
+                id: 'workforce_mtss_automation_checklist',
+                type: 'checklist',
+                title: 'Pre-Execution Checklist',
+                items: checklistItems
+            }
+        ];
+    }
+
     buildMtssWorkflowActionChipsWidget(intent = '', options = {}) {
         const workflowIntent = String(intent || '').toLowerCase();
         const selectedAssignment = options?.assignment && typeof options.assignment === 'object'
             ? options.assignment
             : {};
         const assignmentList = Array.isArray(options?.assignments) ? options.assignments : [];
+        const actor = options?.actor && typeof options.actor === 'object' ? options.actor : {};
+        const actorId = String(actor._id || actor.id || '').trim() || null;
+        const actorName = String(actor.name || actor.preferredName || '').trim() || 'Current User';
+        const actorRole = this.normalizeRole(actor.role || '');
+        const actorRoleLabel = actor.roleLabel || this.getWorkforceRoleLabel(actorRole);
         const assignmentOptions = assignmentList.slice(0, 10).map((assignment = {}) => ({
             id: assignment.id,
             studentName: Array.isArray(assignment.students)
                 ? assignment.students.map((student = {}) => student.name).filter(Boolean).join(', ')
                 : 'Student',
-            tier: assignment.tier || this.toTierLabel(assignment.tierCode || 'tier2')
+            mentorName: assignment.mentorName || 'Mentor',
+            tier: assignment.tier || this.toTierLabel(assignment.tierCode || 'tier2'),
+            focusAreas: Array.isArray(assignment.focusAreas) ? assignment.focusAreas.filter(Boolean) : []
         }));
         const studentOptions = assignmentList
             .flatMap((assignment = {}) => (Array.isArray(assignment.students) ? assignment.students : []))
@@ -1335,6 +1657,26 @@ class AIChatService {
             .filter((student = {}) => student.id && student.name)
             .filter((student, index, all) => all.findIndex((item) => item.id === student.id) === index)
             .slice(0, 20);
+        const mentorOptions = assignmentList
+            .map((assignment = {}) => ({
+                id: assignment.mentorId,
+                name: assignment.mentorName || 'Mentor',
+                role: assignment.mentorRole || null
+            }))
+            .filter((mentor = {}) => mentor.id && mentor.name)
+            .filter((mentor, index, all) => all.findIndex((item) => item.id === mentor.id) === index)
+            .slice(0, 16);
+
+        if (actorId && actorRole && this.isEligibleMtssMentorRole(actorRole)) {
+            const actorExists = mentorOptions.some((mentor = {}) => String(mentor.id) === actorId);
+            if (!actorExists) {
+                mentorOptions.unshift({
+                    id: actorId,
+                    name: actorName,
+                    role: actorRoleLabel
+                });
+            }
+        }
 
         const actions = [
             {
@@ -1344,6 +1686,13 @@ class AIChatService {
                     intent: 'open_mtss_teacher_dashboard',
                     navigateTo: '/mtss/teacher',
                     label: 'MTSS Teacher Dashboard'
+                }
+            },
+            {
+                label: 'Analyze MTSS Risk',
+                action: {
+                    type: 'prefill',
+                    value: 'Analyze my MTSS roster and rank top-risk students with immediate actions.'
                 }
             }
         ];
@@ -1358,7 +1707,7 @@ class AIChatService {
                     }
                 },
                 {
-                    label: 'Auto-submit Intervention',
+                    label: 'Auto-create Intervention',
                     action: {
                         type: 'execute_operation',
                         operation: 'create_mtss_intervention',
@@ -1371,8 +1720,24 @@ class AIChatService {
                             monitoringMethod: selectedAssignment.monitoringMethod || ''
                         },
                         requireConfirmation: true,
-                        confirmText: 'Run full automation now? AI will collect missing details and submit the intervention via API.',
-                        successMessage: 'Intervention auto-submitted successfully.'
+                        confirmText: 'Run MTSS intervention creation now?',
+                        successMessage: 'Intervention created successfully.'
+                    }
+                },
+                {
+                    label: 'Assign Intervention Mentor',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'assign_intervention_mentor',
+                        payload: {
+                            studentOptions,
+                            mentorOptions,
+                            interventionType: 'SEL',
+                            tier: selectedAssignment.tierCode || 'tier2'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Assign mentor to intervention type for selected students now?',
+                        successMessage: 'Intervention mentor assignment updated.'
                     }
                 }
             );
@@ -1395,8 +1760,23 @@ class AIChatService {
                             assignmentOptions
                         },
                         requireConfirmation: true,
-                        confirmText: 'Run full automation now? AI will collect the progress details and submit the check-in via API.',
-                        successMessage: 'Progress check-in auto-submitted successfully.'
+                        confirmText: 'Submit progress check-in now?',
+                        successMessage: 'Progress check-in submitted successfully.'
+                    }
+                },
+                {
+                    label: 'Update Assignment Status',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'update_mtss_assignment_status',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            status: 'active'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Update assignment status now?',
+                        successMessage: 'Assignment status updated.'
                     }
                 }
             );
@@ -1414,6 +1794,95 @@ class AIChatService {
                     action: {
                         type: 'prefill',
                         value: 'Compare two strategy options with pros, risks, and monitoring indicators.'
+                    }
+                }
+            );
+        } else if (workflowIntent === 'assign_mentor') {
+            actions.push(
+                {
+                    label: 'Assign Students to Mentor',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'assign_students_to_mtss_mentor',
+                        payload: {
+                            studentOptions,
+                            mentorOptions,
+                            tier: selectedAssignment.tierCode || 'tier2',
+                            focusAreas: Array.isArray(selectedAssignment.focusAreas) ? selectedAssignment.focusAreas : []
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Assign selected students to mentor now?',
+                        successMessage: 'Students assigned to mentor successfully.'
+                    }
+                },
+                {
+                    label: 'Assign Mentor by Intervention',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'assign_intervention_mentor',
+                        payload: {
+                            studentOptions,
+                            mentorOptions,
+                            interventionType: 'SEL',
+                            tier: selectedAssignment.tierCode || 'tier2'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Assign mentor by intervention subject now?',
+                        successMessage: 'Mentor assigned by intervention successfully.'
+                    }
+                }
+            );
+        } else if (workflowIntent === 'reassign_mentor') {
+            actions.push(
+                {
+                    label: 'Reassign Assignment Mentor',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'reassign_mtss_assignment_mentor',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            mentorOptions
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Reassign this MTSS assignment to another mentor now?',
+                        successMessage: 'Assignment mentor updated.'
+                    }
+                }
+            );
+        } else if (workflowIntent === 'update_status') {
+            actions.push(
+                {
+                    label: 'Set Assignment Status',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'update_mtss_assignment_status',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            status: 'paused'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Apply assignment status update now?',
+                        successMessage: 'Assignment status saved.'
+                    }
+                }
+            );
+        } else if (workflowIntent === 'update_goal') {
+            actions.push(
+                {
+                    label: 'Update Goal Completion',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'update_mtss_goal_completion',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            completed: true
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Update goal completion status now?',
+                        successMessage: 'Goal completion updated.'
                     }
                 }
             );
@@ -1443,8 +1912,8 @@ class AIChatService {
                             assignmentOptions
                         },
                         requireConfirmation: true,
-                        confirmText: 'Need quick automation? AI can submit a progress check-in directly from chat.',
-                        successMessage: 'Progress check-in auto-submitted successfully.'
+                        confirmText: 'Submit progress check-in from analysis flow now?',
+                        successMessage: 'Progress check-in submitted.'
                     }
                 }
             );
@@ -1467,8 +1936,24 @@ class AIChatService {
                             assignmentOptions
                         },
                         requireConfirmation: true,
-                        confirmText: 'AI will submit a progress check-in via API after collecting your notes. Continue?',
-                        successMessage: 'Progress check-in auto-submitted successfully.'
+                        confirmText: 'Submit progress check-in now?',
+                        successMessage: 'Progress check-in submitted.'
+                    }
+                },
+                {
+                    label: 'Assign Students to Mentor',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'assign_students_to_mtss_mentor',
+                        payload: {
+                            studentOptions,
+                            mentorOptions,
+                            tier: selectedAssignment.tierCode || 'tier2',
+                            focusAreas: Array.isArray(selectedAssignment.focusAreas) ? selectedAssignment.focusAreas : []
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Assign students to mentor now?',
+                        successMessage: 'Students assigned successfully.'
                     }
                 }
             );
@@ -1560,11 +2045,37 @@ class AIChatService {
                         type: 'prefill',
                         value: 'Suggest an evidence-based MTSS strategy for a student challenge.'
                     }
+                },
+                {
+                    label: 'Assign Students to Me',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'assign_students_to_mtss_mentor',
+                        payload: {
+                            tier: 'tier2'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Assign selected students to your MTSS queue now?',
+                        successMessage: 'Student assignment updated.'
+                    }
+                },
+                {
+                    label: 'Set Assignment Status',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'update_mtss_assignment_status',
+                        payload: {
+                            status: 'active'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Update assignment status now?',
+                        successMessage: 'Assignment status updated.'
+                    }
                 }
             );
         }
 
-        if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+        if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
             mtssActions.push({
                 label: 'Open MTSS Admin',
                 action: {
@@ -1576,7 +2087,7 @@ class AIChatService {
             });
         }
 
-        if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+        if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
             const emotionalDashboardAction = {
                 label: 'Open Emotional Dashboard',
                 action: {
@@ -1628,21 +2139,53 @@ class AIChatService {
     }
 
     buildWorkforceResponseWidgets(userMessage = '', context = {}) {
-        const text = String(userMessage || '').toLowerCase();
+        const intentUserKey = String(
+            context?.actor?._id
+            || context?.actor?.id
+            || context?.student?.userId
+            || context?.student?._id
+            || context?.student?.id
+            || 'global'
+        ).trim();
+        const text = normalizeAssistantIntentText(userMessage, { userKey: intentUserKey });
         const widgets = [];
-        const needsVisualization = this.wantsStructuredVisualization(text);
-        const needsStudyPlan = this.wantsStudyPlan(text);
-        const needsCapabilities = this.wantsCapabilitiesOverview(text);
+        const needsVisualization = this.wantsStructuredVisualization(userMessage, intentUserKey);
+        const needsStudyPlan = this.wantsStudyPlan(userMessage, intentUserKey);
+        const needsCapabilities = this.wantsCapabilitiesOverview(userMessage, intentUserKey);
+        const needsSprintPlan = this.wantsMtssSprintPlan(userMessage, intentUserKey);
         const needsActionableFlow = /(help me|bantu|next|lanjut|action|what should i do|apa yang harus|daily)/i.test(text);
         const asksWorkSnapshot = /(mtss|tier|assignment|task|progress|dashboard|mentor|support)/i.test(text);
-        const asksMtss = this.isMtssQuestion(text) || /(intervention|intervensi|check[\s-]?in|progress|progres|tier|strategy|strategi|mtss|assignment|monitor)/i.test(text);
-        const mtssWorkflowIntent = this.detectMtssWorkflowIntent(userMessage);
+        const asksMtss = this.isMtssQuestion(userMessage, intentUserKey)
+            || /(intervention|intervensi|check[\s-]?in|progress|progres|tier|strategy|strategi|mtss|assignment|monitor)/i.test(text);
+        const mtssWorkflowIntent = this.detectMtssWorkflowIntent(userMessage, intentUserKey);
         const isMtssRole = this.isMtssCapableWorkforceRole(context?.actor?.role || '');
         const enrichedAssignments = Array.isArray(context?.workforce?.enrichedAssignments)
             ? context.workforce.enrichedAssignments
             : [];
         const hasEnrichedAssignments = isMtssRole && enrichedAssignments.length > 0;
         let resolvedWorkflowAssignment = null;
+        const automationIntentSet = new Set([
+            'create_intervention',
+            'log_progress',
+            'assign_mentor',
+            'reassign_mentor',
+            'update_status',
+            'update_goal'
+        ]);
+
+        if (needsSprintPlan) {
+            const snapshotStats = this.buildWorkforceVisualizationWidgets(context)
+                .filter((widget = {}) => widget.type === 'stats')
+                .slice(0, 1);
+            widgets.push(...snapshotStats);
+            if (hasEnrichedAssignments) {
+                const sprintTableWidget = this.buildMtssSprintTableWidget(enrichedAssignments);
+                if (sprintTableWidget) widgets.push(sprintTableWidget);
+            }
+            widgets.push(this.buildMtssSprintChecklistWidget());
+            widgets.push(this.buildWorkforceActionChipsWidget(context));
+            return this.dedupeWidgets(widgets);
+        }
 
         if (needsVisualization || asksWorkSnapshot) {
             widgets.push(...this.buildWorkforceVisualizationWidgets(context));
@@ -1694,16 +2237,26 @@ class AIChatService {
             widgets.push(...this.buildAssistantCapabilityWidgets(context));
         }
 
-        const shouldShowMtssWorkflowActions = hasEnrichedAssignments && (Boolean(mtssWorkflowIntent) || asksMtss);
+        const shouldShowMtssWorkflowActions = hasEnrichedAssignments && automationIntentSet.has(mtssWorkflowIntent);
+        if (shouldShowMtssWorkflowActions) {
+            widgets.push(
+                ...this.buildMtssAutomationPlannerWidgets(context, {
+                    assignment: resolvedWorkflowAssignment,
+                    assignments: enrichedAssignments
+                })
+            );
+        }
+
         if (shouldShowMtssWorkflowActions) {
             widgets.push(this.buildMtssWorkflowActionChipsWidget(
                 mtssWorkflowIntent || 'monitor_students',
                 {
                     assignment: resolvedWorkflowAssignment,
-                    assignments: enrichedAssignments
+                    assignments: enrichedAssignments,
+                    actor: context?.actor || {}
                 }
             ));
-        } else if (needsVisualization || needsStudyPlan || needsCapabilities || needsActionableFlow || asksWorkSnapshot) {
+        } else if (needsVisualization || needsStudyPlan || needsCapabilities || needsActionableFlow || asksWorkSnapshot || asksMtss) {
             widgets.push(this.buildWorkforceActionChipsWidget(context));
         }
 
@@ -1715,14 +2268,24 @@ class AIChatService {
             return this.buildWorkforceResponseWidgets(userMessage, context);
         }
 
-        const text = String(userMessage || '').toLowerCase();
+        const intentUserKey = String(
+            context?.student?.userId
+            || context?.student?._id
+            || context?.student?.id
+            || context?.actor?._id
+            || context?.actor?.id
+            || 'global'
+        ).trim();
+        const text = normalizeAssistantIntentText(userMessage, { userKey: intentUserKey });
         const widgets = [];
-        const needsVisualization = this.wantsStructuredVisualization(text);
-        const needsStudyPlan = this.wantsStudyPlan(text);
-        const needsCapabilities = this.wantsCapabilitiesOverview(text);
+        const needsVisualization = this.wantsStructuredVisualization(userMessage, intentUserKey);
+        const needsStudyPlan = this.wantsStudyPlan(userMessage, intentUserKey);
+        const needsCapabilities = this.wantsCapabilitiesOverview(userMessage, intentUserKey);
         const needsActionableFlow = /(help me|bantu|next|lanjut|action|what should i do|apa yang harus|daily)/i.test(text);
-        const asksMtssSnapshot = this.isMtssQuestion(text) || /(subject|mata pelajaran|tier|support|intervention|assignment|task|progress|mtss)/i.test(text);
-        const asksClassroomSnapshot = this.isClassroomQuestion(text) || /(teacher|guru|class|kelas|homeroom|wali kelas)/i.test(text);
+        const asksMtssSnapshot = this.isMtssQuestion(userMessage, intentUserKey)
+            || /(subject|mata pelajaran|tier|support|intervention|assignment|task|progress|mtss)/i.test(text);
+        const asksClassroomSnapshot = this.isClassroomQuestion(userMessage, intentUserKey)
+            || /(teacher|guru|class|kelas|homeroom|wali kelas)/i.test(text);
 
         if (needsVisualization && (asksMtssSnapshot || !asksClassroomSnapshot)) {
             widgets.push(...this.buildMtssVisualizationWidgets(context));
@@ -1782,7 +2345,7 @@ Quick snapshot: current MTSS tier ${tierLabel}, ${activeAssignmentCount} active 
 
         if (!this.isStudentContext(context)) {
             return `Absolutely, ${preferredName}. I can support you as a full personal workforce assistant, not only chat.
-I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, and trigger quick navigation actions for role-specific workflows. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
+I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, trigger quick navigation actions, and run MTSS execute_operation automations (intervention creation, progress logging, mentor assignment, status updates, and goal completion) for authorized roles. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
         }
 
         return `Absolutely, ${preferredName}. I can support you as a full personal school assistant, not only chat.
@@ -1889,8 +2452,119 @@ Active mentor support:
 ${mentorLines}`;
     }
 
-    isClassroomQuestion(userMessage = '') {
-        const text = String(userMessage || '').toLowerCase();
+    buildProgressDraftSeed(context = {}) {
+        const mtss = context?.mtss || {};
+        const assignments = Array.isArray(mtss.assignments) ? mtss.assignments : [];
+        const activeAssignment = assignments.find((entry = {}) => String(entry.status || '').toLowerCase() === 'active') || assignments[0] || {};
+        const students = Array.isArray(activeAssignment.students) ? activeAssignment.students : [];
+        const preferredStudent = students[0] || {};
+        const recentCheckIns = Array.isArray(activeAssignment.recentCheckIns) ? activeAssignment.recentCheckIns : [];
+        const latestCheckIn = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1] : {};
+        const focusAreas = Array.isArray(activeAssignment.focusAreas) ? activeAssignment.focusAreas.filter(Boolean) : [];
+        const mtssFocus = Array.isArray(mtss.focusAreas) ? mtss.focusAreas.filter(Boolean) : [];
+        const openTasks = Array.isArray(mtss.openTasks) ? mtss.openTasks.filter(Boolean) : [];
+
+        const studentName = preferredStudent.name
+            || context?.student?.preferredName
+            || context?.student?.name
+            || 'Student';
+        const focusArea = focusAreas[0] || mtssFocus[0] || 'SEL';
+        const summary = String(latestCheckIn.summary || '').trim()
+            || `Observed steady progress in ${String(focusArea || 'support').toLowerCase()} routines.`;
+        const value = Number(latestCheckIn.value);
+        const hasValue = Number.isFinite(value);
+        const unit = String(latestCheckIn.unit || '').trim();
+        const progressLine = hasValue
+            ? `${value}${unit ? ` ${unit}` : ''}${activeAssignment.baselineScore ? ` (baseline: ${activeAssignment.baselineScore})` : ''}`
+            : 'No quantitative score recorded in the latest check-in.';
+        const nextSteps = String(latestCheckIn.nextSteps || '').trim()
+            || openTasks[0]
+            || `Continue structured practice for ${String(focusArea || 'the target area').toLowerCase()} and review again next session.`;
+        const celebration = String(latestCheckIn.celebration || '').trim() || 'No milestone recorded yet.';
+        const date = this.toShortDate(new Date()) || new Date().toISOString().slice(0, 10);
+
+        return {
+            date,
+            studentName,
+            focusArea,
+            summary,
+            progressLine,
+            nextSteps,
+            celebration
+        };
+    }
+
+    buildGroundedProgressDraft(context = {}) {
+        const seed = this.buildProgressDraftSeed(context);
+        return [
+            '### MTSS Progress Check-In Draft',
+            `- Date: ${seed.date}`,
+            `- Student: ${seed.studentName}`,
+            `- Focus: ${seed.focusArea}`,
+            `- Summary: ${seed.summary}`,
+            `- Progress: ${seed.progressLine}`,
+            `- Next Steps: ${seed.nextSteps}`,
+            `- Celebration: ${seed.celebration}`
+        ].join('\n');
+    }
+
+    sanitizeAssistantResponseText(responseText = '', context = {}, userMessage = '') {
+        let normalized = String(responseText || '')
+            .replace(/&amp;lt;br\s*\/?&amp;gt;/gi, '\n')
+            .replace(/&lt;br\s*\/?&gt;/gi, '\n')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/\r\n/g, '\n')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+
+        if (!normalized) {
+            return normalized;
+        }
+
+        const hasTemplatePlaceholders = /\[(name|sel\/behavior|summary|progress|next steps|one-sentence update|qualitative|if met a milestone)[^\]]*\]/i.test(normalized);
+        const mentionsDraftTemplate = /draft your check-?in note/i.test(normalized) || /check-?in note.*template/i.test(normalized);
+        const userAsksProgressDraft = /(check-?in|progress|mtss)/i.test(String(userMessage || ''))
+            && /(draft|template|note|log)/i.test(String(userMessage || ''));
+        const hasTemplateDate = /(^|\n)\s*-?\s*Date:\s*(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|\d{4}-\d{2}-\d{2})(?=\s*(?:\n|$))/i.test(normalized);
+
+        if (hasTemplatePlaceholders || mentionsDraftTemplate || userAsksProgressDraft || hasTemplateDate) {
+            const seed = this.buildProgressDraftSeed(context);
+            normalized = normalized
+                .replace(/draft your check-?in note using this template\s*:?\s*/gi, 'Draft your check-in note:\n')
+                .replace(/(^|\n)\s*-\s*Date:\s*(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|\d{4}-\d{2}-\d{2})(?=\s*(?:\n|$))/gi, `$1- Date: ${seed.date}`)
+                .replace(/(^|\n)\s*Date:\s*(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|\d{4}-\d{2}-\d{2})(?=\s*(?:\n|$))/gi, `$1Date: ${seed.date}`)
+                .replace(/\[name\]/gi, seed.studentName)
+                .replace(/\[sel\/behavior\]/gi, seed.focusArea)
+                .replace(/\[one-sentence update[^\]]*\]/gi, seed.summary)
+                .replace(/\[summary[^\]]*\]/gi, seed.summary)
+                .replace(/\[qualitative or quantitative[^\]]*\]/gi, seed.progressLine)
+                .replace(/\[qualitative[^\]]*\]/gi, seed.progressLine)
+                .replace(/\[progress[^\]]*\]/gi, seed.progressLine)
+                .replace(/\[one action[^\]]*\]/gi, seed.nextSteps)
+                .replace(/\[next steps[^\]]*\]/gi, seed.nextSteps)
+                .replace(/\[celebration[^\]]*\]/gi, seed.celebration)
+                .replace(/\[if met a milestone[^\]]*\]/gi, seed.celebration)
+                .replace(/\[(?:[^\]\n]{2,120})\]/g, '')
+                .replace(/[ \t]+\n/g, '\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+
+            const hasStructuredDraftLines = /(^|\n)\s*-?\s*Date:\s*.+/i.test(normalized)
+                && /(^|\n)\s*-?\s*Student:\s*.+/i.test(normalized)
+                && /(^|\n)\s*-?\s*Focus:\s*.+/i.test(normalized)
+                && /(^|\n)\s*-?\s*Summary:\s*.+/i.test(normalized);
+
+            if (!/###\s*MTSS Progress Check-In Draft/i.test(normalized) && !hasStructuredDraftLines) {
+                normalized = `${normalized}\n\n${this.buildGroundedProgressDraft(context)}`.trim();
+            }
+        }
+
+        return normalized;
+    }
+
+    isClassroomQuestion(userMessage = '', userKey = 'global') {
+        const text = normalizeAssistantIntentText(userMessage, { userKey });
         return /(kelas|class|teacher|guru|homeroom|wali kelas|subject teacher|class teacher|siapa.*guru|who.*teacher)/i.test(text);
     }
 
@@ -1930,12 +2604,12 @@ ${mentorLines}`;
             '/select-role'
         ].forEach((entry) => routes.add(entry));
 
-        if (['teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
+        if (['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
             routes.add('/emotional-checkin/teacher-dashboard');
             routes.add('/mtss/teacher');
         }
 
-        if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
+        if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(normalizedRole)) {
             routes.add('/emotional-checkin/dashboard');
             routes.add('/emotional-checkin/not-submitted');
         }
@@ -1966,15 +2640,31 @@ ${mentorLines}`;
     }
 
     detectClientAction(userMessage = '', context = {}) {
-        const text = String(userMessage || '').toLowerCase().trim();
-        if (!text) return null;
+        const rawText = String(userMessage || '').toLowerCase().trim();
+        if (!rawText) return null;
         const role = this.normalizeRole(context?.actor?.role || context?.student?.role || '');
+        const intentUserKey = String(
+            context?.actor?._id
+            || context?.actor?.id
+            || context?.student?.userId
+            || context?.student?._id
+            || context?.student?.id
+            || 'global'
+        ).trim();
+        const text = normalizeAssistantIntentText(rawText, { userKey: intentUserKey });
         const isStudent = this.isStudentRole(role);
 
         const wantsNavigation = /(bawa(kan)?|antar(kan)?|mau ke|ingin ke|ke halaman|pindah(kan)?|arahin|arahkan|redirect|go to|open|navigate|buka(\s+halaman)?|masuk ke|take me|bring me|visit|show me)/i.test(text);
-        const wantsActionHelp = /(bantu(in)?|tolong|help me|could you|can you|please|dong|donk|plz)/i.test(text);
-        const hasDirectRouteMention = /\/(?:student|profile|mtss|support|emotional-checkin|ai-assistant|user-management)\//i.test(text);
-        const navigationContext = wantsNavigation || wantsActionHelp || hasDirectRouteMention;
+        const hasDirectRouteMention = /\/(?:student|profile|mtss|support|emotional-checkin|ai-assistant|user-management)\//i.test(rawText);
+        const mentionsKnownDestination = /(profile|profil|assistant|support hub|emotional check[\s-]?in|check[\s-]?in|manual|face scan|mtss|dashboard|user management|role selection)/i.test(text);
+        const isShortDirectCommand = text.split(/\s+/).filter(Boolean).length <= 8;
+        const hasQuestionMarker = rawText.includes('?');
+        const asksStatusOrInfo = /(bagaimana|gimana|status|what|how|why|siapa|who|berapa|kapan|where|mana|jelaskan|explain|ringkas|summary|summari[sz]e|draft|buatkan|analisis|analyze|laporan|report)/i.test(text);
+        const asksDraftingHelp = /(help me draft|draft(kan)?|buat(kan)?\s+draft|bantu(in)?\s+.*(draft|susun|rancang|tulis))/i.test(text);
+        const isInformationalQuery = (hasQuestionMarker || asksStatusOrInfo || asksDraftingHelp) && !wantsNavigation && !hasDirectRouteMention;
+        const navigationContext = wantsNavigation
+            || hasDirectRouteMention
+            || (mentionsKnownDestination && isShortDirectCommand && !isInformationalQuery);
         if (!navigationContext) return null;
 
         const mentionsProfileStats = /(personal stats|statistik personal|my stats|halaman stats|statistik saya)/i.test(text);
@@ -2070,25 +2760,25 @@ ${mentorLines}`;
             return this.buildNavigateAction('open_staff_emotional_checkin', '/emotional-checkin/staff', 'Emotional Check-in', 0.98, role);
         }
 
+        if (mentionsMtss) {
+            if (['admin', 'superadmin', 'directorate'].includes(role) && /(admin|lead|manage|kelola)/i.test(text)) {
+                return this.buildNavigateAction('open_mtss_admin_dashboard', '/mtss/admin', 'MTSS Admin Dashboard', 0.95, role);
+            }
+            if (['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
+                return this.buildNavigateAction('open_mtss_teacher_dashboard', '/mtss/teacher', 'MTSS Teacher Dashboard', 0.95, role);
+            }
+            return this.buildNavigateAction('open_mtss_role_selection', '/mtss', 'MTSS', 0.93, role);
+        }
+
         if (mentionsTeacherDashboard) {
             return this.buildNavigateAction('open_teacher_dashboard', '/emotional-checkin/teacher-dashboard', 'Teacher Dashboard', 0.97, role);
         }
 
         if (mentionsDashboard) {
-            if (['head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
+            if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
                 return this.buildNavigateAction('open_emotional_dashboard', '/emotional-checkin/dashboard', 'Emotional Dashboard', 0.97, role);
             }
             return this.buildNavigateAction('open_teacher_dashboard', '/emotional-checkin/teacher-dashboard', 'Teacher Dashboard', 0.95, role);
-        }
-
-        if (mentionsMtss) {
-            if (['admin', 'superadmin', 'directorate'].includes(role) && /(admin|lead|manage|kelola)/i.test(text)) {
-                return this.buildNavigateAction('open_mtss_admin_dashboard', '/mtss/admin', 'MTSS Admin Dashboard', 0.95, role);
-            }
-            if (['teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'].includes(role)) {
-                return this.buildNavigateAction('open_mtss_teacher_dashboard', '/mtss/teacher', 'MTSS Teacher Dashboard', 0.95, role);
-            }
-            return this.buildNavigateAction('open_mtss_role_selection', '/mtss', 'MTSS', 0.93, role);
         }
 
         if (mentionsRoleSelection) {
@@ -2099,7 +2789,7 @@ ${mentorLines}`;
             return this.buildNavigateAction('open_user_management', '/user-management', 'User Management', 0.92, role);
         }
 
-        const directRouteMatch = text.match(/\/[a-z0-9/_-]+/i);
+        const directRouteMatch = rawText.match(/\/[a-z0-9/_-]+/i);
         if (directRouteMatch) {
             const directRoute = String(directRouteMatch[0] || '').trim();
             if (this.isAllowedNavigationRoute(directRoute, role)) {
@@ -2710,6 +3400,9 @@ ${teacherLines}`;
                     userId: userId.toString()
                 },
                 actor: {
+                    id: userId.toString(),
+                    _id: userId.toString(),
+                    name: fullName || preferredName,
                     kind: 'student',
                     role: this.normalizeRole(user.role) || 'student',
                     roleLabel: 'Student',
@@ -2772,6 +3465,9 @@ ${teacherLines}`;
                     userId: userId.toString()
                 },
                 actor: {
+                    id: userId.toString(),
+                    _id: userId.toString(),
+                    name: 'Student',
                     kind: 'student',
                     role: 'student',
                     roleLabel: 'Student',
@@ -2913,6 +3609,9 @@ ${teacherLines}`;
                     userId: userId.toString()
                 },
                 actor: {
+                    id: userId.toString(),
+                    _id: userId.toString(),
+                    name: fullName || preferredName,
                     kind: 'workforce',
                     role: normalizedRole,
                     roleLabel,
@@ -2986,6 +3685,9 @@ ${teacherLines}`;
                     userId: userId.toString()
                 },
                 actor: {
+                    id: userId.toString(),
+                    _id: userId.toString(),
+                    name: 'Team member',
                     kind: 'workforce',
                     role: 'staff',
                     roleLabel: 'Staff',
@@ -3315,6 +4017,7 @@ Your role is to:
 INTERNAL DATA ACCESS RULES (MANDATORY):
 - You already have access to internal MWS IntegraLearn database data included in this prompt.
 - Never say you do not have access to the school portal/private data for this student.
+- You are in READ-ONLY assistant mode for system records. You can summarize, analyze, and draft plans, but never claim to create/update/delete database records directly.
 - If a value is missing, say it is "not recorded in the current records" instead of saying access is unavailable.
 - For MTSS/tier/task questions, answer directly from the MTSS snapshot below.
 - For class/teacher questions, answer directly from the classroom snapshot below.
@@ -3481,13 +4184,17 @@ ${rosterLines.join('\n') || '  - No active student assignments found.'}
 3. **Monitor & Analyze Students** — Surface data from assigned students. Identify stagnating goals (no check-in in many days), declining trends, and near-completion interventions.
 4. **Tier Adjustment Discussion** — Based on check-in trends, recommend moving a student up or down a tier with data-backed reasoning.
 5. **Strategy Recommendations** — Suggest evidence-based MTSS strategies for specific focus areas or challenges.
+6. **Assignment Automation** — For allowed roles, run execute_operation to assign students to mentors, set intervention mentors by subject, update assignment status, and mark goals completed.
+7. **Operational Readiness Widgets** — Provide dynamic table/checklist/timeline widgets so users can review data before execution.
 
 ### Output Guidelines for MTSS Requests:
 - Always reference actual student names and data from the snapshot above; never invent data.
 - For student roster / monitoring requests: include concise status and where needed add table/timeline visual guidance.
 - For intervention creation: ask for the student's name and challenge if not provided, then generate a detailed plan.
 - For check-in logging: generate formatted note text (date, summary, next steps, value if applicable).
-- Always offer two execution modes for teachers: manual mode (template + navigate) and automation mode (auto-submit API with confirmation).
+- Never return placeholder tokens like [Name], [SEL/Behavior], [Summary], etc.
+- Never use HTML tags like <br> in responses; use clean Markdown bullets/headings instead.
+- Offer two execution modes: draft/manual mode and execute_operation mode (for authorized roles only) with clear confirmation before running.
 - Include at least one practical MTSS next step and offer the MTSS dashboard route.
 - End MTSS responses with a concrete next step (e.g., "Open the MTSS Teacher Dashboard to submit this plan").`;
     }
@@ -3533,6 +4240,8 @@ User identity (authoritative data from database):
 Internal data access rules (mandatory):
 - You already have access to internal records provided in this prompt.
 - Never claim that you cannot access private portal data.
+- You can trigger whitelisted execute_operation automations for MTSS workflows only when role and permission checks allow it.
+- Always confirm intent clearly before suggesting an automation action.
 - If a field is empty, state "not recorded in current records".
 - Give direct, concrete answers grounded in the snapshot below.
 
@@ -3616,6 +4325,284 @@ Critical language requirement:
         return payload && typeof payload === 'object' ? payload : {};
     }
 
+    extractObjectIdList(value = []) {
+        const list = Array.isArray(value) ? value : [value];
+        const seen = new Set();
+        const ids = [];
+        list.forEach((entry) => {
+            const parsed = String(entry?._id || entry?.id || entry || '').trim();
+            if (!parsed || seen.has(parsed)) return;
+            seen.add(parsed);
+            ids.push(parsed);
+        });
+        return ids;
+    }
+
+    resolveStudentIdsFromOperationPayload(payload = {}) {
+        const directList = this.extractObjectIdList(payload.studentIds || []);
+        if (directList.length > 0) return directList;
+
+        const singleId = String(payload.studentId || '').trim();
+        if (singleId) return [singleId];
+        return [];
+    }
+
+    normalizeInterventionTypeCode(value = '') {
+        const raw = String(value || '').trim().toUpperCase();
+        if (!raw) return null;
+
+        const aliasMap = {
+            ENGLISH: ['ENGLISH', 'ELA', 'READING', 'LITERACY'],
+            MATH: ['MATH', 'MATHEMATICS', 'NUMERACY'],
+            SEL: ['SEL', 'SOCIAL EMOTIONAL', 'SOCIAL EMOTIONAL LEARNING'],
+            BEHAVIOR: ['BEHAVIOR', 'BEHAVIOUR', 'BEHAVIORAL'],
+            ATTENDANCE: ['ATTENDANCE', 'ENGAGEMENT']
+        };
+
+        const compact = raw.replace(/[^A-Z]/g, '');
+        if (INTERVENTION_TYPE_KEYS.includes(raw)) return raw;
+        if (INTERVENTION_TYPE_KEYS.includes(compact)) return compact;
+
+        const found = Object.entries(aliasMap).find(([, aliases]) =>
+            aliases.some((alias) => alias.replace(/[^A-Z]/g, '') === compact)
+        );
+
+        return found ? found[0] : null;
+    }
+
+    resolveInterventionTypeList(payload = {}) {
+        const candidates = [
+            ...(Array.isArray(payload.interventionTypes) ? payload.interventionTypes : []),
+            payload.interventionType,
+            payload.focusArea,
+            payload.subject
+        ];
+
+        const resolved = candidates
+            .map((value) => this.normalizeInterventionTypeCode(value))
+            .filter(Boolean);
+
+        return Array.from(new Set(resolved));
+    }
+
+    async ensureMentorEligibleForAutomation(mentorId = '') {
+        const parsedMentorId = String(mentorId || '').trim();
+        if (!parsedMentorId) {
+            throw new Error('mentorId is required for this automation.');
+        }
+
+        const mentorUser = await User.findById(parsedMentorId).select('_id role name isActive').lean();
+        if (!mentorUser) {
+            throw new Error('Mentor account not found.');
+        }
+        if (!this.isEligibleMtssMentorRole(mentorUser.role || '')) {
+            throw new Error('Selected mentor account is not eligible for MTSS automation.');
+        }
+        if (mentorUser.isActive === false) {
+            throw new Error('Selected mentor account is inactive.');
+        }
+        return mentorUser;
+    }
+
+    async ensureActiveMtssStudents(studentIds = []) {
+        const ids = this.extractObjectIdList(studentIds);
+        if (ids.length === 0) {
+            throw new Error('At least one studentId is required.');
+        }
+
+        const students = await MTSSStudent.find({ _id: { $in: ids } }).select('_id name status interventions').exec();
+        if (students.length !== ids.length) {
+            throw new Error('One or more students were not found in the MTSS roster.');
+        }
+
+        const inactive = students.filter((student) => String(student.status || '').toLowerCase() !== 'active');
+        if (inactive.length > 0) {
+            const names = inactive.map((entry) => entry.name || 'Unknown').join(', ');
+            throw new Error(`The following students are not active: ${names}`);
+        }
+
+        return students;
+    }
+
+    escapeRegExp(value = '') {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    queueInAppNotification({
+        userId = '',
+        category = 'system',
+        priority = 'medium',
+        title = '',
+        message = '',
+        metadata = {}
+    } = {}) {
+        const targetUserId = String(userId || '').trim();
+        const safeTitle = this.normalizeMessageText(title, 180);
+        const safeMessage = this.normalizeMessageText(message, 900);
+        if (!targetUserId || !safeTitle || !safeMessage) return;
+
+        setImmediate(async () => {
+            try {
+                await notificationService.createNotification(
+                    targetUserId,
+                    category,
+                    priority,
+                    safeTitle,
+                    safeMessage,
+                    metadata && typeof metadata === 'object' ? metadata : {}
+                );
+            } catch (error) {
+                console.error('[AIChat][Notification] Failed to create in-app notification:', error.message);
+            }
+        });
+    }
+
+    async resolveStudentPortalRecipients(students = []) {
+        const records = Array.isArray(students) ? students : [];
+        if (records.length === 0) return new Map();
+
+        const result = new Map();
+        const byEmail = new Map();
+
+        records.forEach((student = {}) => {
+            const studentId = String(student._id || '').trim();
+            const email = String(student.email || '').trim().toLowerCase();
+            if (!studentId || !email) return;
+            byEmail.set(studentId, email);
+        });
+
+        if (byEmail.size > 0) {
+            const userStudents = await UserStudent.find({ email: { $in: Array.from(new Set(byEmail.values())) } })
+                .select('_id email')
+                .lean();
+            const userByEmail = new Map(
+                (Array.isArray(userStudents) ? userStudents : []).map((entry = {}) => [
+                    String(entry.email || '').trim().toLowerCase(),
+                    String(entry._id || '').trim()
+                ])
+            );
+            byEmail.forEach((email, studentId) => {
+                const userId = userByEmail.get(email);
+                if (userId) result.set(studentId, userId);
+            });
+        }
+
+        const unresolved = records.filter((student = {}) => {
+            const studentId = String(student._id || '').trim();
+            return studentId && !result.has(studentId);
+        });
+
+        if (unresolved.length === 0) return result;
+
+        for (const student of unresolved) {
+            const studentId = String(student._id || '').trim();
+            const studentName = String(student.name || '').trim();
+            if (!studentId || !studentName) continue;
+
+            const nameRegex = new RegExp(`^${this.escapeRegExp(studentName)}$`, 'i');
+            const candidate = await UserStudent.findOne({ name: nameRegex })
+                .select('_id')
+                .lean();
+            if (candidate?._id) {
+                result.set(studentId, String(candidate._id));
+            }
+        }
+
+        return result;
+    }
+
+    async dispatchStudentMtssNotifications({
+        students = [],
+        actor = {},
+        operation = '',
+        assignmentId = '',
+        titleBuilder = null,
+        messageBuilder = null,
+        category = 'reminder',
+        priority = 'medium'
+    } = {}) {
+        const targetStudents = Array.isArray(students) ? students : [];
+        if (targetStudents.length === 0) return;
+
+        setImmediate(async () => {
+            try {
+                const actorName = this.normalizeMessageText(actor?.name || actor?.username || 'Mentor', 80);
+                const actorRole = this.normalizeRole(actor?.role || '');
+                const recipients = await this.resolveStudentPortalRecipients(targetStudents);
+
+                targetStudents.forEach((student = {}) => {
+                    const studentId = String(student._id || '').trim();
+                    const studentUserId = recipients.get(studentId);
+                    if (!studentUserId) return;
+
+                    const studentName = this.normalizeMessageText(student.name || 'your profile', 80);
+                    const title = typeof titleBuilder === 'function'
+                        ? titleBuilder(student)
+                        : `MTSS update for ${studentName}`;
+                    const message = typeof messageBuilder === 'function'
+                        ? messageBuilder(student)
+                        : `${actorName} posted a new MTSS update.`;
+
+                    this.queueInAppNotification({
+                        userId: studentUserId,
+                        category,
+                        priority,
+                        title,
+                        message,
+                        metadata: {
+                            source: 'ai_assistant_execute_operation',
+                            scope: 'student',
+                            operation,
+                            actorId: String(actor?._id || actor?.id || ''),
+                            actorName,
+                            actorRole,
+                            studentId,
+                            studentName,
+                            className: this.normalizeMessageText(student.className || '', 80) || undefined,
+                            assignmentId: assignmentId || undefined,
+                            actionRoute: '/student/support-hub'
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error('[AIChat][Notification] Failed to dispatch student MTSS notifications:', error.message);
+            }
+        });
+    }
+
+    dispatchWorkforceMtssNotification({
+        userId = '',
+        actor = {},
+        operation = '',
+        title = '',
+        message = '',
+        category = 'alert',
+        priority = 'medium',
+        metadata = {}
+    } = {}) {
+        const targetUserId = String(userId || '').trim();
+        if (!targetUserId) return;
+
+        const actorName = this.normalizeMessageText(actor?.name || actor?.username || 'MTSS team', 80);
+        this.queueInAppNotification({
+            userId: targetUserId,
+            category,
+            priority,
+            title,
+            message,
+            metadata: {
+                source: 'ai_assistant_execute_operation',
+                scope: 'workforce',
+                operation,
+                actorId: String(actor?._id || actor?.id || ''),
+                actorName,
+                actorRole: this.normalizeRole(actor?.role || ''),
+                actionRoute: '/mtss/teacher',
+                ...metadata
+            }
+        });
+    }
+
     async executeCreateMtssIntervention(user = {}, payload = {}) {
         const viewerId = String(user?._id || user?.id || '').trim();
         if (!viewerId) throw new Error('Authenticated user is required.');
@@ -3625,29 +4612,17 @@ Critical language requirement:
         const requestedMentorId = String(payload.mentorId || '').trim();
         const mentorId = isAdmin && requestedMentorId ? requestedMentorId : viewerId;
 
+        if (!isAdmin && requestedMentorId && requestedMentorId !== viewerId) {
+            throw new Error('You can only create interventions for yourself as the mentor.');
+        }
+
         const studentId = String(payload.studentId || '').trim();
         if (!studentId) {
             throw new Error('studentId is required for automated intervention submission.');
         }
 
-        const student = await MTSSStudent.findById(studentId).select('_id name status').lean();
-        if (!student) {
-            throw new Error('Student not found for intervention submission.');
-        }
-        if (String(student.status || 'active').toLowerCase() !== 'active') {
-            throw new Error(`Student "${student.name || 'Unknown'}" is not active.`);
-        }
-
-        const mentorUser = await User.findById(mentorId).select('_id role isActive').lean();
-        if (!mentorUser) {
-            throw new Error('Mentor account not found.');
-        }
-        if (!this.isWorkforceRole(mentorUser.role || '')) {
-            throw new Error('Selected mentor account is not eligible for MTSS automation.');
-        }
-        if (mentorUser.isActive === false) {
-            throw new Error('Selected mentor account is inactive.');
-        }
+        const [student] = await this.ensureActiveMtssStudents([studentId]);
+        await this.ensureMentorEligibleForAutomation(mentorId);
 
         const focusAreas = this.parseFocusAreas(payload.focusAreas);
         const goals = this.normalizeGoalsPayload(payload);
@@ -3699,6 +4674,34 @@ Critical language requirement:
             createdBy: viewerId
         });
 
+        await this.dispatchStudentMtssNotifications({
+            students: [student],
+            actor: user,
+            operation: 'create_mtss_intervention',
+            assignmentId: String(assignment._id || ''),
+            category: 'alert',
+            priority: 'high',
+            titleBuilder: () => `New MTSS intervention created`,
+            messageBuilder: (entry) =>
+                `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} created a new MTSS plan for ${this.normalizeMessageText(entry.name || 'you', 80)}.`
+        });
+
+        if (isAdmin && mentorId !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: mentorId,
+                actor: user,
+                operation: 'create_mtss_intervention',
+                title: 'New intervention created for your caseload',
+                message: `A new MTSS intervention was created for ${this.normalizeMessageText(student.name || 'a student', 80)}.`,
+                category: 'alert',
+                priority: 'high',
+                metadata: {
+                    assignmentId: String(assignment._id || ''),
+                    studentId: String(student._id || '')
+                }
+            });
+        }
+
         return {
             operation: 'create_mtss_intervention',
             message: `Intervention plan submitted for ${student.name || 'student'}.`,
@@ -3729,8 +4732,9 @@ Critical language requirement:
         }
 
         const isAssignedMentor = assignment.mentorId?.toString?.() === viewerId;
-        if (!isAssignedMentor) {
-            throw new Error('Only the assigned mentor can submit progress updates via automation.');
+        const isAdmin = this.isMtssAdminRole(user?.role || '');
+        if (!isAssignedMentor && !isAdmin) {
+            throw new Error('Only the assigned mentor or MTSS admin can submit progress updates via automation.');
         }
 
         const summary = String(payload.summary || '').trim();
@@ -3759,6 +4763,38 @@ Critical language requirement:
 
         await assignment.save();
 
+        const assignmentStudentIds = this.extractObjectIdList(assignment.studentIds || []);
+        const assignmentStudents = assignmentStudentIds.length > 0
+            ? await MTSSStudent.find({ _id: { $in: assignmentStudentIds } }).select('_id name email className').lean()
+            : [];
+
+        await this.dispatchStudentMtssNotifications({
+            students: assignmentStudents,
+            actor: user,
+            operation: 'append_mtss_progress_checkin',
+            assignmentId: String(assignment._id || ''),
+            category: 'reminder',
+            priority: 'medium',
+            titleBuilder: () => 'Progress update posted',
+            messageBuilder: () =>
+                `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} logged a new progress check-in.`
+        });
+
+        if (isAdmin && String(assignment.mentorId || '') !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: String(assignment.mentorId || ''),
+                actor: user,
+                operation: 'append_mtss_progress_checkin',
+                title: 'Progress logged on your MTSS assignment',
+                message: 'A new MTSS progress check-in was submitted for your assignment.',
+                category: 'reminder',
+                priority: 'medium',
+                metadata: {
+                    assignmentId: String(assignment._id || '')
+                }
+            });
+        }
+
         return {
             operation: 'append_mtss_progress_checkin',
             message: 'Progress check-in submitted successfully.',
@@ -3780,6 +4816,523 @@ Critical language requirement:
         };
     }
 
+    async executeAssignStudentsToMtssMentor(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const role = this.normalizeRole(user?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const requestedMentorId = String(payload.mentorId || '').trim();
+        const mentorId = isAdmin && requestedMentorId ? requestedMentorId : viewerId;
+
+        if (!isAdmin && requestedMentorId && requestedMentorId !== viewerId) {
+            throw new Error('You can only assign students to yourself as mentor.');
+        }
+
+        const mentorUser = await this.ensureMentorEligibleForAutomation(mentorId);
+        const studentIds = this.resolveStudentIdsFromOperationPayload(payload);
+        const students = await this.ensureActiveMtssStudents(studentIds);
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (assignmentId) {
+            const assignment = await MentorAssignment.findById(assignmentId);
+            if (!assignment) throw new Error('Mentor assignment not found.');
+
+            const isAssignedMentor = String(assignment.mentorId || '') === viewerId;
+            if (!isAdmin && !isAssignedMentor) {
+                throw new Error('Only the assigned mentor or MTSS admin can update this assignment.');
+            }
+
+            if (String(assignment.mentorId || '') !== mentorId) {
+                if (!isAdmin) {
+                    throw new Error('Only MTSS admin can reassign assignment mentor.');
+                }
+                assignment.mentorId = mentorId;
+            }
+
+            const mergedStudentIds = new Set([
+                ...this.extractObjectIdList(assignment.studentIds || []),
+                ...studentIds
+            ]);
+            assignment.studentIds = Array.from(mergedStudentIds);
+
+            const focusAreas = this.parseFocusAreas(payload.focusAreas);
+            if (focusAreas.length > 0) assignment.focusAreas = focusAreas;
+            if (payload.tier) assignment.tier = this.normalizeTierCode(payload.tier);
+            if (payload.notes) assignment.notes = String(payload.notes || '').trim();
+            await assignment.save();
+
+            await this.dispatchStudentMtssNotifications({
+                students,
+                actor: user,
+                operation: 'assign_students_to_mtss_mentor',
+                assignmentId: String(assignment._id || ''),
+                category: 'alert',
+                priority: 'high',
+                titleBuilder: () => 'Mentor assignment updated',
+                messageBuilder: () =>
+                    `${this.normalizeMessageText(mentorUser?.name || 'MTSS mentor', 80)} is now monitoring your MTSS assignment.`
+            });
+
+            if (isAdmin && mentorId !== viewerId) {
+                this.dispatchWorkforceMtssNotification({
+                    userId: mentorId,
+                    actor: user,
+                    operation: 'assign_students_to_mtss_mentor',
+                    title: 'New MTSS students assigned to you',
+                    message: `${students.length} student(s) were assigned to your MTSS caseload.`,
+                    category: 'alert',
+                    priority: 'high',
+                    metadata: {
+                        assignmentId: String(assignment._id || ''),
+                        studentCount: students.length
+                    }
+                });
+            }
+
+            return {
+                operation: 'assign_students_to_mtss_mentor',
+                mode: 'updated_existing_assignment',
+                message: `${students.length} student(s) linked to assignment successfully.`,
+                assignment: {
+                    id: assignment._id?.toString?.() || assignment._id,
+                    mentorId: assignment.mentorId?.toString?.() || assignment.mentorId,
+                    studentIds: this.extractObjectIdList(assignment.studentIds || []),
+                    tier: assignment.tier,
+                    status: assignment.status
+                }
+            };
+        }
+
+        const focusAreas = this.parseFocusAreas(payload.focusAreas);
+        const goals = this.normalizeGoalsPayload(payload);
+        const assignment = await MentorAssignment.create({
+            mentorId,
+            studentIds,
+            tier: this.normalizeTierCode(payload.tier || 'tier2'),
+            focusAreas: focusAreas.length > 0 ? focusAreas : ['Universal Supports'],
+            strategyName: String(payload.strategyName || '').trim() || undefined,
+            monitoringMethod: String(payload.monitoringMethod || '').trim() || undefined,
+            monitoringFrequency: String(payload.monitoringFrequency || '').trim() || undefined,
+            notes: String(payload.notes || '').trim() || undefined,
+            goals,
+            startDate: payload.startDate || new Date(),
+            createdBy: viewerId
+        });
+
+        await this.dispatchStudentMtssNotifications({
+            students,
+            actor: user,
+            operation: 'assign_students_to_mtss_mentor',
+            assignmentId: String(assignment._id || ''),
+            category: 'alert',
+            priority: 'high',
+            titleBuilder: () => 'New mentor assignment created',
+            messageBuilder: () =>
+                `${this.normalizeMessageText(mentorUser?.name || 'MTSS mentor', 80)} has been linked to your MTSS support.`
+        });
+
+        if (isAdmin && mentorId !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: mentorId,
+                actor: user,
+                operation: 'assign_students_to_mtss_mentor',
+                title: 'New MTSS assignment created for you',
+                message: `${students.length} student(s) are now linked to your MTSS assignment.`,
+                category: 'alert',
+                priority: 'high',
+                metadata: {
+                    assignmentId: String(assignment._id || ''),
+                    studentCount: students.length
+                }
+            });
+        }
+
+        return {
+            operation: 'assign_students_to_mtss_mentor',
+            mode: 'created_assignment',
+            message: `${students.length} student(s) assigned to mentor successfully.`,
+            assignment: {
+                id: assignment._id?.toString?.() || assignment._id,
+                mentorId: assignment.mentorId?.toString?.() || assignment.mentorId,
+                studentIds: this.extractObjectIdList(assignment.studentIds || []),
+                tier: assignment.tier,
+                status: assignment.status
+            }
+        };
+    }
+
+    async executeAssignInterventionMentor(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const role = this.normalizeRole(user?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const requestedMentorId = String(payload.mentorId || '').trim();
+        const mentorId = isAdmin && requestedMentorId ? requestedMentorId : viewerId;
+
+        if (!isAdmin && requestedMentorId && requestedMentorId !== viewerId) {
+            throw new Error('You can only assign intervention mentor to yourself.');
+        }
+
+        const mentorUser = await this.ensureMentorEligibleForAutomation(mentorId);
+        const studentIds = this.resolveStudentIdsFromOperationPayload(payload);
+        const students = await this.ensureActiveMtssStudents(studentIds);
+
+        const interventionTypes = this.resolveInterventionTypeList(payload);
+        if (interventionTypes.length === 0) {
+            throw new Error('interventionType is required (SEL, ENGLISH, MATH, BEHAVIOR, ATTENDANCE).');
+        }
+
+        const requestedTier = payload.tier ? this.normalizeTierCode(payload.tier) : null;
+        const requestedStatus = String(payload.status || '').trim().toLowerCase();
+        const statusValue = ['monitoring', 'active', 'paused', 'closed'].includes(requestedStatus)
+            ? requestedStatus
+            : null;
+        const noteText = String(payload.notes || '').trim();
+        const now = new Date();
+
+        let affectedRows = 0;
+        for (const student of students) {
+            const interventionRows = Array.isArray(student.interventions) ? student.interventions : [];
+            interventionRows.forEach((entry = {}) => {
+                if (!interventionTypes.includes(String(entry.type || '').toUpperCase())) return;
+                entry.assignedMentor = mentorId;
+                if (requestedTier) entry.tier = requestedTier;
+                if (statusValue) entry.status = statusValue;
+                if (noteText) entry.notes = noteText;
+                entry.updatedBy = viewerId;
+                entry.updatedAt = now;
+                if (!Array.isArray(entry.history)) entry.history = [];
+                entry.history.push({
+                    tier: entry.tier,
+                    status: entry.status,
+                    notes: noteText || `Mentor assigned to ${mentorId}`,
+                    updatedAt: now,
+                    updatedBy: viewerId
+                });
+                affectedRows += 1;
+            });
+            student.markModified('interventions');
+            await student.save();
+        }
+
+        await this.dispatchStudentMtssNotifications({
+            students,
+            actor: user,
+            operation: 'assign_intervention_mentor',
+            category: 'alert',
+            priority: 'high',
+            titleBuilder: () => 'Intervention mentor updated',
+            messageBuilder: () =>
+                `${this.normalizeMessageText(mentorUser?.name || 'MTSS mentor', 80)} is assigned to support your intervention focus.`
+        });
+
+        if (isAdmin && mentorId !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: mentorId,
+                actor: user,
+                operation: 'assign_intervention_mentor',
+                title: 'Intervention mentor assignment received',
+                message: `${students.length} student(s) were mapped to your intervention focus (${interventionTypes.join(', ')}).`,
+                category: 'alert',
+                priority: 'high',
+                metadata: {
+                    interventionTypes,
+                    studentCount: students.length
+                }
+            });
+        }
+
+        return {
+            operation: 'assign_intervention_mentor',
+            message: `Intervention mentor assignment updated for ${students.length} student(s).`,
+            totalStudents: students.length,
+            totalInterventionRowsUpdated: affectedRows,
+            mentorId,
+            interventionTypes
+        };
+    }
+
+    async executeReassignMtssAssignmentMentor(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const role = this.normalizeRole(user?.role || '');
+        if (!this.isMtssAdminRole(role)) {
+            throw new Error('Only MTSS admin/principal roles can reassign assignment mentor.');
+        }
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const mentorId = String(payload.mentorId || '').trim();
+        if (!mentorId) throw new Error('mentorId is required.');
+        await this.ensureMentorEligibleForAutomation(mentorId);
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        const previousMentorId = String(assignment.mentorId || '').trim();
+        assignment.mentorId = mentorId;
+        const reason = String(payload.reason || payload.notes || '').trim();
+        if (reason) {
+            assignment.notes = [String(assignment.notes || '').trim(), `[Reassign] ${reason}`]
+                .filter(Boolean)
+                .join(' | ');
+        }
+        await assignment.save();
+
+        const assignmentStudents = this.extractObjectIdList(assignment.studentIds || []).length > 0
+            ? await MTSSStudent.find({ _id: { $in: this.extractObjectIdList(assignment.studentIds || []) } })
+                .select('_id name email className')
+                .lean()
+            : [];
+
+        await this.dispatchStudentMtssNotifications({
+            students: assignmentStudents,
+            actor: user,
+            operation: 'reassign_mtss_assignment_mentor',
+            assignmentId,
+            category: 'alert',
+            priority: 'high',
+            titleBuilder: () => 'Mentor reassignment update',
+            messageBuilder: () => `${this.normalizeMessageText(user?.name || 'MTSS admin', 80)} updated your assigned mentor.`
+        });
+
+        if (mentorId && mentorId !== previousMentorId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: mentorId,
+                actor: user,
+                operation: 'reassign_mtss_assignment_mentor',
+                title: 'You were assigned a new MTSS caseload',
+                message: `Assignment ${assignmentId} is now under your mentorship.`,
+                category: 'alert',
+                priority: 'high',
+                metadata: {
+                    assignmentId,
+                    previousMentorId: previousMentorId || undefined
+                }
+            });
+        }
+
+        return {
+            operation: 'reassign_mtss_assignment_mentor',
+            message: 'Assignment mentor reassigned successfully.',
+            assignment: {
+                id: assignment._id?.toString?.() || assignment._id,
+                mentorId: assignment.mentorId?.toString?.() || assignment.mentorId,
+                status: assignment.status
+            }
+        };
+    }
+
+    async executeUpdateMtssAssignmentStatus(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const status = String(payload.status || '').trim().toLowerCase();
+        if (!['active', 'paused', 'completed', 'closed'].includes(status)) {
+            throw new Error('status must be one of: active, paused, completed, closed.');
+        }
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        const role = this.normalizeRole(user?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const isAssignedMentor = String(assignment.mentorId || '') === viewerId;
+        if (!isAdmin && !isAssignedMentor) {
+            throw new Error('Only the assigned mentor or MTSS admin can update assignment status.');
+        }
+
+        assignment.status = status;
+        if (status === 'completed' || status === 'closed') {
+            assignment.endDate = payload.endDate || new Date();
+        }
+
+        const notes = String(payload.notes || '').trim();
+        if (notes) {
+            assignment.notes = [String(assignment.notes || '').trim(), `[Status:${status}] ${notes}`]
+                .filter(Boolean)
+                .join(' | ');
+        }
+
+        const summary = String(payload.summary || '').trim();
+        if (summary) {
+            assignment.checkIns.push(this.sanitizeCheckInForOperation({
+                summary,
+                nextSteps: payload.nextSteps,
+                value: payload.value,
+                unit: payload.unit || payload.scoreUnit,
+                celebration: payload.celebration,
+                performed: typeof payload.performed === 'boolean' ? payload.performed : true
+            }));
+        }
+
+        await assignment.save();
+
+        const assignmentStudentIds = this.extractObjectIdList(assignment.studentIds || []);
+        const assignmentStudents = assignmentStudentIds.length > 0
+            ? await MTSSStudent.find({ _id: { $in: assignmentStudentIds } }).select('_id name email className').lean()
+            : [];
+
+        await this.dispatchStudentMtssNotifications({
+            students: assignmentStudents,
+            actor: user,
+            operation: 'update_mtss_assignment_status',
+            assignmentId,
+            category: status === 'completed' ? 'achievement' : 'reminder',
+            priority: ['completed', 'closed'].includes(status) ? 'high' : 'medium',
+            titleBuilder: () => `Assignment status: ${status}`,
+            messageBuilder: () =>
+                `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} updated your MTSS assignment status to ${status}.`
+        });
+
+        if (isAdmin && String(assignment.mentorId || '') !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: String(assignment.mentorId || ''),
+                actor: user,
+                operation: 'update_mtss_assignment_status',
+                title: `Assignment status set to ${status}`,
+                message: `Assignment ${assignmentId} status was updated by ${this.normalizeMessageText(user?.name || 'MTSS admin', 80)}.`,
+                category: 'alert',
+                priority: ['completed', 'closed'].includes(status) ? 'high' : 'medium',
+                metadata: {
+                    assignmentId,
+                    status
+                }
+            });
+        }
+
+        return {
+            operation: 'update_mtss_assignment_status',
+            message: `Assignment status updated to "${status}".`,
+            assignment: {
+                id: assignment._id?.toString?.() || assignment._id,
+                status: assignment.status,
+                endDate: assignment.endDate || null,
+                checkInCount: Array.isArray(assignment.checkIns) ? assignment.checkIns.length : 0
+            }
+        };
+    }
+
+    async executeUpdateMtssGoalCompletion(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        const role = this.normalizeRole(user?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const isAssignedMentor = String(assignment.mentorId || '') === viewerId;
+        if (!isAdmin && !isAssignedMentor) {
+            throw new Error('Only the assigned mentor or MTSS admin can update assignment goals.');
+        }
+
+        const completed = payload.completed !== false;
+        const goalIndex = Number(payload.goalIndex);
+        const goalText = String(payload.goalText || payload.goal || '').trim();
+        let targetGoal = null;
+
+        if (Number.isInteger(goalIndex) && goalIndex >= 0 && goalIndex < (assignment.goals || []).length) {
+            targetGoal = assignment.goals[goalIndex];
+        } else if (goalText) {
+            targetGoal = (assignment.goals || []).find((goal = {}) =>
+                String(goal.description || '').trim().toLowerCase() === goalText.toLowerCase()
+            );
+        }
+
+        if (!targetGoal && goalText) {
+            assignment.goals.push({
+                description: goalText,
+                successCriteria: String(payload.successCriteria || '').trim() || undefined,
+                completed
+            });
+            targetGoal = assignment.goals[assignment.goals.length - 1];
+        }
+
+        if (!targetGoal) {
+            throw new Error('Goal not found. Provide goalIndex or goalText.');
+        }
+
+        targetGoal.completed = completed;
+        if (payload.successCriteria) {
+            targetGoal.successCriteria = String(payload.successCriteria || '').trim();
+        }
+
+        const summary = String(payload.summary || '').trim();
+        if (summary) {
+            assignment.checkIns.push(this.sanitizeCheckInForOperation({
+                summary,
+                nextSteps: payload.nextSteps,
+                value: payload.value,
+                unit: payload.unit || payload.scoreUnit,
+                celebration: payload.celebration
+            }));
+        }
+
+        await assignment.save();
+
+        const assignmentStudentIds = this.extractObjectIdList(assignment.studentIds || []);
+        const assignmentStudents = assignmentStudentIds.length > 0
+            ? await MTSSStudent.find({ _id: { $in: assignmentStudentIds } }).select('_id name email className').lean()
+            : [];
+
+        await this.dispatchStudentMtssNotifications({
+            students: assignmentStudents,
+            actor: user,
+            operation: 'update_mtss_goal_completion',
+            assignmentId,
+            category: completed ? 'achievement' : 'reminder',
+            priority: completed ? 'high' : 'medium',
+            titleBuilder: () => (completed ? 'Goal milestone reached' : 'Goal progress updated'),
+            messageBuilder: () =>
+                completed
+                    ? `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} marked one of your MTSS goals as completed.`
+                    : `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} updated your MTSS goal progress.`
+        });
+
+        if (isAdmin && String(assignment.mentorId || '') !== viewerId) {
+            this.dispatchWorkforceMtssNotification({
+                userId: String(assignment.mentorId || ''),
+                actor: user,
+                operation: 'update_mtss_goal_completion',
+                title: completed ? 'Goal completion updated' : 'Goal status adjusted',
+                message: `Assignment ${assignmentId} goal progress was updated by ${this.normalizeMessageText(user?.name || 'MTSS admin', 80)}.`,
+                category: completed ? 'achievement' : 'reminder',
+                priority: completed ? 'high' : 'medium',
+                metadata: {
+                    assignmentId,
+                    goal: this.normalizeMessageText(targetGoal.description || '', 120),
+                    completed
+                }
+            });
+        }
+
+        return {
+            operation: 'update_mtss_goal_completion',
+            message: completed ? 'Goal marked as completed.' : 'Goal marked as in-progress.',
+            goal: {
+                description: targetGoal.description,
+                completed: targetGoal.completed,
+                successCriteria: targetGoal.successCriteria || null
+            },
+            assignment: {
+                id: assignment._id?.toString?.() || assignment._id,
+                openGoals: (assignment.goals || []).filter((goal = {}) => !goal.completed).length,
+                totalGoals: (assignment.goals || []).length
+            }
+        };
+    }
+
     async executeOperation(userId, { operation = '', payload = {}, sessionId = null } = {}) {
         const user = await this.resolveUserProfile(userId);
         if (!user) {
@@ -3787,19 +5340,30 @@ Critical language requirement:
         }
 
         const role = this.normalizeRole(user.role || '');
-        const canUseMtssAutomation = this.isMtssCapableWorkforceRole(role) || this.isMtssAdminRole(role);
-        if (!canUseMtssAutomation) {
+        if (!this.isMtssAutomationRole(role)) {
             throw new Error('This automation is only available for teacher/principal MTSS roles.');
         }
 
+        const safeOperation = String(operation || '').trim().toLowerCase();
         const safePayload = this.sanitizeOperationPayload(payload);
         let result = null;
-        if (operation === 'create_mtss_intervention') {
+
+        if (safeOperation === 'create_mtss_intervention') {
             result = await this.executeCreateMtssIntervention(user, safePayload);
-        } else if (operation === 'append_mtss_progress_checkin') {
+        } else if (safeOperation === 'append_mtss_progress_checkin') {
             result = await this.executeAppendMtssProgressCheckIn(user, safePayload);
+        } else if (safeOperation === 'assign_students_to_mtss_mentor') {
+            result = await this.executeAssignStudentsToMtssMentor(user, safePayload);
+        } else if (safeOperation === 'assign_intervention_mentor') {
+            result = await this.executeAssignInterventionMentor(user, safePayload);
+        } else if (safeOperation === 'reassign_mtss_assignment_mentor') {
+            result = await this.executeReassignMtssAssignmentMentor(user, safePayload);
+        } else if (safeOperation === 'update_mtss_assignment_status') {
+            result = await this.executeUpdateMtssAssignmentStatus(user, safePayload);
+        } else if (safeOperation === 'update_mtss_goal_completion') {
+            result = await this.executeUpdateMtssGoalCompletion(user, safePayload);
         } else {
-            throw new Error('Unsupported assistant operation.');
+            throw new Error(`Unsupported assistant operation: ${safeOperation || 'unknown'}`);
         }
 
         if (sessionId) {
@@ -3810,7 +5374,7 @@ Critical language requirement:
                     content: `[Automation] ${result.message}`,
                     timestamp: new Date(),
                     metadata: {
-                        operation,
+                        operation: safeOperation,
                         automated: true
                     }
                 });
@@ -4222,13 +5786,14 @@ ${memory}`;
 
             // Guardrail: critical answers must be grounded in internal records and avoid generic disclaimers.
             const forcedReplies = [];
-            const asksMtss = this.isMtssQuestion(userMessage);
+            const intentUserKey = String(userId || 'global').trim();
+            const asksMtss = this.isMtssQuestion(userMessage, intentUserKey);
             const hasTierMention = /tier\s*[123]/i.test(responseText);
             if (asksMtss && (this.hasAccessDisclaimer(responseText) || !hasTierMention)) {
                 forcedReplies.push(this.buildGroundedMtssReply(context));
             }
 
-            const asksClassroom = this.isClassroomQuestion(userMessage);
+            const asksClassroom = this.isClassroomQuestion(userMessage, intentUserKey);
             const classroomTeachers = Array.isArray(context?.classroom?.teachers) ? context.classroom.teachers : [];
             const mentionsKnownTeacher = this.responseMentionsKnownTeacher(responseText, classroomTeachers);
             if (
@@ -4246,17 +5811,24 @@ ${memory}`;
                 forcedReplies.push(this.buildGroundedGeneralReply(context, userMessage));
             }
 
-            if (this.wantsStructuredVisualization(userMessage) && this.hasVisualizationLimitation(responseText)) {
+            if (this.wantsStructuredVisualization(userMessage, intentUserKey) && this.hasVisualizationLimitation(responseText)) {
                 forcedReplies.push(this.buildVisualizationReadyReply(context));
             }
 
-            if (this.wantsCapabilitiesOverview(userMessage) && this.hasGeneralLimitationClaim(responseText)) {
+            if (this.wantsCapabilitiesOverview(userMessage, intentUserKey) && this.hasGeneralLimitationClaim(responseText)) {
                 forcedReplies.push(this.buildCapabilitiesReadyReply(context));
             }
 
             if (forcedReplies.length > 0) {
                 responseText = Array.from(new Set(forcedReplies.map((value) => String(value).trim()).filter(Boolean))).join('\n\n');
             }
+
+            const isWorkforceSprintPlan = !this.isStudentContext(context) && this.wantsMtssSprintPlan(userMessage, intentUserKey);
+            if (isWorkforceSprintPlan) {
+                responseText = this.buildMtssSprintReply(context);
+            }
+
+            responseText = this.sanitizeAssistantResponseText(responseText, context, userMessage);
 
             const baseWidgets = this.buildResponseWidgets(userMessage, context);
             const workspaceResult = await assistantOrchestrator.buildWorkspaceResponse({

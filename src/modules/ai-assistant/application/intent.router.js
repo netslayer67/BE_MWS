@@ -1,4 +1,5 @@
 const { normalizeAction } = require('../domain/widgets/widget.schema');
+const { normalizeAssistantIntentText } = require('../../../utils/assistantIntentNormalizer');
 
 const INTENTS = [
     {
@@ -90,12 +91,18 @@ const INTENTS = [
 const NAV_CUE = /(bawa(kan)?|antar(kan)?|mau ke|ingin ke|ke halaman|pindah(kan)?|arahin|arahkan|redirect|go to|open|navigate|buka(\s+halaman)?|masuk ke|take me|bring me|visit|show me)/i;
 const HELP_CUE = /(bantu(in)?|tolong|help me|could you|can you|please|dong|donk|plz)/i;
 const MTSS_CUE = /(intervention|intervensi|mtss|check[\s-]?in\s+siswa|log\s+progress|student roster|daftar siswa)/i;
+const QUERY_CUE = /(\?|bagaimana|gimana|status|what|how|why|siapa|who|berapa|kapan|where|mana|jelaskan|explain|ringkas|summary|summari[sz]e|draft|buatkan|analisis|analyze|laporan|report)/i;
 
 const detect = (userMessage = '') => {
-    const text = String(userMessage || '').toLowerCase().trim();
+    const text = normalizeAssistantIntentText(userMessage);
     if (!text) return null;
 
-    const hasCue = NAV_CUE.test(text) || HELP_CUE.test(text) || MTSS_CUE.test(text) || /\/(?:student|profile|mtss)\//i.test(text);
+    const hasNavigationCue = NAV_CUE.test(text);
+    const hasHelpCue = HELP_CUE.test(text);
+    const hasDirectRoute = /\/(?:student|profile|mtss)\//i.test(text);
+    const isQueryLike = QUERY_CUE.test(text);
+    const hasCue = hasNavigationCue || hasDirectRoute || (MTSS_CUE.test(text) && hasNavigationCue);
+    if (isQueryLike && !hasNavigationCue && !hasDirectRoute && hasHelpCue) return null;
     if (!hasCue) return null;
 
     for (const item of INTENTS) {

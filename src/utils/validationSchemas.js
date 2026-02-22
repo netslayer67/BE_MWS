@@ -62,6 +62,77 @@ const userRegistrationSchema = Joi.object({
     employeeId: Joi.string().max(50).optional()
 });
 
+// Backward-compatible aliases used by users routes
+const userCreateSchema = Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+    name: Joi.string().min(2).max(120).required(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).default('staff'),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).unknown(true);
+
+const userUpdateSchema = Joi.object({
+    name: Joi.string().min(2).max(120).optional(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).optional(),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    isActive: Joi.boolean().optional(),
+    gender: Joi.string().valid('male', 'female', 'other').allow('', null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).min(1).unknown(true);
+
 // Enhanced emotional check-in validation schemas with smart validation
 const emotionalCheckinSchema = Joi.object({
     weatherType: Joi.string()
@@ -278,6 +349,8 @@ const mtssStudentUpdateSchema = Joi.object({
 module.exports = {
     userLoginSchema,
     userRegistrationSchema,
+    userCreateSchema,
+    userUpdateSchema,
     emotionalCheckinSchema,
     paginationSchema,
     dateRangeSchema,

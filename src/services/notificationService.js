@@ -1,6 +1,7 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
+const { getIO } = require('../config/socket');
 
 // Slack configuration
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -136,6 +137,30 @@ class NotificationService {
         this.email = new EmailService();
     }
 
+    emitToUserNotificationRooms(userId, eventName, payload = {}) {
+        const normalizedUserId = String(userId || '').trim();
+        if (!normalizedUserId || !eventName) return;
+
+        try {
+            const io = getIO();
+            io.to(`personal-${normalizedUserId}`).emit(eventName, payload);
+            io.to(`notifications-${normalizedUserId}`).emit(eventName, payload);
+        } catch (error) {
+            // Socket server can be unavailable in scripts/tests; keep notification persistence unaffected.
+            if (!String(error?.message || '').includes('Socket.io not initialized')) {
+                console.error('❌ Notification realtime emit error:', error.message || error);
+            }
+        }
+    }
+
+    toRealtimeNotificationPayload(notification = {}) {
+        if (!notification) return null;
+        if (typeof notification.toObject === 'function') {
+            return notification.toObject({ virtuals: true });
+        }
+        return notification;
+    }
+
     // Persistence methods for database operations
 
     // Create a new notification
@@ -153,6 +178,11 @@ class NotificationService {
 
             await notification.save();
             console.log(`✅ Notification created for user ${userId}: ${title}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:new', {
+                notification: this.toRealtimeNotificationPayload(notification)
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error creating notification:', error);
@@ -223,6 +253,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} marked as read`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:updated', {
+                notification: this.toRealtimeNotificationPayload(notification),
+                type: 'mark-read'
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error marking notification as read:', error);
@@ -233,12 +269,22 @@ class NotificationService {
     // Mark all notifications as read for a user
     async markAllAsRead(userId) {
         try {
+            const unreadNotificationIds = await Notification.find({ userId, isRead: false })
+                .select('_id')
+                .lean();
+
             const result = await Notification.updateMany(
                 { userId, isRead: false },
                 { isRead: true, readAt: new Date() }
             );
 
             console.log(`✅ Marked ${result.modifiedCount} notifications as read for user ${userId}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:bulk-read', {
+                notificationIds: unreadNotificationIds.map((entry) => String(entry._id)),
+                modifiedCount: result.modifiedCount
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error marking all notifications as read:', error);
@@ -259,6 +305,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} deleted`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:deleted', {
+                notificationId: String(notificationId || ''),
+                notification: this.toRealtimeNotificationPayload(result)
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error deleting notification:', error);

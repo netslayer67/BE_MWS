@@ -286,6 +286,7 @@ const executeOperation = async (req, res) => {
         if (/required|unsupported/i.test(message)) status = 400;
         if (/not found/i.test(message)) status = 404;
         if (/only available|only the assigned mentor/i.test(message)) status = 403;
+        if (/read-only|cannot modify database|disabled/i.test(message)) status = 403;
         return res.status(status).json({
             success: false,
             message

@@ -40,6 +40,17 @@ const initSocket = (server) => {
             winston.info(`User ${userId} left personal room`);
         });
 
+        // Notification stream room (separate from generic personal room)
+        socket.on('join-notifications', (userId) => {
+            socket.join(`notifications-${userId}`);
+            winston.info(`User ${userId} joined notifications room`);
+        });
+
+        socket.on('leave-notifications', (userId) => {
+            socket.leave(`notifications-${userId}`);
+            winston.info(`User ${userId} left notifications room`);
+        });
+
         socket.on('join-mtss-admin', () => {
             socket.join('mtss-admin');
             winston.info(`Socket ${socket.id} joined mtss-admin room`);

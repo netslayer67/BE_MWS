@@ -2,7 +2,7 @@ const Notification = require('../models/Notification');
 const EmotionalCheckin = require('../models/EmotionalCheckin');
 const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 const notificationService = require('../services/notificationService');
-const { response } = require('../utils/response');
+const { sendSuccess, sendError } = require('../utils/response');
 
 // Get notifications for the authenticated user
 const getUserNotifications = async (req, res) => {
@@ -26,10 +26,10 @@ const getUserNotifications = async (req, res) => {
 
         const result = await notificationService.getUserNotifications(userId, options);
 
-        response.success(res, 'Notifications retrieved successfully', result);
+        sendSuccess(res, 'Notifications retrieved successfully', result);
     } catch (error) {
         console.error('Error getting user notifications:', error);
-        response.error(res, 'Failed to retrieve notifications', 500);
+        sendError(res, 'Failed to retrieve notifications', 500);
     }
 };
 
@@ -39,10 +39,10 @@ const getNotificationStats = async (req, res) => {
         const userId = req.user.id;
         const stats = await notificationService.getNotificationStats(userId);
 
-        response.success(res, 'Notification stats retrieved successfully', stats);
+        sendSuccess(res, 'Notification stats retrieved successfully', stats);
     } catch (error) {
         console.error('Error getting notification stats:', error);
-        response.error(res, 'Failed to retrieve notification stats', 500);
+        sendError(res, 'Failed to retrieve notification stats', 500);
     }
 };
 
@@ -54,13 +54,13 @@ const markAsRead = async (req, res) => {
 
         const notification = await notificationService.markAsRead(notificationId, userId);
 
-        response.success(res, 'Notification marked as read', notification);
+        sendSuccess(res, 'Notification marked as read', notification);
     } catch (error) {
         console.error('Error marking notification as read:', error);
         if (error.message.includes('not found')) {
-            response.error(res, 'Notification not found', 404);
+            sendError(res, 'Notification not found', 404);
         } else {
-            response.error(res, 'Failed to mark notification as read', 500);
+            sendError(res, 'Failed to mark notification as read', 500);
         }
     }
 };
@@ -71,12 +71,12 @@ const markAllAsRead = async (req, res) => {
         const userId = req.user.id;
         const result = await notificationService.markAllAsRead(userId);
 
-        response.success(res, 'All notifications marked as read', {
+        sendSuccess(res, 'All notifications marked as read', {
             modifiedCount: result.modifiedCount
         });
     } catch (error) {
         console.error('Error marking all notifications as read:', error);
-        response.error(res, 'Failed to mark all notifications as read', 500);
+        sendError(res, 'Failed to mark all notifications as read', 500);
     }
 };
 
@@ -88,13 +88,13 @@ const deleteNotification = async (req, res) => {
 
         await notificationService.deleteNotification(notificationId, userId);
 
-        response.success(res, 'Notification deleted successfully');
+        sendSuccess(res, 'Notification deleted successfully');
     } catch (error) {
         console.error('Error deleting notification:', error);
         if (error.message.includes('not found')) {
-            response.error(res, 'Notification not found', 404);
+            sendError(res, 'Notification not found', 404);
         } else {
-            response.error(res, 'Failed to delete notification', 500);
+            sendError(res, 'Failed to delete notification', 500);
         }
     }
 };
@@ -106,7 +106,7 @@ const createSystemNotification = async (req, res) => {
 
         // Validate required fields
         if (!userId || !title || !message) {
-            return response.error(res, 'userId, title, and message are required', 400);
+            return sendError(res, 'userId, title, and message are required', 400);
         }
 
         const notification = await notificationService.createSystemNotification(
@@ -117,10 +117,10 @@ const createSystemNotification = async (req, res) => {
             metadata
         );
 
-        response.success(res, 'System notification created successfully', notification, 201);
+        sendSuccess(res, 'System notification created successfully', notification, 201);
     } catch (error) {
         console.error('Error creating system notification:', error);
-        response.error(res, 'Failed to create system notification', 500);
+        sendError(res, 'Failed to create system notification', 500);
     }
 };
 
@@ -131,7 +131,7 @@ const createSupportRequestNotification = async (req, res) => {
 
         // Validate required fields
         if (!userId || !supportRequest) {
-            return response.error(res, 'userId and supportRequest are required', 400);
+            return sendError(res, 'userId and supportRequest are required', 400);
         }
 
         const notification = await notificationService.createSupportRequestNotification(
@@ -139,10 +139,10 @@ const createSupportRequestNotification = async (req, res) => {
             supportRequest
         );
 
-        response.success(res, 'Support request notification created successfully', notification, 201);
+        sendSuccess(res, 'Support request notification created successfully', notification, 201);
     } catch (error) {
         console.error('Error creating support request notification:', error);
-        response.error(res, 'Failed to create support request notification', 500);
+        sendError(res, 'Failed to create support request notification', 500);
     }
 };
 
