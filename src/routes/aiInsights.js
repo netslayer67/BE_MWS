@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const aiInsightController = require('../controllers/aiInsightController');
 const { authenticate, authorize } = require('../middleware/auth');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 /**
  * AI Insights Routes - Phase 2
@@ -13,7 +14,7 @@ router.get(
     '/students/:studentId/insights',
     authenticate,
     authorize(['teacher', 'mentor', 'admin', 'principal']),
-    aiInsightController.getStudentInsights
+    devTopologyTelemetryService.instrumentedHandler('ai_insights_student_insights', aiInsightController.getStudentInsights)
 );
 
 // Generate alerts for a specific student (manual trigger)
@@ -21,7 +22,7 @@ router.post(
     '/students/:studentId/generate-alerts',
     authenticate,
     authorize(['teacher', 'mentor', 'admin']),
-    aiInsightController.generateAlertsForStudent
+    devTopologyTelemetryService.instrumentedHandler('ai_insights_generate_alerts', aiInsightController.generateAlertsForStudent)
 );
 
 // Get all alerts for current teacher
@@ -29,7 +30,7 @@ router.get(
     '/alerts',
     authenticate,
     authorize(['teacher', 'mentor', 'admin', 'principal']),
-    aiInsightController.getMyAlerts
+    devTopologyTelemetryService.instrumentedHandler('ai_insights_alert_list', aiInsightController.getMyAlerts)
 );
 
 // Get alerts for a specific student
@@ -77,7 +78,7 @@ router.get(
     '/alerts/statistics',
     authenticate,
     authorize(['teacher', 'mentor', 'admin', 'principal']),
-    aiInsightController.getAlertStatistics
+    devTopologyTelemetryService.instrumentedHandler('ai_insights_alert_statistics', aiInsightController.getAlertStatistics)
 );
 
 // Batch generate alerts (admin only, for cron job)

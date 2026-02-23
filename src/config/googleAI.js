@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 class GoogleAIService {
     constructor() {
@@ -32,6 +33,7 @@ class GoogleAIService {
         if (!this.isAvailable()) {
             throw new Error('AI service unavailable');
         }
+        const startedAt = Date.now();
 
         const now = Date.now();
         const timeSinceLastRequest = now - this.lastRequestTime;
@@ -49,6 +51,19 @@ class GoogleAIService {
             const response = await result.response;
             this.lastRequestTime = Date.now();
             console.log('✅ AI request successful');
+            try {
+                const responseText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'google-ai',
+                    model: this.modelName,
+                    ok: true,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: Math.max(1, Math.round(60000 / Math.max(250, Date.now() - startedAt))),
+                    tokensEstimate: Math.round(String(responseText).length / 4)
+                });
+            } catch (telemetryError) {
+                console.warn('Google AI telemetry tracking failed:', telemetryError.message);
+            }
             return response;
         } catch (error) {
             const message = error?.message || '';
@@ -70,15 +85,52 @@ class GoogleAIService {
                     const response = await result.response;
                     this.lastRequestTime = Date.now();
                     console.log('✅ AI retry successful');
+                    try {
+                        const responseText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        devTopologyTelemetryService.recordProviderCall({
+                            provider: 'google-ai',
+                            model: this.modelName,
+                            ok: true,
+                            latencyMs: Date.now() - startedAt,
+                            throughputRpm: Math.max(1, Math.round(60000 / Math.max(250, Date.now() - startedAt))),
+                            tokensEstimate: Math.round(String(responseText).length / 4)
+                        });
+                    } catch (telemetryError) {
+                        console.warn('Google AI telemetry retry tracking failed:', telemetryError.message);
+                    }
                     return response;
                 } catch (retryError) {
                     console.error('❌ AI retry also failed:', retryError.message);
+                    try {
+                        devTopologyTelemetryService.recordProviderCall({
+                            provider: 'google-ai',
+                            model: this.modelName,
+                            ok: false,
+                            latencyMs: Date.now() - startedAt,
+                            throughputRpm: 1,
+                            tokensEstimate: 0
+                        });
+                    } catch (telemetryError) {
+                        console.warn('Google AI telemetry retry error tracking failed:', telemetryError.message);
+                    }
                     this.markTemporarilyUnavailable(backoffTime * 2);
                     throw new Error('AI service rate limited - please wait before retrying');
                 }
             }
 
             console.error('❌ AI Error:', message);
+            try {
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'google-ai',
+                    model: this.modelName,
+                    ok: false,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: 1,
+                    tokensEstimate: 0
+                });
+            } catch (telemetryError) {
+                console.warn('Google AI telemetry error tracking failed:', telemetryError.message);
+            }
             this.markTemporarilyUnavailable(60_000);
             throw new Error(`AI analysis failed: ${message}`);
         }

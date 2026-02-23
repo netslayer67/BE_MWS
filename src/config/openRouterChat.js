@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 class OpenRouterChatService {
     constructor() {
@@ -199,6 +200,7 @@ class OpenRouterChatService {
         const timeoutMs = Math.max(5000, Number(options.timeoutMs || this.timeoutMs || 20000));
         const controller = new AbortController();
         const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+        const startedAt = Date.now();
 
         const headers = {
             Authorization: `Bearer ${this.apiKey}`,
@@ -248,8 +250,33 @@ class OpenRouterChatService {
             }
 
             this.lastRequestTime = Date.now();
+            try {
+                const firstChoiceText = payload?.choices?.[0]?.message?.content || '';
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'openrouter',
+                    model,
+                    ok: true,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: Math.max(1, Math.round(60000 / Math.max(200, Date.now() - startedAt))),
+                    tokensEstimate: Math.round(String(firstChoiceText).length / 4)
+                });
+            } catch (telemetryError) {
+                console.warn('OpenRouter telemetry tracking failed:', telemetryError.message);
+            }
             return { ...payload, _model: model, _requestId: requestId };
         } catch (error) {
+            try {
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'openrouter',
+                    model,
+                    ok: false,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: 1,
+                    tokensEstimate: 0
+                });
+            } catch (telemetryError) {
+                console.warn('OpenRouter telemetry error tracking failed:', telemetryError.message);
+            }
             if (error?.name === 'AbortError') {
                 const timeoutError = new Error(`OpenRouter request timed out after ${timeoutMs}ms`);
                 timeoutError.status = 504;

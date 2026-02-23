@@ -16,6 +16,7 @@ const {
 const { authenticate, requireStaffOrTeacher, authorize } = require('../middleware/auth');
 const { validate, validateQuery } = require('../middleware/validation');
 const { emotionalCheckinSchema, paginationSchema, dateRangeSchema } = require('../utils/validationSchemas');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 // Configure multer for image upload with destination
 const upload = multer({
@@ -59,7 +60,7 @@ router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), valid
     console.log('🤖 AI Submit Route - Files:', req.files || req.file ? 'Present' : 'None');
     console.log('🤖 AI Submit Route - Raw body:', req.body);
     next();
-}, submitAICheckin);
+}, devTopologyTelemetryService.instrumentedHandler('ai_checkin_submit', submitAICheckin));
 
 // Get today's check-in
 router.get('/today', getTodayCheckin);

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const aiChatController = require('../controllers/aiChatController');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 // All routes require authentication
 router.use(authenticate);
@@ -11,7 +12,7 @@ router.use(authenticate);
  * @desc    Send a message and get AI response
  * @access  Private (authenticated users only)
  */
-router.post('/message', aiChatController.sendMessage);
+router.post('/message', devTopologyTelemetryService.instrumentedHandler('ai_chat_message', aiChatController.sendMessage));
 
 /**
  * @route   GET /api/v1/ai-chat/conversations
@@ -46,7 +47,7 @@ router.post('/conversations/:sessionId/archive', aiChatController.archiveConvers
  * @desc    Get personal assistant profile and daily focus
  * @access  Private (all authenticated roles)
  */
-router.get('/assistant-profile', aiChatController.getAssistantProfile);
+router.get('/assistant-profile', devTopologyTelemetryService.instrumentedHandler('ai_chat_assistant_profile', aiChatController.getAssistantProfile));
 
 /**
  * @route   PATCH /api/v1/ai-chat/assistant-profile
@@ -60,6 +61,6 @@ router.patch('/assistant-profile', aiChatController.updateAssistantProfile);
  * @desc    Execute whitelisted assistant automation operation
  * @access  Private (authenticated users)
  */
-router.post('/execute-operation', aiChatController.executeOperation);
+router.post('/execute-operation', devTopologyTelemetryService.instrumentedHandler('ai_chat_execute_operation', aiChatController.executeOperation));
 
 module.exports = router;

@@ -1,11 +1,12 @@
 const aiChatService = require('../services/aiChatService');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 const getRequestUserId = (req) => req.user?.id || req.user?._id || null;
 
 /**
  * Send a chat message and get AI response
  */
-const sendMessage = async (req, res) => {
+const sendMessage = async (req, res, _next, telemetryCtx) => {
     try {
         const { message, sessionId } = req.body;
         const userId = getRequestUserId(req);
@@ -32,7 +33,30 @@ const sendMessage = async (req, res) => {
             });
         }
 
+        const startedAt = Date.now();
         const response = await aiChatService.chat(userId, message.trim(), sessionId);
+        const latencyMs = Date.now() - startedAt;
+
+        telemetryCtx?.setTelemetry?.({
+            responseText: response?.message || '',
+            tokensEstimate: Math.round(String(response?.message || '').length / 4)
+        });
+
+        if (response?.error) {
+            try {
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'local-fallback',
+                    model: 'fallback-ai-chat',
+                    fallback: true,
+                    ok: true,
+                    latencyMs,
+                    throughputRpm: Math.max(1, Math.round(60000 / Math.max(250, latencyMs))),
+                    tokensEstimate: Math.round(String(response?.message || '').length / 4)
+                });
+            } catch (telemetryError) {
+                console.warn('AI chat fallback telemetry failed:', telemetryError.message);
+            }
+        }
 
         res.json({
             success: true,
