@@ -53,6 +53,7 @@ const TIER_CODES = ['tier1', 'tier2', 'tier3'];
 const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
 const UNIT_LEVEL_ROLES = new Set(['head_unit']); // Principals who see all students in their unit
+const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
 const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
 const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
@@ -205,104 +206,31 @@ const applyViewerScope = (filter = {}, viewer = {}) => {
         return filter;
     }
 
-    // Teachers (teacher, se_teacher, staff) only see students in their assigned classes
-    const viewerClasses = viewer.classes || [];
-    if (!viewerClasses.length) {
-        // No class assignments - fall back to unit-based access (limited)
-        const unitGrades = deriveGradesForUnit(viewer.unit || '');
-        if (unitGrades.length) {
-            const gradeClauses = buildGradeFilterClauses(unitGrades);
-            if (gradeClauses.length) {
-                filter.$and = filter.$and || [];
-                filter.$and.push({ $or: gradeClauses });
-            }
-        }
-        return filter;
-    }
+    // Teachers / SE teachers / staff use grade-wide access (homeroom-like) so they can
+    // see every student in their assigned grade band. Subject ownership is enforced on
+    // intervention create/update logic, not roster visibility.
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
 
-    // Helper to check if a class assignment indicates a Homeroom Teacher
-    // Homeroom Teachers see ALL students in their grade (not filtered by specific class section)
-    const isHomeroomAssignment = (cls) => {
-        const className = (cls.className || '').toLowerCase();
-        const role = (cls.role || '').toLowerCase();
-        return className === 'homeroom' ||
-               role === 'homeroom teacher' ||
-               role.includes('homeroom');
-    };
-
-    // Separate homeroom assignments (grade-only filter) from specific class assignments
-    const homeroomGrades = [];
-    const specificClasses = [];
-
-    viewerClasses.forEach((cls) => {
-        if (!cls.grade) return;
-        if (isHomeroomAssignment(cls)) {
-            // Homeroom teacher - they see all students in the grade
-            homeroomGrades.push(cls.grade);
-            console.log(`[MTSS] Homeroom teacher detected: ${viewer.name} for ${cls.grade} (className: ${cls.className}, role: ${cls.role})`);
-        } else if (cls.className) {
-            // Specific class assignment - they see only that class
-            specificClasses.push(cls);
-        }
-    });
-
-    // Build filter clauses
-    const allClauses = [];
-
-    // Add grade-only clauses for homeroom teachers
-    if (homeroomGrades.length) {
-        const gradeClauses = buildGradeFilterClauses(homeroomGrades);
-        allClauses.push(...gradeClauses);
-    }
-
-    // Add strict class clauses for specific class assignments
-    specificClasses.forEach((cls) => {
-        const gradeRegex = buildGradeRegex(cls.grade);
-        const classRegex = buildClassRegex(cls.className);
-        if (gradeRegex && classRegex) {
-            allClauses.push({ currentGrade: gradeRegex, className: classRegex });
-        }
-    });
-
-    if (allClauses.length) {
+    const allowedGrades = isJhWideException
+        ? deriveGradesForUnit(viewer.unit || 'Junior High')
+        : deriveAllowedGradesForUser(viewer);
+    const gradeClauses = buildGradeFilterClauses(allowedGrades);
+    if (gradeClauses.length) {
         filter.$and = filter.$and || [];
-        filter.$and.push({ $or: allClauses });
-    } else {
-        // Fallback: if no valid class assignments, use grade-only filter
-        const allowedGrades = deriveAllowedGradesForUser(viewer);
-        const gradeClauses = buildGradeFilterClauses(allowedGrades);
-        if (gradeClauses.length) {
-            filter.$and = filter.$and || [];
-            filter.$and.push({ $or: gradeClauses });
-        }
+        filter.$and.push({ $or: gradeClauses });
     }
 
     return filter;
-};
-
-// Helper to build grade regex (reused from mtssAccess)
-const buildGradeRegex = (grade = '') => {
-    if (!grade) return null;
-    const gradeMatch = grade.match(/Grade\s*(\d+)/i);
-    if (gradeMatch) {
-        const number = gradeMatch[1];
-        return new RegExp(`^Grade\\s*${number}(\\s*-.*)?$`, 'i');
-    }
-    if (/kindergarten/i.test(grade)) {
-        if (/(pre[-\s]?k)/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*Pre[-\\s]?K.*', 'i');
-        if (/k\s*1/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*1.*', 'i');
-        if (/k\s*2/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*2.*', 'i');
-        return new RegExp('^Kindergarten.*', 'i');
-    }
-    return new RegExp(`^${grade.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-};
-
-// Helper to build class regex for partial match
-const buildClassRegex = (className = '') => {
-    if (!className) return null;
-    const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
-    // Match either exact className or as suffix (e.g., "Andromeda" matches "Grade 3 - Andromeda")
-    return new RegExp(`(^${escaped}$|\\s*-\\s*${escaped}$)`, 'i');
 };
 
 const buildFilter = (query = {}, skipGradeClassFilter = false) => {
