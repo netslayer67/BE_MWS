@@ -54,6 +54,7 @@ const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
 const UNIT_LEVEL_ROLES = new Set(['head_unit']); // Principals who see all students in their unit
 const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
+const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
 const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
 const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
@@ -169,6 +170,21 @@ const sanitizeStudentPayload = (payload = {}) => {
     return sanitized;
 };
 
+const isClassScopedTeacherInUnit = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    if (!CLASS_SCOPED_UNITS.has(lowerUnit)) return false;
+
+    const lowerJobPosition = (viewer.jobPosition || '').toLowerCase();
+    if (lowerJobPosition.includes('homeroom') || lowerJobPosition.includes('special education')) {
+        return true;
+    }
+
+    return (viewer.classes || []).some((cls) => {
+        const role = (cls?.role || '').toLowerCase();
+        return role.includes('homeroom') || role.includes('special education');
+    });
+};
+
 const applyViewerScope = (filter = {}, viewer = {}) => {
     // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
@@ -206,9 +222,8 @@ const applyViewerScope = (filter = {}, viewer = {}) => {
         return filter;
     }
 
-    // Teachers / SE teachers / staff use grade-wide access (homeroom-like) so they can
-    // see every student in their assigned grade band. Subject ownership is enforced on
-    // intervention create/update logic, not roster visibility.
+    // JH teachers remain grade-wide. Elementary/Kindergarten homeroom + SE teachers
+    // are class-scoped (grade + class) so roster visibility matches their classroom.
     const lowerUnit = (viewer.unit || '').toLowerCase();
     const usernameKey = (viewer.username || '').trim().toLowerCase();
     const nameKey = (viewer.name || '').trim().toLowerCase();
@@ -224,10 +239,22 @@ const applyViewerScope = (filter = {}, viewer = {}) => {
     const allowedGrades = isJhWideException
         ? deriveGradesForUnit(viewer.unit || 'Junior High')
         : deriveAllowedGradesForUser(viewer);
+
+    const useClassScopedFilter = !isJhWideException && isClassScopedTeacherInUnit(viewer);
+    const allowedClasses = useClassScopedFilter ? deriveAllowedClassNamesForUser(viewer) : [];
+
     const gradeClauses = buildGradeFilterClauses(allowedGrades);
     if (gradeClauses.length) {
         filter.$and = filter.$and || [];
         filter.$and.push({ $or: gradeClauses });
+    }
+
+    if (useClassScopedFilter && allowedClasses.length) {
+        const classClauses = buildClassFilterClauses(allowedClasses);
+        if (classClauses.length) {
+            filter.$and = filter.$and || [];
+            filter.$and.push({ $or: classClauses });
+        }
     }
 
     return filter;

@@ -6,6 +6,7 @@ const User = require('../models/User');
 const MTSSStudent = require('../models/MTSSStudent');
 const { emitAssignmentEvent } = require('../services/mtssRealtimeService');
 const {
+    buildClassFilterClauses,
     buildGradeFilterClauses,
     deriveAllowedGradesForUser,
     deriveAllowedClassNamesForUser,
@@ -28,6 +29,7 @@ const TYPE_ALIAS_MAP = {
 const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];
 const DUPLICATE_BLOCKING_STATUSES = ['active', 'paused'];
 const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
+const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
 const slugifyName = (value = '') =>
     value
         .toString()
@@ -407,6 +409,21 @@ const ensureStudentsValid = async (studentIds) => {
     return students;
 };
 
+const isClassScopedTeacherInUnit = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    if (!CLASS_SCOPED_UNITS.has(lowerUnit)) return false;
+
+    const lowerJobPosition = (viewer.jobPosition || '').toLowerCase();
+    if (lowerJobPosition.includes('homeroom') || lowerJobPosition.includes('special education')) {
+        return true;
+    }
+
+    return (viewer.classes || []).some((cls) => {
+        const role = (cls?.role || '').toLowerCase();
+        return role.includes('homeroom') || role.includes('special education');
+    });
+};
+
 const resolveRosterGradeScopeForViewer = (viewer = {}) => {
     const lowerUnit = (viewer.unit || '').toLowerCase();
     const usernameKey = (viewer.username || '').trim().toLowerCase();
@@ -437,10 +454,33 @@ const ensureStudentsWithinViewerScope = async (studentIds = [], viewer = {}) => 
     }
 
     const uniqueStudentIds = Array.from(new Set(studentIds.map((id) => id?.toString?.() || String(id)).filter(Boolean)));
-    const accessibleCount = await MTSSStudent.countDocuments({
+    const scopeFilter = {
         _id: { $in: uniqueStudentIds },
         $and: [{ $or: gradeClauses }]
-    });
+    };
+
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
+
+    const useClassScopedFilter = !isJhWideException && isClassScopedTeacherInUnit(viewer);
+    if (useClassScopedFilter) {
+        const allowedClasses = deriveAllowedClassNamesForUser(viewer);
+        const classClauses = buildClassFilterClauses(allowedClasses);
+        if (classClauses.length) {
+            scopeFilter.$and.push({ $or: classClauses });
+        }
+    }
+
+    const accessibleCount = await MTSSStudent.countDocuments(scopeFilter);
 
     if (accessibleCount !== uniqueStudentIds.length) {
         throw new Error('One or more selected students are outside your grade access scope.');
