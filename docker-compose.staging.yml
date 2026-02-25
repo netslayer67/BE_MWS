@@ -1,0 +1,59 @@
+services:
+  backend:
+    image: ghcr.io/netslayer67/mws-app-be:latest
+    container_name: mws-backend-staging
+    restart: unless-stopped
+    expose:
+      - "3003"
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - FRONTEND_URL=https://staging.mws.web.id
+      - CORS_ORIGINS=https://staging.mws.web.id,https://proof.mws.web.id,http://localhost:5173
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      - SESSION_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=https://staging.mws.web.id/auth/google/callback
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - GOOGLE_AI_MODEL=gemini-flash-latest
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+      - OPENROUTER_MODEL=arcee-ai/trinity-large-preview:free
+      - OPENROUTER_FALLBACK_MODELS=
+      - OPENROUTER_MAX_TOKENS=1024
+      - OPENROUTER_TEMPERATURE=0.4
+      - OPENROUTER_MIN_DELAY_MS=600
+      - OPENROUTER_HTTP_REFERER=https://staging.mws.web.id
+      - OPENROUTER_APP_NAME=IntegraLearn AI Chat Staging
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+      - RATE_LIMIT_WINDOW=15
+      - RATE_LIMIT_MAX_REQUESTS=600
+      - CACHE_TTL=3600
+      - LOG_LEVEL=info
+    networks:
+      - mws-network
+
+  frontend:
+    image: ghcr.io/netslayer67/mws-app-fe:latest
+    container_name: mws-frontend-staging
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "4177:80"
+    networks:
+      - mws-network
+
+networks:
+  mws-network:
+    driver: bridge
