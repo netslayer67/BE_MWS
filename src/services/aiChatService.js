@@ -2639,8 +2639,17 @@ ${mentorLines}`;
         };
     }
 
+    extractDockUserPrompt(userMessage = '') {
+        const raw = String(userMessage || '');
+        if (!raw.includes('[DOCK_RUNTIME_CONTEXT]')) return raw;
+        const match = raw.match(/(?:^|\n)User message:\s*([\s\S]*)$/i);
+        const extracted = String(match?.[1] || '').trim();
+        return extracted || raw;
+    }
+
     detectClientAction(userMessage = '', context = {}) {
-        const rawText = String(userMessage || '').toLowerCase().trim();
+        const intentSource = this.extractDockUserPrompt(userMessage);
+        const rawText = String(intentSource || '').toLowerCase().trim();
         if (!rawText) return null;
         const role = this.normalizeRole(context?.actor?.role || context?.student?.role || '');
         const intentUserKey = String(
