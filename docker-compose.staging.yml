@@ -8,15 +8,15 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3003
-      - FRONTEND_URL=https://staging.mws.web.id
-      - CORS_ORIGINS=https://staging.mws.web.id,https://proof.mws.web.id,http://localhost:5173
+      - FRONTEND_URL=https://app-stg.mws.web.id
+      - CORS_ORIGINS=https://app-stg.mws.web.id,https://proof.mws.web.id,http://localhost:5173
       - MONGODB_URI=${MONGODB_URI}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
       - SESSION_SECRET=${JWT_SECRET}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URL=https://staging.mws.web.id/auth/google/callback
+      - GOOGLE_REDIRECT_URL=https://app-stg.mws.web.id/auth/google/callback
       - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
       - GOOGLE_AI_MODEL=gemini-flash-latest
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -26,7 +26,7 @@ services:
       - OPENROUTER_MAX_TOKENS=1024
       - OPENROUTER_TEMPERATURE=0.4
       - OPENROUTER_MIN_DELAY_MS=600
-      - OPENROUTER_HTTP_REFERER=https://staging.mws.web.id
+      - OPENROUTER_HTTP_REFERER=https://app-stg.mws.web.id
       - OPENROUTER_APP_NAME=IntegraLearn AI Chat Staging
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
