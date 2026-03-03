@@ -269,7 +269,9 @@ const mentorAssignmentCreateSchema = Joi.object({
         'Option 2 - Student Self-Report',
         'Option 3 - Assessment Data'
     ).optional(),
-    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly').optional(),
+    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly', 'Custom').optional(),
+    customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
+    customFrequencyNote: Joi.string().trim().optional().allow('', null),
     metricLabel: Joi.string().trim().optional().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),

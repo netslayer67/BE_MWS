@@ -533,7 +533,9 @@ const createMentorAssignment = async (req, res) => {
             strategyId,
             strategyName,
             monitoringMethod,
-            monitoringFrequency
+            monitoringFrequency,
+            customFrequencyDays,
+            customFrequencyNote
         } = req.body;
 
         if (!studentIds || !studentIds.length) {
@@ -593,6 +595,8 @@ const createMentorAssignment = async (req, res) => {
             strategyName: cleanedStrategyName,
             monitoringMethod: monitoringMethod || undefined,
             monitoringFrequency: monitoringFrequency || undefined,
+            customFrequencyDays: monitoringFrequency === 'Custom' && Array.isArray(customFrequencyDays) ? customFrequencyDays : undefined,
+            customFrequencyNote: monitoringFrequency === 'Custom' && customFrequencyNote ? customFrequencyNote.trim() : undefined,
             goals,
             notes,
             metricLabel: metricLabel?.trim() || undefined,

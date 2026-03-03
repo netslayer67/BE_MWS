@@ -56,7 +56,15 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     monitoringFrequency: {
         type: String,
-        enum: ['Daily', 'Weekly', 'Bi-weekly'],
+        enum: ['Daily', 'Weekly', 'Bi-weekly', 'Custom'],
+        trim: true
+    },
+    customFrequencyDays: [{
+        type: String,
+        enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    }],
+    customFrequencyNote: {
+        type: String,
         trim: true
     },
     metricLabel: {

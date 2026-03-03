@@ -580,7 +580,7 @@ const listStudents = async (req, res) => {
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
                   .populate('mentorId', 'name email username gender jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt')
                   .lean()
             : [];
 
@@ -632,7 +632,7 @@ const getStudent = async (req, res) => {
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username gender jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -691,6 +691,8 @@ const getStudent = async (req, res) => {
                 duration: assignment.duration || null,
                 monitoringMethod: assignment.monitoringMethod || null,
                 monitoringFrequency: assignment.monitoringFrequency || null,
+                customFrequencyDays: assignment.customFrequencyDays || [],
+                customFrequencyNote: assignment.customFrequencyNote || null,
                 mentor: assignment.mentorId?.name || 'MTSS Mentor',
                 mentorNickname: assignment.mentorId?.username || null,
                 mentorUsername: assignment.mentorId?.username || null,
