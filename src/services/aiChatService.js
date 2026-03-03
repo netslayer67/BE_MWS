@@ -4648,7 +4648,7 @@ Critical language requirement:
             }
         );
 
-        const allowedDurations = new Set(['4 weeks', '6 weeks', '8 weeks']);
+        const allowedDurations = new Set(['4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks']);
         const duration = allowedDurations.has(String(payload.duration || '').trim())
             ? String(payload.duration).trim()
             : undefined;

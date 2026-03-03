@@ -34,7 +34,7 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     duration: {
         type: String,
-        enum: ['4 weeks', '6 weeks', '8 weeks'],
+        enum: ['4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks'],
         trim: true
     },
     createdBy: {
