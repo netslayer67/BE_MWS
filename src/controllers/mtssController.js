@@ -510,6 +510,8 @@ const sanitizeCheckIn = (checkIn = {}) => {
         value: Number.isFinite(parsedValue) ? parsedValue : undefined,
         unit: checkIn.unit ? checkIn.unit.toString().trim().toLowerCase() : undefined,
         performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
+        skipReason: checkIn.skipReason || undefined,
+        skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
         celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined
     };
 };

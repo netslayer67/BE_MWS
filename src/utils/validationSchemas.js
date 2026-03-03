@@ -312,6 +312,8 @@ const mentorAssignmentUpdateSchema = Joi.object({
         value: Joi.number().optional(),
         unit: Joi.string().allow('', null),
         performed: Joi.boolean().optional(),
+        skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
+        skipReasonNote: Joi.string().allow('', null).optional(),
         celebration: Joi.string().allow('', null)
     })).optional()
 });

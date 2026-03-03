@@ -108,6 +108,11 @@ const mentorAssignmentSchema = new mongoose.Schema({
             type: Boolean,
             default: true
         },
+        skipReason: {
+            type: String,
+            enum: ['teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other']
+        },
+        skipReasonNote: String,
         celebration: String
     }]
 }, {

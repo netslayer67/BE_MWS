@@ -205,6 +205,8 @@ class AIChatService {
             value: Number.isFinite(parsedValue) ? parsedValue : undefined,
             unit: String(checkIn.unit || '').trim().toLowerCase() || undefined,
             performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
+            skipReason: checkIn.skipReason || undefined,
+            skipReasonNote: checkIn.skipReasonNote ? String(checkIn.skipReasonNote).trim() : undefined,
             celebration: String(checkIn.celebration || '').trim() || undefined
         };
     }
@@ -4758,6 +4760,8 @@ Critical language requirement:
             value: payload.value,
             unit: payload.unit || payload.scoreUnit,
             performed: payload.performed,
+            skipReason: payload.skipReason,
+            skipReasonNote: payload.skipReasonNote,
             celebration: payload.celebration
         });
         assignment.checkIns.push(checkIn);
@@ -5178,7 +5182,9 @@ Critical language requirement:
                 value: payload.value,
                 unit: payload.unit || payload.scoreUnit,
                 celebration: payload.celebration,
-                performed: typeof payload.performed === 'boolean' ? payload.performed : true
+                performed: typeof payload.performed === 'boolean' ? payload.performed : true,
+                skipReason: payload.skipReason,
+                skipReasonNote: payload.skipReasonNote
             }));
         }
 
