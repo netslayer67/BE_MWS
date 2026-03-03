@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/netslayer67/mws-app-be:latest
+    image: ghcr.io/netslayer67/mws-app-be:staging-latest
     container_name: mws-backend-staging
     restart: unless-stopped
     expose:
@@ -44,7 +44,7 @@ services:
       - mws-network
 
   frontend:
-    image: ghcr.io/netslayer67/mws-app-fe:latest
+    image: ghcr.io/netslayer67/mws-app-fe:staging-latest
     container_name: mws-frontend-staging
     restart: unless-stopped
     depends_on:
