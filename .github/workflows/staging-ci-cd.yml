@@ -123,3 +123,34 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+      - name: Summary
+        run: |
+          echo "## 🐳 Backend Staging Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # DEPLOY - Trigger Komodo Redeploy (Staging)
+  # ============================================
+  deploy:
+    name: "Deploy Staging to Komodo"
+    runs-on: ubuntu-latest
+    needs: [build_and_push]
+    if: needs.build_and_push.result == 'success'
+    steps:
+      - name: Trigger Komodo Redeploy
+        run: |
+          BODY='{"ref":"refs/heads/TESTING","repository":{"name":"mws-app-be"},"tag":"staging-latest"}'
+          SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "${{ secrets.KOMODO_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: $SIGNATURE" \
+            -d "$BODY" \
+            "${{ secrets.KOMODO_WEBHOOK_URL }}"
+          echo "Komodo staging redeploy triggered successfully"
