@@ -27,7 +27,7 @@ const TYPE_ALIAS_MAP = {
     indonesian: ['indonesian', 'bahasa indonesia', 'bahasa', 'bi', 'indonesian language'],
     universal: ['universal', 'all', 'whole school', 'schoolwide']
 };
-const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];
+const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];
 const DUPLICATE_BLOCKING_STATUSES = ['active', 'paused'];
 const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
 const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);

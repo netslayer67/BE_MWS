@@ -38,8 +38,8 @@ class AIChatService {
             'superadmin',
             'counselor'
         ]);
-        this.mtssMentorRoleSet = new Set(['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'principal', 'admin', 'directorate']);
-        this.mtssAutomationRoleSet = new Set(['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin']);
+        this.mtssMentorRoleSet = new Set(['staff', 'teacher', 'support_staff', 'head_unit', 'principal', 'admin', 'directorate']);
+        this.mtssAutomationRoleSet = new Set(['teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin']);
     }
 
     getSessionLockKey(userId, sessionId = null) {
