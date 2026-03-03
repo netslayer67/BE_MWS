@@ -3,7 +3,8 @@ const INTERVENTION_TYPES = [
     { key: 'ENGLISH', label: 'English', accent: '#0ea5e9' },
     { key: 'MATH', label: 'Math', accent: '#22c55e' },
     { key: 'BEHAVIOR', label: 'Behavior', accent: '#f97316' },
-    { key: 'ATTENDANCE', label: 'Attendance', accent: '#6366f1' }
+    { key: 'ATTENDANCE', label: 'Attendance', accent: '#6366f1' },
+    { key: 'INDONESIAN', label: 'Bahasa Indonesia', accent: '#e11d48' }
 ];
 
 const INTERVENTION_TYPE_KEYS = INTERVENTION_TYPES.map((entry) => entry.key);

@@ -24,6 +24,7 @@ const TYPE_ALIAS_MAP = {
     sel: ['sel', 'social emotional', 'social emotional learning', 'behavior'],
     behavior: ['behavior', 'behavioral', 'sel'],
     attendance: ['attendance', 'engagement'],
+    indonesian: ['indonesian', 'bahasa indonesia', 'bahasa', 'bi', 'indonesian language'],
     universal: ['universal', 'all', 'whole school', 'schoolwide']
 };
 const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];

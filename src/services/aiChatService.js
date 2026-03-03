@@ -4367,7 +4367,8 @@ Critical language requirement:
             MATH: ['MATH', 'MATHEMATICS', 'NUMERACY'],
             SEL: ['SEL', 'SOCIAL EMOTIONAL', 'SOCIAL EMOTIONAL LEARNING'],
             BEHAVIOR: ['BEHAVIOR', 'BEHAVIOUR', 'BEHAVIORAL'],
-            ATTENDANCE: ['ATTENDANCE', 'ENGAGEMENT']
+            ATTENDANCE: ['ATTENDANCE', 'ENGAGEMENT'],
+            INDONESIAN: ['INDONESIAN', 'BAHASA INDONESIA', 'BAHASA', 'BI']
         };
 
         const compact = raw.replace(/[^A-Z]/g, '');
@@ -4994,7 +4995,7 @@ Critical language requirement:
 
         const interventionTypes = this.resolveInterventionTypeList(payload);
         if (interventionTypes.length === 0) {
-            throw new Error('interventionType is required (SEL, ENGLISH, MATH, BEHAVIOR, ATTENDANCE).');
+            throw new Error('interventionType is required (SEL, ENGLISH, MATH, BEHAVIOR, ATTENDANCE, INDONESIAN).');
         }
 
         const requestedTier = payload.tier ? this.normalizeTierCode(payload.tier) : null;
