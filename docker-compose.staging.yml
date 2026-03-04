@@ -40,6 +40,9 @@ services:
       - RATE_LIMIT_MAX_REQUESTS=600
       - CACHE_TTL=3600
       - LOG_LEVEL=info
+      - CLOUDINARY_CLOUD_NAME=deldcwiji
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
     networks:
       - mws-network
 
