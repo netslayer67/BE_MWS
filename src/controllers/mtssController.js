@@ -681,7 +681,17 @@ const sanitizeCheckIn = (checkIn = {}) => {
         performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
         skipReason: checkIn.skipReason || undefined,
         skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
-        celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined
+        celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined,
+        evidence: Array.isArray(checkIn.evidence)
+            ? checkIn.evidence.filter(ev => ev && ev.url).map(ev => ({
+                url: ev.url,
+                publicId: ev.publicId || undefined,
+                fileName: ev.fileName || undefined,
+                fileType: ev.fileType || undefined,
+                fileSize: ev.fileSize || undefined,
+                resourceType: ev.resourceType || 'image'
+            })).slice(0, 5)
+            : undefined
     };
 };
 

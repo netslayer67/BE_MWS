@@ -128,7 +128,15 @@ const mentorAssignmentSchema = new mongoose.Schema({
             enum: ['teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other']
         },
         skipReasonNote: String,
-        celebration: String
+        celebration: String,
+        evidence: [{
+            url: { type: String, required: true },
+            publicId: String,
+            fileName: String,
+            fileType: String,
+            fileSize: Number,
+            resourceType: { type: String, enum: ['image', 'raw'], default: 'image' }
+        }]
     }]
 }, {
     timestamps: true

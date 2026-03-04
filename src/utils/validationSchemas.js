@@ -329,7 +329,15 @@ const mentorAssignmentUpdateSchema = Joi.object({
         performed: Joi.boolean().optional(),
         skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
         skipReasonNote: Joi.string().allow('', null).optional(),
-        celebration: Joi.string().allow('', null)
+        celebration: Joi.string().allow('', null),
+        evidence: Joi.array().items(Joi.object({
+            url: Joi.string().uri().required(),
+            publicId: Joi.string().allow('', null).optional(),
+            fileName: Joi.string().allow('', null).optional(),
+            fileType: Joi.string().allow('', null).optional(),
+            fileSize: Joi.number().optional(),
+            resourceType: Joi.string().valid('image', 'raw').optional()
+        })).max(5).optional()
     })).optional()
 });
 

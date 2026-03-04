@@ -675,7 +675,8 @@ const getStudent = async (req, res) => {
                 date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
                 notes: checkIn.summary || checkIn.nextSteps || 'Check-in recorded',
                 score: checkIn.value,
-                celebration: checkIn.celebration
+                celebration: checkIn.celebration,
+                evidence: checkIn.evidence || []
             }));
 
             return {

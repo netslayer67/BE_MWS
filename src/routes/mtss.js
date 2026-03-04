@@ -23,6 +23,16 @@ const {
     updateStudent
 } = require('../controllers/mtssStudentController');
 
+const multer = require('multer');
+const { uploadEvidence } = require('../controllers/mtssUploadController');
+const { ALLOWED_TYPES, MAX_FILE_SIZE, MAX_FILES } = require('../services/cloudinaryUploadService');
+
+const evidenceUpload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter: (_req, file, cb) => cb(null, ALLOWED_TYPES.has(file.mimetype))
+});
+
 const { authenticate, requireMTSSAdmin, requireStaffOrTeacher } = require('../middleware/auth');
 const { validate } = require('../middleware/validation');
 const {
@@ -51,6 +61,8 @@ router.post('/students', requireMTSSAdmin, validate(mtssStudentCreateSchema), cr
 router.put('/students/:id', requireMTSSAdmin, validate(mtssStudentUpdateSchema), updateStudent);
 
 router.get('/mentors', requireMTSSAdmin, listMentors);
+
+router.post('/upload-evidence', requireStaffOrTeacher, evidenceUpload.array('evidence', MAX_FILES), uploadEvidence);
 
 router.get('/mentor-assignments', requireStaffOrTeacher, getMentorAssignments);
 router.get('/mentor-assignments/:id', requireStaffOrTeacher, getMentorAssignmentById);
