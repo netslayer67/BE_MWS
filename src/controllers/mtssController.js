@@ -795,22 +795,34 @@ const getMentorAssignments = async (req, res) => {
     try {
         const { mentorId, studentId, status, tier } = req.query;
         const filter = {};
+        const isAdmin = isMTSSAdminRole(req.user.role);
+        const viewerId = req.user?.id?.toString?.() || req.user?._id?.toString?.();
 
         if (mentorId) filter.mentorId = mentorId;
         if (studentId) filter.studentIds = studentId;
         if (status) filter.status = status;
         if (tier) filter.tier = tier;
 
-        if (!isMTSSAdminRole(req.user.role)) {
-            filter.mentorId = req.user.id;
-        }
-
         const assignmentsRaw = await MentorAssignment.find(filter)
             .populate('mentorId', 'name role email username jobPosition')
             .populate('createdBy', 'name role')
             .populate('lastPlanUpdatedBy', 'name username email')
             .lean();
-        const assignments = await hydrateAssignmentStudents(assignmentsRaw);
+        const hydratedAssignments = await hydrateAssignmentStudents(assignmentsRaw);
+        const assignments = isAdmin
+            ? hydratedAssignments
+            : hydratedAssignments.filter((assignment) => {
+                const mentorKey = assignment?.mentorId?._id?.toString?.() || assignment?.mentorId?.toString?.();
+                const creatorKey = assignment?.createdBy?._id?.toString?.() || assignment?.createdBy?.toString?.();
+                if (viewerId && (mentorKey === viewerId || creatorKey === viewerId)) return true;
+
+                const assignmentStudents = Array.isArray(assignment?.studentIds) ? assignment.studentIds : [];
+                return canViewerEditPlanForAssignment({
+                    viewer: req.user,
+                    assignment,
+                    students: assignmentStudents
+                });
+            });
 
         sendSuccess(res, 'Mentor assignments retrieved', { assignments });
     } catch (error) {
