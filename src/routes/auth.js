@@ -189,6 +189,7 @@ router.post('/login', require('../middleware/validation').validate(require('../u
                 unit: user.unit,
                 jobLevel: user.jobLevel,
                 jobPosition: user.jobPosition,
+                classes: Array.isArray(user.classes) ? user.classes : [],
                 currentGrade: user.currentGrade,
                 className: user.className,
                 nickname: user.nickname,

@@ -10,7 +10,9 @@ const {
     buildGradeFilterClauses,
     deriveAllowedGradesForUser,
     deriveAllowedClassNamesForUser,
-    deriveGradesForUnit
+    deriveGradesForUnit,
+    normalizeClassLabel,
+    normalizeGradeLabel
 } = require('../utils/mtssAccess');
 
 const TIER_ORDER = {
@@ -31,6 +33,25 @@ const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'support_staff', 'head_unit', 'ad
 const DUPLICATE_BLOCKING_STATUSES = ['active', 'paused'];
 const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
 const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
+const PLAN_EDITABLE_FIELDS = new Set([
+    'focusAreas',
+    'tier',
+    'status',
+    'startDate',
+    'endDate',
+    'duration',
+    'strategyId',
+    'strategyName',
+    'monitoringMethod',
+    'monitoringFrequency',
+    'customFrequencyDays',
+    'customFrequencyNote',
+    'notes',
+    'goals',
+    'metricLabel',
+    'baselineScore',
+    'targetScore'
+]);
 const slugifyName = (value = '') =>
     value
         .toString()
@@ -97,6 +118,136 @@ const extractAssignmentSubjectKeys = (assignment = {}) => {
 
     return subjectKeys.length ? subjectKeys : ['universal'];
 };
+
+const normalizeComparableText = (value = '') =>
+    value
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+
+const normalizeGradeKey = (value = '') => {
+    const normalized = normalizeComparableText(normalizeGradeLabel(value));
+    return normalized || null;
+};
+
+const normalizeClassToken = (value = '') => {
+    const normalized = normalizeComparableText(normalizeClassLabel(value));
+    if (!normalized) return null;
+    const parts = normalized.split('-').map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+        return parts[parts.length - 1];
+    }
+    const withoutGrade = normalized.replace(/grade\s*[0-9]{1,2}/g, '').trim();
+    return withoutGrade || normalized;
+};
+
+const isHomeroomRole = (value = '') => {
+    const role = normalizeComparableText(value);
+    return role.includes('homeroom') || role.includes('class teacher');
+};
+
+const isSubjectRole = (value = '') => {
+    const role = normalizeComparableText(value);
+    if (!role) return false;
+    if (role.includes('subject')) return true;
+    return role === 'teacher' || role.includes('grade teacher');
+};
+
+const resolveAssignmentClassSubjectKeys = (classAssignment = {}) => {
+    const candidates = [classAssignment.subject, classAssignment.className].filter(Boolean);
+    return Array.from(
+        new Set(
+            candidates
+                .map((value) => canonicalizeSubjectKey(value))
+                .filter(Boolean)
+        )
+    );
+};
+
+const isGenericClassLabel = (value = '') => {
+    const normalized = normalizeComparableText(value);
+    if (!normalized) return true;
+
+    if (
+        normalized.includes('homeroom') ||
+        normalized.includes('class teacher') ||
+        normalized.includes('special education') ||
+        normalized.includes('subject teacher') ||
+        normalized === 'subject' ||
+        normalized === 'all'
+    ) {
+        return true;
+    }
+
+    const canonical = canonicalizeSubjectKey(value);
+    return Boolean(canonical && Object.prototype.hasOwnProperty.call(TYPE_ALIAS_MAP, canonical));
+};
+
+const studentMatchesGradeScope = (classAssignment = {}, student = {}) => {
+    const classGrade = normalizeGradeKey(classAssignment.grade);
+    if (!classGrade) return true;
+
+    const studentCandidates = [student.currentGrade, student.className]
+        .map((candidate) => normalizeGradeKey(candidate))
+        .filter(Boolean);
+    return studentCandidates.some((candidate) => candidate === classGrade);
+};
+
+const studentMatchesClassScope = (classAssignment = {}, student = {}, options = {}) => {
+    const { allowGenericLabel = false } = options;
+    if (allowGenericLabel && isGenericClassLabel(classAssignment.className)) {
+        return true;
+    }
+
+    const classToken = normalizeClassToken(classAssignment.className);
+    if (!classToken) return true;
+
+    const studentCandidates = [student.className, student.currentGrade]
+        .map((candidate) => normalizeClassToken(candidate))
+        .filter(Boolean);
+
+    return studentCandidates.some((candidate) =>
+        candidate === classToken || candidate.includes(classToken) || classToken.includes(candidate)
+    );
+};
+
+const studentMatchesClassAssignment = (classAssignment = {}, student = {}, options = {}) =>
+    studentMatchesGradeScope(classAssignment, student) && studentMatchesClassScope(classAssignment, student, options);
+
+const canViewerEditPlanForAssignment = ({ viewer = {}, assignment = {}, students = [] }) => {
+    if (!students.length) return false;
+    const classAssignments = Array.isArray(viewer.classes) ? viewer.classes : [];
+    if (!classAssignments.length) return false;
+
+    const assignmentSubjectKeys = extractAssignmentSubjectKeys(assignment);
+    const isUniversalOnly = assignmentSubjectKeys.includes('universal');
+
+    return students.every((student) => {
+        const homeroomMatch = classAssignments.some((classAssignment) => {
+            const role = classAssignment.role || viewer.jobPosition || '';
+            if (!isHomeroomRole(role)) return false;
+            if (!classAssignment?.grade && !classAssignment?.className) return false;
+            return studentMatchesClassAssignment(classAssignment, student, { allowGenericLabel: true });
+        });
+
+        if (homeroomMatch) return true;
+        if (isUniversalOnly) return false;
+
+        return classAssignments.some((classAssignment) => {
+            const role = classAssignment.role || viewer.jobPosition || '';
+            if (!isSubjectRole(role)) return false;
+            if (!classAssignment?.grade && !classAssignment?.className) return false;
+            if (!studentMatchesClassAssignment(classAssignment, student, { allowGenericLabel: true })) return false;
+            const classSubjectKeys = resolveAssignmentClassSubjectKeys(classAssignment);
+            if (!classSubjectKeys.length) return false;
+            return classSubjectKeys.some((subjectKey) => assignmentSubjectKeys.includes(subjectKey));
+        });
+    });
+};
+
+const hasPlanEditPayload = (payload = {}) =>
+    Array.from(PLAN_EDITABLE_FIELDS).some((field) => payload[field] !== undefined);
 
 const findSubjectConflicts = async ({
     studentIds = [],
@@ -185,7 +336,7 @@ const mapLegacyUserToStudent = (user) => ({
     slug: slugifyName(user.username || user.name),
     email: user.email,
     currentGrade: user.classes?.[0]?.grade || user.unit || '-',
-    className: user.classes?.[0]?.role || user.unit || '-',
+    className: user.classes?.[0]?.className || user.classes?.[0]?.role || user.unit || '-',
     joinAcademicYear: null,
     status: user.isActive ? 'active' : 'inactive',
     gender: user.gender,
@@ -490,6 +641,7 @@ const ensureStudentsWithinViewerScope = async (studentIds = [], viewer = {}) => 
 
 const sanitizeScorePayload = (score = {}) => {
     if (!score) return undefined;
+    if (score.value === null || score.value === undefined || score.value === '') return undefined;
     const value = Number(score.value);
     if (!Number.isFinite(value)) return undefined;
     return {
@@ -515,6 +667,17 @@ const sanitizeCheckIn = (checkIn = {}) => {
         skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
         celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined
     };
+};
+
+const normalizeAssignmentTier = (tier = 'tier2') => {
+    let normalizedTier = tier || 'tier2';
+    if (typeof normalizedTier === 'string') {
+        normalizedTier = normalizedTier.toLowerCase().replace(/\s+/g, '');
+        if (!normalizedTier.startsWith('tier')) {
+            normalizedTier = `tier${normalizedTier}`;
+        }
+    }
+    return normalizedTier || 'tier2';
 };
 
 const createMentorAssignment = async (req, res) => {
@@ -576,19 +739,10 @@ const createMentorAssignment = async (req, res) => {
         const sanitizedBaseline = sanitizeScorePayload(baselineScore);
         const sanitizedTarget = sanitizeScorePayload(targetScore);
 
-        // Normalize tier code (handle "Tier 2" -> "tier2" format)
-        let normalizedTier = tier || 'tier2';
-        if (typeof normalizedTier === 'string') {
-            normalizedTier = normalizedTier.toLowerCase().replace(/\s+/g, '');
-            if (!normalizedTier.startsWith('tier')) {
-                normalizedTier = `tier${normalizedTier}`;
-            }
-        }
-
         const assignment = await MentorAssignment.create({
             mentorId,
             studentIds,
-            tier: normalizedTier,
+            tier: normalizeAssignmentTier(tier),
             focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
             startDate: startDate || Date.now(),
             duration: duration || undefined,
@@ -603,7 +757,9 @@ const createMentorAssignment = async (req, res) => {
             metricLabel: metricLabel?.trim() || undefined,
             baselineScore: sanitizedBaseline,
             targetScore: sanitizedTarget,
-            createdBy: req.user?.id || null
+            createdBy: req.user?.id || null,
+            lastPlanUpdatedAt: new Date(),
+            lastPlanUpdatedBy: req.user?.id || null
         });
 
         sendSuccess(res, 'Intervention plan created', { assignment }, 201);
@@ -636,6 +792,7 @@ const getMentorAssignments = async (req, res) => {
         const assignmentsRaw = await MentorAssignment.find(filter)
             .populate('mentorId', 'name role email username jobPosition')
             .populate('createdBy', 'name role')
+            .populate('lastPlanUpdatedBy', 'name username email')
             .lean();
         const assignments = await hydrateAssignmentStudents(assignmentsRaw);
 
@@ -651,6 +808,7 @@ const getMentorAssignmentById = async (req, res) => {
         const assignmentRaw = await MentorAssignment.findById(req.params.id)
             .populate('mentorId', 'name role email username jobPosition')
             .populate('createdBy', 'name role')
+            .populate('lastPlanUpdatedBy', 'name username email')
             .lean();
         if (!assignmentRaw) {
             return sendError(res, 'Mentor assignment not found', 404);
@@ -667,7 +825,26 @@ const getMentorAssignmentById = async (req, res) => {
 
 const updateMentorAssignment = async (req, res) => {
     try {
-        const { focusAreas, status, endDate, notes, goals, checkIns, metricLabel, baselineScore, targetScore } = req.body;
+        const {
+            focusAreas,
+            tier,
+            status,
+            startDate,
+            endDate,
+            duration,
+            strategyId,
+            strategyName,
+            monitoringMethod,
+            monitoringFrequency,
+            customFrequencyDays,
+            customFrequencyNote,
+            notes,
+            goals,
+            checkIns,
+            metricLabel,
+            baselineScore,
+            targetScore
+        } = req.body;
         const assignment = await MentorAssignment.findById(req.params.id);
 
         if (!assignment) {
@@ -680,51 +857,123 @@ const updateMentorAssignment = async (req, res) => {
         const isCreator = assignment.createdBy?.toString?.() === viewerId;
         const progressOwnerId = assignment.createdBy?.toString?.() || assignment.mentorId?.toString();
         const isProgressOwner = progressOwnerId === viewerId;
+        const includesPlanEdits = hasPlanEditPayload(req.body);
+        const hasCheckInUpdates = Boolean(Array.isArray(checkIns) && checkIns.length);
 
-        if (!isAdmin && !isAssignedMentor && !isCreator) {
+        if (includesPlanEdits) {
+            const [hydratedScope] = await hydrateAssignmentStudents([{
+                studentIds: assignment.studentIds || []
+            }]);
+            const assignmentStudents = Array.isArray(hydratedScope?.studentIds) ? hydratedScope.studentIds : [];
+            const canEditPlan = canViewerEditPlanForAssignment({
+                viewer: req.user,
+                assignment,
+                students: assignmentStudents
+            });
+            if (!canEditPlan) {
+                return sendError(res, 'Only the homeroom teacher or matching subject teacher can edit this intervention plan', 403);
+            }
+        }
+
+        if (!includesPlanEdits && !hasCheckInUpdates && !isAdmin && !isAssignedMentor && !isCreator) {
             return sendError(res, 'Only the intervention owner (creator) or MTSS admin can update this assignment', 403);
         }
 
-        if (Array.isArray(checkIns) && checkIns.length && !isAdmin && !isProgressOwner) {
+        if (hasCheckInUpdates && !isAdmin && !isProgressOwner) {
             return sendError(res, 'Only the original intervention creator can submit progress updates for this subject', 403);
         }
 
-        if (Array.isArray(focusAreas)) {
-            const cleaned = focusAreas.map(area => area?.trim()).filter(Boolean);
-            const nextFocusAreas = cleaned.length ? cleaned : ['Universal Supports'];
+        const hasFocusAreasUpdate = Array.isArray(focusAreas);
+        const cleanedFocusAreas = hasFocusAreasUpdate
+            ? focusAreas.map(area => area?.trim()).filter(Boolean)
+            : [];
+        const hasStrategyNameUpdate = strategyName !== undefined;
+        const nextFocusAreas = hasFocusAreasUpdate
+            ? (cleanedFocusAreas.length
+                ? cleanedFocusAreas
+                : ['Universal Supports'])
+            : (Array.isArray(assignment.focusAreas) && assignment.focusAreas.length
+                ? assignment.focusAreas
+                : ['Universal Supports']);
+        const cleanedStrategyName =
+            typeof strategyName === 'string'
+                ? strategyName.trim()
+                : strategyName;
+        const nextStrategyName = hasStrategyNameUpdate ? cleanedStrategyName : assignment.strategyName;
+
+        if (hasFocusAreasUpdate || hasStrategyNameUpdate) {
             const conflicts = await findSubjectConflicts({
                 studentIds: assignment.studentIds || [],
                 subjectKeys: extractAssignmentSubjectKeys({
                     focusAreas: nextFocusAreas,
-                    strategyName: assignment.strategyName
+                    strategyName: nextStrategyName || undefined
                 }),
                 excludeAssignmentId: assignment._id
             });
             if (conflicts.length) {
                 return sendError(res, buildDuplicateInterventionMessage(conflicts), 409);
             }
+        }
+
+        if (hasFocusAreasUpdate) {
             assignment.focusAreas = nextFocusAreas;
         }
-        if (status) assignment.status = status;
-        if (endDate) assignment.endDate = endDate;
-        if (typeof notes === 'string') assignment.notes = notes;
-        if (goals) assignment.goals = goals;
+        if (tier !== undefined) assignment.tier = normalizeAssignmentTier(tier);
+        if (status !== undefined) assignment.status = status;
+        if (startDate !== undefined) assignment.startDate = startDate;
+        if (endDate !== undefined) assignment.endDate = endDate;
+        if (duration !== undefined) assignment.duration = duration || undefined;
+        if (strategyId !== undefined) assignment.strategyId = strategyId || undefined;
+        if (hasStrategyNameUpdate) assignment.strategyName = cleanedStrategyName || undefined;
+        if (monitoringMethod !== undefined) assignment.monitoringMethod = monitoringMethod || undefined;
+        if (monitoringFrequency !== undefined) assignment.monitoringFrequency = monitoringFrequency || undefined;
+        if (monitoringFrequency === 'Custom') {
+            if (customFrequencyDays !== undefined) {
+                assignment.customFrequencyDays = Array.isArray(customFrequencyDays) ? customFrequencyDays : [];
+            }
+            if (customFrequencyNote !== undefined) {
+                assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
+            }
+        } else if (monitoringFrequency !== undefined) {
+            assignment.customFrequencyDays = [];
+            assignment.customFrequencyNote = undefined;
+        } else {
+            if (customFrequencyDays !== undefined) {
+                assignment.customFrequencyDays = Array.isArray(customFrequencyDays) ? customFrequencyDays : [];
+            }
+            if (customFrequencyNote !== undefined) {
+                assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
+            }
+        }
+        if (notes !== undefined && typeof notes === 'string') assignment.notes = notes;
+        if (goals !== undefined) assignment.goals = goals;
         if (metricLabel !== undefined) {
             assignment.metricLabel = metricLabel?.trim() || undefined;
         }
 
         const sanitizedBaseline = sanitizeScorePayload(baselineScore);
-        if (sanitizedBaseline) {
-            assignment.baselineScore = sanitizedBaseline;
+        if (baselineScore !== undefined) {
+            assignment.baselineScore = sanitizedBaseline || {
+                value: null,
+                unit: undefined
+            };
         }
 
         const sanitizedTarget = sanitizeScorePayload(targetScore);
-        if (sanitizedTarget) {
-            assignment.targetScore = sanitizedTarget;
+        if (targetScore !== undefined) {
+            assignment.targetScore = sanitizedTarget || {
+                value: null,
+                unit: undefined
+            };
         }
 
         if (Array.isArray(checkIns)) {
             checkIns.forEach(checkIn => assignment.checkIns.push(sanitizeCheckIn(checkIn)));
+        }
+
+        if (includesPlanEdits) {
+            assignment.lastPlanUpdatedAt = new Date();
+            assignment.lastPlanUpdatedBy = req.user?.id || null;
         }
 
         await assignment.save();

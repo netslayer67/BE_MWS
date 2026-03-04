@@ -41,6 +41,13 @@ const mentorAssignmentSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    lastPlanUpdatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    lastPlanUpdatedAt: {
+        type: Date
+    },
     strategyId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'MTSSStrategy'

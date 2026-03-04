@@ -290,8 +290,21 @@ const mentorAssignmentCreateSchema = Joi.object({
 
 const mentorAssignmentUpdateSchema = Joi.object({
     focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
+    tier: Joi.string().valid('tier1', 'tier2', 'tier3').optional(),
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
+    startDate: Joi.date().optional(),
     endDate: Joi.date().optional(),
+    duration: Joi.string().valid('4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks').optional().allow('', null),
+    strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow('', null),
+    strategyName: Joi.string().trim().optional().allow('', null),
+    monitoringMethod: Joi.string().valid(
+        'Option 1 - Direct Observation',
+        'Option 2 - Student Self-Report',
+        'Option 3 - Assessment Data'
+    ).optional().allow('', null),
+    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly', 'Custom').optional().allow('', null),
+    customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
+    customFrequencyNote: Joi.string().trim().optional().allow('', null),
     notes: Joi.string().optional().allow(''),
     metricLabel: Joi.string().allow('', null),
     baselineScore: Joi.object({
@@ -304,7 +317,7 @@ const mentorAssignmentUpdateSchema = Joi.object({
     }).optional(),
     goals: Joi.array().items(Joi.object({
         description: Joi.string().required(),
-        successCriteria: Joi.string().optional(),
+        successCriteria: Joi.string().optional().allow('', null),
         completed: Joi.boolean().optional()
     })).optional(),
     checkIns: Joi.array().items(Joi.object({

@@ -30,7 +30,13 @@ const emitStudentsChanged = async (studentIds = []) => {
 
         const assignments = await MentorAssignment.find({ studentIds: { $in: ids } })
             .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes')
+            .populate('lastPlanUpdatedBy', 'name username email')
+            .select(
+                'studentIds tier status focusAreas startDate endDate duration strategyId strategyName ' +
+                'monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote ' +
+                'goals checkIns mentorId notes metricLabel baselineScore targetScore ' +
+                'lastPlanUpdatedAt lastPlanUpdatedBy'
+            )
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -58,6 +64,7 @@ const emitAssignmentEvent = async (assignmentId, action = 'updated') => {
 
         const assignment = await MentorAssignment.findById(assignmentId)
             .populate('mentorId', 'name email username jobPosition')
+            .populate('lastPlanUpdatedBy', 'name username email')
             .populate('studentIds', 'name nickname username email currentGrade className joinAcademicYear status slug gender')
             .lean();
 
