@@ -131,6 +131,21 @@ const normalizeGradeKey = (value = '') => {
     return normalized || null;
 };
 
+const BROAD_GRADE_SCOPES = new Set([
+    'junior high',
+    'middle school',
+    'secondary',
+    'high school',
+    'elementary',
+    'kindergarten',
+    'all grades',
+    'all grade',
+    'all students',
+    'all'
+]);
+
+const isBroadGradeScope = (value = '') => BROAD_GRADE_SCOPES.has(normalizeComparableText(value));
+
 const normalizeClassToken = (value = '') => {
     const normalized = normalizeComparableText(normalizeClassLabel(value));
     if (!normalized) return null;
@@ -187,6 +202,7 @@ const isGenericClassLabel = (value = '') => {
 const studentMatchesGradeScope = (classAssignment = {}, student = {}) => {
     const classGrade = normalizeGradeKey(classAssignment.grade);
     if (!classGrade) return true;
+    if (isBroadGradeScope(classAssignment.grade)) return true;
 
     const studentCandidates = [student.currentGrade, student.className]
         .map((candidate) => normalizeGradeKey(candidate))
