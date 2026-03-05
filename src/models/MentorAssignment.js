@@ -110,6 +110,14 @@ const mentorAssignmentSchema = new mongoose.Schema({
             default: false
         }
     }],
+    planChangeLog: [{
+        field: { type: String, required: true },
+        label: { type: String, required: true },
+        fromValue: { type: String },
+        toValue: { type: String },
+        changedAt: { type: Date, default: Date.now },
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    }],
     checkIns: [{
         date: {
             type: Date,

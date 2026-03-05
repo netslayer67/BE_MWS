@@ -580,7 +580,7 @@ const listStudents = async (req, res) => {
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
                   .populate('mentorId', 'name email username gender jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog')
                   .lean()
             : [];
 
@@ -632,7 +632,7 @@ const getStudent = async (req, res) => {
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username gender jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -712,7 +712,8 @@ const getStudent = async (req, res) => {
                 chart,
                 history,
                 goals: assignment.goals || [],
-                notes: assignment.notes
+                notes: assignment.notes,
+                planChangeLog: assignment.planChangeLog || []
             };
         });
 

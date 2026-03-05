@@ -953,23 +953,78 @@ const updateMentorAssignment = async (req, res) => {
             }
         }
 
+        // ── plan change log helper ──
+        const logChange = (field, label, oldVal, newVal) => {
+            const from = oldVal == null ? null : String(oldVal);
+            const to = newVal == null ? null : String(newVal);
+            if (from === to) return;
+            assignment.planChangeLog.push({
+                field,
+                label,
+                fromValue: from,
+                toValue: to,
+                changedAt: new Date(),
+                changedBy: req.user?.id || null,
+            });
+        };
+
+        const formatScoreForLog = (score) => {
+            if (!score || score.value == null) return null;
+            return score.unit ? `${score.value} ${score.unit}` : `${score.value}`;
+        };
+
         if (hasFocusAreasUpdate) {
+            const oldFocus = (assignment.focusAreas || []).join(', ') || null;
+            const newFocus = (nextFocusAreas || []).join(', ') || null;
+            logChange('focusAreas', 'Focus Areas', oldFocus, newFocus);
             assignment.focusAreas = nextFocusAreas;
         }
-        if (tier !== undefined) assignment.tier = normalizeAssignmentTier(tier);
-        if (status !== undefined) assignment.status = status;
-        if (startDate !== undefined) assignment.startDate = startDate;
-        if (endDate !== undefined) assignment.endDate = endDate;
-        if (duration !== undefined) assignment.duration = duration || undefined;
-        if (strategyId !== undefined) assignment.strategyId = strategyId || undefined;
-        if (hasStrategyNameUpdate) assignment.strategyName = cleanedStrategyName || undefined;
-        if (monitoringMethod !== undefined) assignment.monitoringMethod = monitoringMethod || undefined;
-        if (monitoringFrequency !== undefined) assignment.monitoringFrequency = monitoringFrequency || undefined;
+        if (tier !== undefined) {
+            const newTier = normalizeAssignmentTier(tier);
+            logChange('tier', 'Tier', assignment.tier, newTier);
+            assignment.tier = newTier;
+        }
+        if (status !== undefined) {
+            logChange('status', 'Status', assignment.status, status);
+            assignment.status = status;
+        }
+        if (startDate !== undefined) {
+            logChange('startDate', 'Start Date', assignment.startDate?.toISOString?.()?.split('T')[0], startDate ? new Date(startDate).toISOString().split('T')[0] : null);
+            assignment.startDate = startDate;
+        }
+        if (endDate !== undefined) {
+            logChange('endDate', 'End Date', assignment.endDate?.toISOString?.()?.split('T')[0], endDate ? new Date(endDate).toISOString().split('T')[0] : null);
+            assignment.endDate = endDate;
+        }
+        if (duration !== undefined) {
+            logChange('duration', 'Duration', assignment.duration, duration || null);
+            assignment.duration = duration || undefined;
+        }
+        if (strategyId !== undefined) {
+            assignment.strategyId = strategyId || undefined;
+        }
+        if (hasStrategyNameUpdate) {
+            logChange('strategyName', 'Strategy', assignment.strategyName, cleanedStrategyName || null);
+            assignment.strategyName = cleanedStrategyName || undefined;
+        }
+        if (monitoringMethod !== undefined) {
+            const newMethod = monitoringMethod || undefined;
+            logChange('monitoringMethod', 'Monitoring Method', assignment.monitoringMethod, newMethod);
+            assignment.monitoringMethod = newMethod;
+        }
+        if (monitoringFrequency !== undefined) {
+            logChange('monitoringFrequency', 'Frequency', assignment.monitoringFrequency, monitoringFrequency || null);
+            assignment.monitoringFrequency = monitoringFrequency || undefined;
+        }
         if (monitoringFrequency === 'Custom') {
             if (customFrequencyDays !== undefined) {
+                const oldDays = (assignment.customFrequencyDays || []).join(', ') || null;
+                const newDays = Array.isArray(customFrequencyDays) ? customFrequencyDays.join(', ') : null;
+                logChange('customFrequencyDays', 'Custom Days', oldDays, newDays);
                 assignment.customFrequencyDays = Array.isArray(customFrequencyDays) ? customFrequencyDays : [];
             }
             if (customFrequencyNote !== undefined) {
+                logChange('customFrequencyNote', 'Frequency Note', assignment.customFrequencyNote, customFrequencyNote || null);
                 assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
             }
         } else if (monitoringFrequency !== undefined) {
@@ -983,14 +1038,19 @@ const updateMentorAssignment = async (req, res) => {
                 assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
             }
         }
-        if (notes !== undefined && typeof notes === 'string') assignment.notes = notes;
+        if (notes !== undefined && typeof notes === 'string') {
+            logChange('notes', 'Notes', assignment.notes, notes || null);
+            assignment.notes = notes;
+        }
         if (goals !== undefined) assignment.goals = goals;
         if (metricLabel !== undefined) {
+            logChange('metricLabel', 'Metric Label', assignment.metricLabel, metricLabel?.trim() || null);
             assignment.metricLabel = metricLabel?.trim() || undefined;
         }
 
         const sanitizedBaseline = sanitizeScorePayload(baselineScore);
         if (baselineScore !== undefined) {
+            logChange('baselineScore', 'Baseline', formatScoreForLog(assignment.baselineScore), formatScoreForLog(sanitizedBaseline));
             assignment.baselineScore = sanitizedBaseline || {
                 value: null,
                 unit: undefined
@@ -999,6 +1059,7 @@ const updateMentorAssignment = async (req, res) => {
 
         const sanitizedTarget = sanitizeScorePayload(targetScore);
         if (targetScore !== undefined) {
+            logChange('targetScore', 'Target', formatScoreForLog(assignment.targetScore), formatScoreForLog(sanitizedTarget));
             assignment.targetScore = sanitizedTarget || {
                 value: null,
                 unit: undefined
