@@ -14,21 +14,25 @@ const ALLOWED_TYPES = new Set([...IMAGE_TYPES, ...DOC_TYPES]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const MAX_FILES = 5;
 
-const uploadToCloudinary = async (filePath, originalName, mimetype) => {
+const buildUploadOptions = (mimetype = '', originalName = '') => {
     const isImage = IMAGE_TYPES.has(mimetype);
-    const resourceType = isImage ? 'image' : 'raw';
-
-    const result = await cloudinary.uploader.upload(filePath, {
+    return {
         folder: EVIDENCE_FOLDER,
-        resource_type: resourceType,
+        resource_type: isImage ? 'image' : 'raw',
         use_filename: true,
         unique_filename: true,
+        filename_override: originalName || undefined,
         ...(isImage && {
             transformation: [
                 { width: 1600, crop: 'limit', quality: 'auto', fetch_format: 'auto' }
             ]
         })
-    });
+    };
+};
+
+const uploadToCloudinary = async (filePath, originalName, mimetype) => {
+    const options = buildUploadOptions(mimetype, originalName);
+    const result = await cloudinary.uploader.upload(filePath, options);
 
     return {
         url: result.secure_url,
@@ -36,7 +40,21 @@ const uploadToCloudinary = async (filePath, originalName, mimetype) => {
         fileName: originalName,
         fileType: mimetype,
         fileSize: result.bytes,
-        resourceType
+        resourceType: options.resource_type
+    };
+};
+
+const uploadDataUriToCloudinary = async (dataUri, originalName, mimetype) => {
+    const options = buildUploadOptions(mimetype, originalName);
+    const result = await cloudinary.uploader.upload(dataUri, options);
+
+    return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        fileName: originalName,
+        fileType: mimetype,
+        fileSize: result.bytes,
+        resourceType: options.resource_type
     };
 };
 
@@ -47,7 +65,9 @@ const cleanupTempFile = (filePath) => {
 };
 
 module.exports = {
+    EVIDENCE_FOLDER,
     uploadToCloudinary,
+    uploadDataUriToCloudinary,
     cleanupTempFile,
     ALLOWED_TYPES,
     MAX_FILE_SIZE,

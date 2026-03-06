@@ -7,7 +7,14 @@ const EmotionalCheckin = require('../models/EmotionalCheckin');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const StudentAIAssistantProfile = require('../models/StudentAIAssistantProfile');
+const MTSSTierReviewRequest = require('../models/MTSSTierReviewRequest');
 const notificationService = require('./notificationService');
+const {
+    ALLOWED_TYPES: EVIDENCE_ALLOWED_TYPES,
+    MAX_FILE_SIZE: EVIDENCE_MAX_FILE_SIZE,
+    MAX_FILES: EVIDENCE_MAX_FILES,
+    uploadDataUriToCloudinary
+} = require('./cloudinaryUploadService');
 const { INTERVENTION_TYPES, INTERVENTION_TYPE_KEYS, TIER_LABELS } = require('../constants/mtss');
 const { assistantOrchestrator, twinRepository } = require('../modules/ai-assistant');
 const { normalizeAssistantIntentText } = require('../utils/assistantIntentNormalizer');
@@ -40,7 +47,10 @@ class AIChatService {
             'counselor'
         ]);
         this.mtssMentorRoleSet = new Set(['staff', 'teacher', 'support_staff', 'head_unit', 'principal', 'admin', 'directorate']);
-        this.mtssAutomationRoleSet = new Set(['teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin']);
+        this.mtssAutomationRoleSet = new Set(['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin']);
+        this.maxBulkAutomationItems = 10;
+        this.maxAutomationEvidenceFiles = EVIDENCE_MAX_FILES;
+        this.maxAutomationEvidenceBytes = EVIDENCE_MAX_FILE_SIZE;
     }
 
     getSessionLockKey(userId, sessionId = null) {
@@ -223,8 +233,167 @@ class AIChatService {
             performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
             skipReason: checkIn.skipReason || undefined,
             skipReasonNote: checkIn.skipReasonNote ? String(checkIn.skipReasonNote).trim() : undefined,
-            celebration: String(checkIn.celebration || '').trim() || undefined
+            celebration: String(checkIn.celebration || '').trim() || undefined,
+            evidence: this.sanitizeEvidenceList(checkIn.evidence || []).slice(0, this.maxAutomationEvidenceFiles)
         };
+    }
+
+    sanitizePlainText(value = '', max = 320) {
+        return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+    }
+
+    isValidObjectIdHex(value = '') {
+        return /^[0-9a-fA-F]{24}$/.test(String(value || '').trim());
+    }
+
+    isValidHttpUrl(value = '') {
+        const raw = String(value || '').trim();
+        if (!raw) return false;
+        try {
+            const parsed = new URL(raw);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    }
+
+    inferEvidenceResourceType(mimeType = '') {
+        return String(mimeType || '').toLowerCase().startsWith('image/') ? 'image' : 'raw';
+    }
+
+    sanitizeEvidenceItem(item = {}) {
+        if (!item || typeof item !== 'object') return null;
+        const url = this.sanitizePlainText(item.url || item.secureUrl, 500);
+        if (!url || !this.isValidHttpUrl(url)) return null;
+
+        const fileType = this.sanitizePlainText(item.fileType || item.mimeType, 120).toLowerCase();
+        const fileSize = Number(item.fileSize || item.size || 0);
+        const normalized = {
+            url,
+            publicId: this.sanitizePlainText(item.publicId, 220) || undefined,
+            fileName: this.sanitizePlainText(item.fileName || item.name, 180) || undefined,
+            fileType: fileType || undefined,
+            fileSize: Number.isFinite(fileSize) && fileSize > 0 ? fileSize : undefined,
+            resourceType: ['image', 'raw'].includes(String(item.resourceType || '').toLowerCase())
+                ? String(item.resourceType || '').toLowerCase()
+                : this.inferEvidenceResourceType(fileType)
+        };
+
+        return normalized;
+    }
+
+    sanitizeEvidenceList(items = []) {
+        const list = Array.isArray(items) ? items : [];
+        const seen = new Set();
+        const normalized = [];
+
+        list.forEach((entry) => {
+            const safeEntry = this.sanitizeEvidenceItem(entry);
+            if (!safeEntry) return;
+            if (seen.has(safeEntry.url)) return;
+            seen.add(safeEntry.url);
+            normalized.push(safeEntry);
+        });
+
+        return normalized.slice(0, this.maxAutomationEvidenceFiles);
+    }
+
+    decodeBase64ToBuffer(base64Payload = '') {
+        const raw = String(base64Payload || '').trim();
+        if (!raw) return null;
+        try {
+            return Buffer.from(raw, 'base64');
+        } catch {
+            return null;
+        }
+    }
+
+    extractDataUriParts(dataUri = '') {
+        const value = String(dataUri || '').trim();
+        const match = value.match(/^data:([a-zA-Z0-9.+/-]+);base64,(.+)$/);
+        if (!match) return null;
+        return {
+            mimeType: String(match[1] || '').toLowerCase(),
+            base64: String(match[2] || '')
+        };
+    }
+
+    sanitizeEvidenceUploadCandidates(payload = {}) {
+        const candidates = [];
+        const pushEntries = (entries = []) => {
+            (Array.isArray(entries) ? entries : []).forEach((entry) => {
+                if (entry && typeof entry === 'object') {
+                    candidates.push(entry);
+                }
+            });
+        };
+
+        pushEntries(payload.files);
+        pushEntries(payload.evidenceFiles);
+        pushEntries(payload.uploads);
+        if (payload.file && typeof payload.file === 'object') candidates.push(payload.file);
+
+        return candidates.slice(0, this.maxAutomationEvidenceFiles).map((entry = {}) => ({
+            fileName: this.sanitizePlainText(entry.fileName || entry.name || 'evidence-file', 180) || 'evidence-file',
+            fileType: this.sanitizePlainText(entry.fileType || entry.mimeType || '', 120).toLowerCase(),
+            dataUri: typeof entry.dataUri === 'string' ? entry.dataUri.trim() : '',
+            base64: typeof entry.base64 === 'string' ? entry.base64.trim() : '',
+            url: typeof entry.url === 'string' ? entry.url.trim() : ''
+        }));
+    }
+
+    async uploadEvidenceCandidates(payload = {}) {
+        const directEvidence = this.sanitizeEvidenceList(payload.evidence || []);
+        const uploadCandidates = this.sanitizeEvidenceUploadCandidates(payload);
+        if (uploadCandidates.length === 0) {
+            return directEvidence;
+        }
+
+        const uploadedEvidence = [];
+        for (const candidate of uploadCandidates) {
+            if (uploadedEvidence.length >= this.maxAutomationEvidenceFiles) break;
+
+            if (candidate.url) {
+                const externalEvidence = this.sanitizeEvidenceItem({
+                    url: candidate.url,
+                    fileName: candidate.fileName,
+                    fileType: candidate.fileType
+                });
+                if (externalEvidence) uploadedEvidence.push(externalEvidence);
+                continue;
+            }
+
+            let mimeType = candidate.fileType;
+            let base64Payload = candidate.base64;
+            if (candidate.dataUri) {
+                const dataUriParts = this.extractDataUriParts(candidate.dataUri);
+                if (!dataUriParts) {
+                    throw new Error(`Invalid dataUri format for file "${candidate.fileName}".`);
+                }
+                mimeType = dataUriParts.mimeType || mimeType;
+                base64Payload = dataUriParts.base64;
+            }
+
+            const normalizedMimeType = String(mimeType || '').toLowerCase();
+            if (!EVIDENCE_ALLOWED_TYPES.has(normalizedMimeType)) {
+                throw new Error(`Unsupported evidence file type: ${normalizedMimeType || 'unknown'}.`);
+            }
+
+            const buffer = this.decodeBase64ToBuffer(base64Payload);
+            if (!buffer || buffer.length === 0) {
+                throw new Error(`Missing base64 payload for file "${candidate.fileName}".`);
+            }
+            if (buffer.length > this.maxAutomationEvidenceBytes) {
+                throw new Error(`Evidence file "${candidate.fileName}" exceeds ${Math.round(this.maxAutomationEvidenceBytes / (1024 * 1024))}MB limit.`);
+            }
+
+            const dataUri = `data:${normalizedMimeType};base64,${buffer.toString('base64')}`;
+            const uploaded = await uploadDataUriToCloudinary(dataUri, candidate.fileName, normalizedMimeType);
+            const safeUploaded = this.sanitizeEvidenceItem(uploaded);
+            if (safeUploaded) uploadedEvidence.push(safeUploaded);
+        }
+
+        return this.sanitizeEvidenceList([...directEvidence, ...uploadedEvidence]).slice(0, this.maxAutomationEvidenceFiles);
     }
 
     getDefaultAssistantName(userId) {
@@ -1702,6 +1871,24 @@ class AIChatService {
                 impact: 'Adds objective progress evidence'
             },
             {
+                operation: 'Log Progress + Evidence',
+                command: 'append_mtss_progress_checkin_with_evidence',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Submits check-in and uploaded artifacts together'
+            },
+            {
+                operation: 'Upload Evidence',
+                command: 'upload_mtss_evidence',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Uploads worksheet/rubric/assessment proof'
+            },
+            {
+                operation: 'Update Intervention Plan',
+                command: 'update_mtss_intervention_plan',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Revises active plan parameters safely'
+            },
+            {
                 operation: 'Assign Students',
                 command: 'assign_students_to_mtss_mentor',
                 scope: canAutomate ? (isAdmin ? 'Admin + mentor' : 'Self mentor') : 'Disabled',
@@ -1724,6 +1911,36 @@ class AIChatService {
                 command: 'update_mtss_goal_completion',
                 scope: canAutomate ? 'Enabled' : 'Disabled',
                 impact: 'Tracks achieved milestones'
+            },
+            {
+                operation: 'Bulk Progress',
+                command: 'bulk_append_mtss_progress_checkin',
+                scope: canAutomate ? 'Enabled (max 10)' : 'Disabled',
+                impact: 'Posts multiple check-ins in one run'
+            },
+            {
+                operation: 'Bulk Status Update',
+                command: 'bulk_update_mtss_assignment_status',
+                scope: canAutomate ? 'Enabled (max 10)' : 'Disabled',
+                impact: 'Updates many assignment statuses fast'
+            },
+            {
+                operation: 'Clone Intervention Plan',
+                command: 'clone_mtss_intervention_plan',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Reuses proven plan across target students'
+            },
+            {
+                operation: 'Complete + Outcome Summary',
+                command: 'complete_mtss_assignment_with_outcome_summary',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Closes assignment with summary and recommendation'
+            },
+            {
+                operation: 'Request Tier Review',
+                command: 'request_mtss_tier_review',
+                scope: canAutomate ? 'Enabled' : 'Disabled',
+                impact: 'Submits escalation/de-escalation to leadership queue'
             }
         ];
 
@@ -1912,6 +2129,22 @@ class AIChatService {
                     }
                 },
                 {
+                    label: 'Submit Progress + Evidence',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'append_mtss_progress_checkin_with_evidence',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            summary: 'Progress note with evidence attachment.',
+                            files: []
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Submit progress check-in with evidence now?',
+                        successMessage: 'Progress and evidence submitted successfully.'
+                    }
+                },
+                {
                     label: 'Update Assignment Status',
                     action: {
                         type: 'execute_operation',
@@ -2013,6 +2246,20 @@ class AIChatService {
                         confirmText: 'Apply assignment status update now?',
                         successMessage: 'Assignment status saved.'
                     }
+                },
+                {
+                    label: 'Complete + Outcome Summary',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'complete_mtss_assignment_with_outcome_summary',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Complete assignment with outcome summary now?',
+                        successMessage: 'Assignment completion summary saved.'
+                    }
                 }
             );
         } else if (workflowIntent === 'update_goal') {
@@ -2061,6 +2308,21 @@ class AIChatService {
                         requireConfirmation: true,
                         confirmText: 'Submit progress check-in from analysis flow now?',
                         successMessage: 'Progress check-in submitted.'
+                    }
+                },
+                {
+                    label: 'Request Tier Review',
+                    action: {
+                        type: 'execute_operation',
+                        operation: 'request_mtss_tier_review',
+                        payload: {
+                            assignmentId: selectedAssignment.id || '',
+                            assignmentOptions,
+                            priority: 'medium'
+                        },
+                        requireConfirmation: true,
+                        confirmText: 'Submit tier review request for this assignment now?',
+                        successMessage: 'Tier review request submitted.'
                     }
                 }
             );
@@ -2542,7 +2804,7 @@ I can triage your assigned students, draft intervention and progress notes, sugg
             }
 
             return `Absolutely, ${preferredName}. I can support you as a full personal workforce assistant, not only chat.
-I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, trigger quick navigation actions, and run MTSS execute_operation automations (intervention creation, progress logging, mentor assignment, status updates, and goal completion) for authorized roles. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
+I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, trigger quick navigation actions, and run MTSS execute_operation automations (intervention creation/revision, evidence upload, progress logging, bulk updates, mentor assignment, status updates, goal completion, cloning, completion summaries, and tier-review requests) for authorized roles. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
         }
 
         return `Absolutely, ${preferredName}. I can support you as a full personal school assistant, not only chat.
@@ -4423,7 +4685,7 @@ ${rosterLines.join('\n') || '  - No active student assignments found.'}
 3. **Monitor & Analyze Students** — Surface data from assigned students. Identify stagnating goals (no check-in in many days), declining trends, and near-completion interventions.
 4. **Tier Adjustment Discussion** — Based on check-in trends, recommend moving a student up or down a tier with data-backed reasoning.
 5. **Strategy Recommendations** — Suggest evidence-based MTSS strategies for specific focus areas or challenges.
-6. **Assignment Automation** — For allowed roles, run execute_operation to assign students to mentors, set intervention mentors by subject, update assignment status, and mark goals completed.
+6. **Assignment Automation** — For allowed roles, run execute_operation to create/update interventions, upload evidence, log progress, run bulk status/progress updates, assign mentors, complete assignments with outcome summaries, and submit tier-review requests.
 7. **Operational Readiness Widgets** — Provide dynamic table/checklist/timeline widgets so users can review data before execution.
 
 ### Output Guidelines for MTSS Requests:
@@ -4615,8 +4877,222 @@ Critical language requirement:
         return [{ description: goalText, successCriteria: undefined }];
     }
 
-    sanitizeOperationPayload(payload = {}) {
-        return payload && typeof payload === 'object' ? payload : {};
+    normalizeAssignmentStatus(status = '') {
+        const normalized = String(status || '').trim().toLowerCase();
+        return ['active', 'paused', 'completed', 'closed'].includes(normalized) ? normalized : '';
+    }
+
+    normalizePriorityLevel(priority = '') {
+        const normalized = String(priority || '').trim().toLowerCase();
+        return ['low', 'medium', 'high'].includes(normalized) ? normalized : 'medium';
+    }
+
+    normalizeTierReviewDirection(direction = '', currentTier = '', requestedTier = '') {
+        const explicit = String(direction || '').trim().toLowerCase();
+        if (['escalate', 'deescalate', 'lateral'].includes(explicit)) return explicit;
+
+        const currentRank = Number(String(currentTier || '').replace('tier', ''));
+        const requestedRank = Number(String(requestedTier || '').replace('tier', ''));
+        if (Number.isFinite(currentRank) && Number.isFinite(requestedRank)) {
+            if (requestedRank > currentRank) return 'escalate';
+            if (requestedRank < currentRank) return 'deescalate';
+        }
+        return 'lateral';
+    }
+
+    sanitizeBulkItems(items = [], maxItems = this.maxBulkAutomationItems) {
+        return (Array.isArray(items) ? items : [])
+            .slice(0, maxItems)
+            .filter((entry) => entry && typeof entry === 'object');
+    }
+
+    sanitizeOperationPayload(operation = '', payload = {}) {
+        const safePayload = payload && typeof payload === 'object' ? payload : {};
+        const safeOperation = String(operation || '').trim().toLowerCase();
+
+        if (safeOperation === 'append_mtss_progress_checkin_with_evidence' || safeOperation === 'append_mtss_progress_checkin') {
+            return {
+                ...safePayload,
+                assignmentId: String(safePayload.assignmentId || '').trim(),
+                summary: this.sanitizePlainText(safePayload.summary, 1200),
+                nextSteps: this.sanitizePlainText(safePayload.nextSteps, 1000) || undefined,
+                notes: this.sanitizePlainText(safePayload.notes, 1000) || undefined,
+                unit: this.sanitizePlainText(safePayload.unit || safePayload.scoreUnit, 80).toLowerCase() || undefined,
+                status: this.normalizeAssignmentStatus(safePayload.status),
+                performed: typeof safePayload.performed === 'boolean'
+                    ? safePayload.performed
+                    : (typeof safePayload.interventionPerformed === 'boolean' ? safePayload.interventionPerformed : undefined),
+                skipReason: this.sanitizePlainText(safePayload.skipReason, 80).toLowerCase() || undefined,
+                skipReasonNote: this.sanitizePlainText(safePayload.skipReasonNote, 320) || undefined,
+                celebration: this.sanitizePlainText(safePayload.celebration, 320) || undefined,
+                evidence: this.sanitizeEvidenceList(safePayload.evidence || []),
+                files: this.sanitizeEvidenceUploadCandidates(safePayload)
+            };
+        }
+
+        if (safeOperation === 'upload_mtss_evidence') {
+            return {
+                ...safePayload,
+                evidence: this.sanitizeEvidenceList(safePayload.evidence || []),
+                files: this.sanitizeEvidenceUploadCandidates(safePayload),
+                assignmentId: String(safePayload.assignmentId || '').trim()
+            };
+        }
+
+        if (safeOperation === 'update_mtss_intervention_plan') {
+            const monitoringFrequency = this.sanitizePlainText(safePayload.monitoringFrequency, 40);
+            const hasGoalPayload = Array.isArray(safePayload.goals)
+                || Boolean(String(safePayload.goal || safePayload.goalText || '').trim());
+            const safeGoals = hasGoalPayload
+                ? (Array.isArray(safePayload.goals)
+                    ? safePayload.goals
+                        .slice(0, 12)
+                        .map((goal = {}) => ({
+                            description: this.sanitizePlainText(goal.description, 240),
+                            successCriteria: this.sanitizePlainText(goal.successCriteria, 240) || undefined,
+                            completed: typeof goal.completed === 'boolean' ? goal.completed : false
+                        }))
+                        .filter((goal = {}) => goal.description)
+                    : this.normalizeGoalsPayload(safePayload))
+                : undefined;
+
+            return {
+                ...safePayload,
+                assignmentId: String(safePayload.assignmentId || '').trim(),
+                focusAreas: safePayload.focusAreas !== undefined
+                    ? this.parseFocusAreas(safePayload.focusAreas).slice(0, 8)
+                    : undefined,
+                tier: safePayload.tier !== undefined ? this.normalizeTierCode(safePayload.tier || 'tier2') : undefined,
+                status: safePayload.status !== undefined ? this.normalizeAssignmentStatus(safePayload.status) : undefined,
+                strategyName: this.sanitizePlainText(safePayload.strategyName, 220) || undefined,
+                monitoringMethod: this.sanitizePlainText(safePayload.monitoringMethod, 120) || undefined,
+                monitoringFrequency: ['Daily', 'Weekly', 'Bi-weekly', 'Custom'].includes(monitoringFrequency)
+                    ? monitoringFrequency
+                    : undefined,
+                customFrequencyDays: Array.isArray(safePayload.customFrequencyDays)
+                    ? safePayload.customFrequencyDays
+                        .map((entry) => this.sanitizePlainText(entry, 20))
+                        .filter((entry) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(entry))
+                    : undefined,
+                customFrequencyNote: this.sanitizePlainText(safePayload.customFrequencyNote, 180) || undefined,
+                duration: this.sanitizePlainText(safePayload.duration, 20) || undefined,
+                notes: this.sanitizePlainText(safePayload.notes, 1200) || undefined,
+                metricLabel: this.sanitizePlainText(safePayload.metricLabel, 120) || undefined,
+                baselineScore: this.sanitizeScorePayloadForOperation(safePayload.baselineScore || {
+                    value: safePayload.baselineValue,
+                    unit: safePayload.baselineUnit || safePayload.metricLabel || 'score'
+                }),
+                targetScore: this.sanitizeScorePayloadForOperation(safePayload.targetScore || {
+                    value: safePayload.targetValue,
+                    unit: safePayload.targetUnit || safePayload.metricLabel || 'score'
+                }),
+                goals: safeGoals,
+                startDate: safePayload.startDate || undefined,
+                endDate: safePayload.endDate || undefined
+            };
+        }
+
+        if (safeOperation === 'bulk_append_mtss_progress_checkin') {
+            return {
+                ...safePayload,
+                assignmentIds: this.extractObjectIdList(safePayload.assignmentIds || []).slice(0, this.maxBulkAutomationItems),
+                summary: this.sanitizePlainText(safePayload.summary, 1200),
+                nextSteps: this.sanitizePlainText(safePayload.nextSteps, 1000) || undefined,
+                notes: this.sanitizePlainText(safePayload.notes, 1000) || undefined,
+                status: this.normalizeAssignmentStatus(safePayload.status),
+                unit: this.sanitizePlainText(safePayload.unit || safePayload.scoreUnit, 80).toLowerCase() || undefined,
+                evidence: this.sanitizeEvidenceList(safePayload.evidence || []),
+                files: this.sanitizeEvidenceUploadCandidates(safePayload),
+                items: this.sanitizeBulkItems(safePayload.items || [], this.maxBulkAutomationItems)
+            };
+        }
+
+        if (safeOperation === 'bulk_update_mtss_assignment_status') {
+            return {
+                ...safePayload,
+                assignmentIds: this.extractObjectIdList(safePayload.assignmentIds || []).slice(0, this.maxBulkAutomationItems),
+                status: this.normalizeAssignmentStatus(safePayload.status),
+                summary: this.sanitizePlainText(safePayload.summary, 1200),
+                notes: this.sanitizePlainText(safePayload.notes, 1000),
+                items: this.sanitizeBulkItems(safePayload.items || [], this.maxBulkAutomationItems)
+            };
+        }
+
+        if (safeOperation === 'clone_mtss_intervention_plan') {
+            const hasGoalPayload = Array.isArray(safePayload.goals)
+                || Boolean(String(safePayload.goal || safePayload.goalText || '').trim());
+            return {
+                ...safePayload,
+                sourceAssignmentId: String(safePayload.sourceAssignmentId || safePayload.assignmentId || '').trim(),
+                mentorId: String(safePayload.mentorId || '').trim(),
+                studentIds: this.extractObjectIdList(safePayload.studentIds || safePayload.targetStudentIds || []),
+                tier: this.normalizeTierCode(safePayload.tier || 'tier2'),
+                focusAreas: this.parseFocusAreas(safePayload.focusAreas).slice(0, 8),
+                duration: this.sanitizePlainText(safePayload.duration, 20) || undefined,
+                strategyName: this.sanitizePlainText(safePayload.strategyName, 220) || undefined,
+                monitoringMethod: this.sanitizePlainText(safePayload.monitoringMethod, 120) || undefined,
+                monitoringFrequency: this.sanitizePlainText(safePayload.monitoringFrequency, 40) || undefined,
+                notes: this.sanitizePlainText(safePayload.notes, 1200) || undefined,
+                metricLabel: this.sanitizePlainText(safePayload.metricLabel, 120) || undefined,
+                baselineScore: this.sanitizeScorePayloadForOperation(safePayload.baselineScore || {
+                    value: safePayload.baselineValue,
+                    unit: safePayload.baselineUnit || safePayload.metricLabel || 'score'
+                }),
+                targetScore: this.sanitizeScorePayloadForOperation(safePayload.targetScore || {
+                    value: safePayload.targetValue,
+                    unit: safePayload.targetUnit || safePayload.metricLabel || 'score'
+                }),
+                goals: hasGoalPayload
+                    ? (Array.isArray(safePayload.goals)
+                        ? safePayload.goals
+                            .slice(0, 12)
+                            .map((goal = {}) => ({
+                                description: this.sanitizePlainText(goal.description, 240),
+                                successCriteria: this.sanitizePlainText(goal.successCriteria, 240) || undefined
+                            }))
+                            .filter((goal = {}) => goal.description)
+                        : this.normalizeGoalsPayload(safePayload))
+                    : undefined,
+                startDate: safePayload.startDate || undefined
+            };
+        }
+
+        if (safeOperation === 'complete_mtss_assignment_with_outcome_summary') {
+            return {
+                ...safePayload,
+                assignmentId: String(safePayload.assignmentId || '').trim(),
+                outcomeSummary: this.sanitizePlainText(safePayload.outcomeSummary || safePayload.summary, 1200),
+                notes: this.sanitizePlainText(safePayload.notes, 1000),
+                nextSteps: this.sanitizePlainText(safePayload.nextSteps, 1000),
+                value: Number(safePayload.value),
+                unit: this.sanitizePlainText(safePayload.unit || safePayload.scoreUnit, 80).toLowerCase() || undefined,
+                celebration: this.sanitizePlainText(safePayload.celebration, 320) || undefined,
+                autoRequestTierReview: safePayload.autoRequestTierReview === true,
+                requestTier: this.normalizeTierCode(safePayload.requestTier || safePayload.requestedTier || 'tier2'),
+                requestPriority: this.normalizePriorityLevel(safePayload.requestPriority || safePayload.priority || 'medium'),
+                requestRationale: this.sanitizePlainText(safePayload.requestRationale, 800),
+                requestEvidence: this.sanitizeEvidenceList(safePayload.requestEvidence || safePayload.evidence || [])
+            };
+        }
+
+        if (safeOperation === 'request_mtss_tier_review') {
+            const currentTier = this.normalizeTierCode(safePayload.currentTier || safePayload.fromTier || 'tier2');
+            const requestedTier = this.normalizeTierCode(safePayload.requestedTier || safePayload.targetTier || 'tier2');
+            return {
+                ...safePayload,
+                assignmentId: String(safePayload.assignmentId || '').trim(),
+                requestedTier,
+                currentTier,
+                rationale: this.sanitizePlainText(safePayload.rationale || safePayload.summary, 1000),
+                priority: this.normalizePriorityLevel(safePayload.priority || 'medium'),
+                recommendedSupport: this.sanitizePlainText(safePayload.recommendedSupport, 240),
+                direction: this.normalizeTierReviewDirection(safePayload.direction, currentTier, requestedTier),
+                evidence: this.sanitizeEvidenceList(safePayload.evidence || []),
+                files: this.sanitizeEvidenceUploadCandidates(safePayload)
+            };
+        }
+
+        return safePayload;
     }
 
     extractObjectIdList(value = []) {
@@ -4717,6 +5193,245 @@ Critical language requirement:
         }
 
         return students;
+    }
+
+    resolveAssignmentAccessFlags(assignment = {}, user = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        const isAdmin = this.isMtssAdminRole(user?.role || '');
+        const isAssignedMentor = String(assignment?.mentorId || '').trim() === viewerId;
+        const isCreator = String(assignment?.createdBy || '').trim() === viewerId;
+        return {
+            viewerId,
+            isAdmin,
+            isAssignedMentor,
+            isCreator
+        };
+    }
+
+    assertAssignmentOperationAccess(assignment = {}, user = {}, options = {}) {
+        const { isAdmin, isAssignedMentor, isCreator } = this.resolveAssignmentAccessFlags(assignment, user);
+        const allowCreator = options.allowCreator !== false;
+        const errorMessage = String(options.errorMessage || 'Only the assigned mentor or MTSS admin can perform this operation.');
+        const hasAccess = isAdmin || isAssignedMentor || (allowCreator && isCreator);
+        if (!hasAccess) throw new Error(errorMessage);
+        return { isAdmin, isAssignedMentor, isCreator };
+    }
+
+    buildBulkAutomationItems(payload = {}, key = 'assignmentId', maxItems = this.maxBulkAutomationItems) {
+        const rawItems = Array.isArray(payload.items) ? payload.items : [];
+        const normalizedItems = rawItems
+            .slice(0, maxItems)
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry = {}) => ({
+                ...payload,
+                ...entry,
+                [key]: String(entry[key] || '').trim()
+            }))
+            .filter((entry = {}) => String(entry[key] || '').trim());
+
+        if (normalizedItems.length > 0) return normalizedItems;
+
+        const ids = this.extractObjectIdList(payload[`${key}s`] || payload.assignmentIds || []).slice(0, maxItems);
+        return ids.map((id) => ({
+            ...payload,
+            [key]: id
+        }));
+    }
+
+    buildCompletionOutcomeSummary(assignment = {}, payload = {}) {
+        const explicitSummary = this.sanitizePlainText(payload.outcomeSummary || payload.summary, 1200);
+        if (explicitSummary) return explicitSummary;
+
+        const latestCheckIn = Array.isArray(assignment.checkIns) && assignment.checkIns.length > 0
+            ? assignment.checkIns[assignment.checkIns.length - 1]
+            : null;
+        const latestValue = Number(latestCheckIn?.value);
+        const targetValue = Number(assignment?.targetScore?.value);
+        const baselineValue = Number(assignment?.baselineScore?.value);
+        const unit = String(latestCheckIn?.unit || assignment?.targetScore?.unit || assignment?.baselineScore?.unit || 'score').trim();
+        const focusText = Array.isArray(assignment?.focusAreas) && assignment.focusAreas.length > 0
+            ? assignment.focusAreas.slice(0, 2).join(', ')
+            : (assignment?.strategyName || 'current MTSS focus');
+        const latestSummary = this.sanitizePlainText(latestCheckIn?.summary, 220);
+
+        const metricLine = Number.isFinite(latestValue) && Number.isFinite(targetValue)
+            ? `Latest measurable result: ${latestValue} ${unit} vs target ${targetValue} ${unit}.`
+            : Number.isFinite(latestValue)
+                ? `Latest measurable result: ${latestValue} ${unit}.`
+                : Number.isFinite(targetValue)
+                    ? `Target metric: ${targetValue} ${unit}.`
+                    : '';
+        const baselineLine = Number.isFinite(baselineValue)
+            ? `Baseline was ${baselineValue} ${unit}.`
+            : '';
+        const summaryLine = latestSummary
+            ? `Latest intervention note: ${latestSummary}`
+            : '';
+
+        return [
+            `MTSS cycle completed for focus area ${focusText}.`,
+            metricLine,
+            baselineLine,
+            summaryLine
+        ].filter(Boolean).join(' ');
+    }
+
+    deriveAssignmentNextSupportRecommendation(assignment = {}) {
+        const tier = this.normalizeTierCode(assignment?.tier || 'tier2');
+        const latestCheckIn = Array.isArray(assignment.checkIns) && assignment.checkIns.length > 0
+            ? assignment.checkIns[assignment.checkIns.length - 1]
+            : null;
+        const latestValue = Number(latestCheckIn?.value);
+        const baselineValue = Number(assignment?.baselineScore?.value);
+        const targetValue = Number(assignment?.targetScore?.value);
+        const hasNumbers = Number.isFinite(latestValue) && Number.isFinite(targetValue) && Number.isFinite(baselineValue) && targetValue !== baselineValue;
+        const unit = String(latestCheckIn?.unit || assignment?.targetScore?.unit || assignment?.baselineScore?.unit || 'score').trim();
+
+        if (hasNumbers) {
+            const progressRatio = (latestValue - baselineValue) / (targetValue - baselineValue);
+            if (progressRatio >= 1) {
+                return {
+                    recommendation: 'Tier maintenance with lighter monitoring',
+                    rationale: `Student reached target (${latestValue} ${unit} vs ${targetValue} ${unit}).`,
+                    shouldRequestTierReview: tier !== 'tier1',
+                    requestTier: tier === 'tier3' ? 'tier2' : 'tier1'
+                };
+            }
+
+            if (progressRatio < 0.45) {
+                return {
+                    recommendation: tier === 'tier3' ? 'Intensify tier-3 support plan' : 'Escalate support tier review',
+                    rationale: `Progress remains below expected trajectory (${latestValue} ${unit} vs target ${targetValue} ${unit}).`,
+                    shouldRequestTierReview: tier !== 'tier3',
+                    requestTier: tier === 'tier1' ? 'tier2' : 'tier3'
+                };
+            }
+
+            return {
+                recommendation: 'Continue current tier with targeted adjustment',
+                rationale: `Progress is improving but not yet at target (${latestValue} ${unit} vs ${targetValue} ${unit}).`,
+                shouldRequestTierReview: false,
+                requestTier: tier
+            };
+        }
+
+        const checkInCount = Array.isArray(assignment.checkIns) ? assignment.checkIns.length : 0;
+        if (checkInCount >= 4) {
+            return {
+                recommendation: 'Run a formal tier review meeting',
+                rationale: 'Multiple check-ins are available but numeric progression is incomplete.',
+                shouldRequestTierReview: true,
+                requestTier: tier
+            };
+        }
+
+        return {
+            recommendation: 'Continue intervention and collect more evidence',
+            rationale: 'Insufficient quantitative evidence to change tier safely.',
+            shouldRequestTierReview: false,
+            requestTier: tier
+        };
+    }
+
+    async resolveTierReviewRecipients(requester = {}) {
+        const requesterId = String(requester?._id || requester?.id || '').trim();
+        const requesterUnit = String(requester?.unit || '').trim().toLowerCase();
+        const leadershipRoles = ['head_unit', 'principal', 'directorate', 'admin', 'superadmin'];
+        const recipients = await User.find({
+            role: { $in: leadershipRoles },
+            isActive: { $ne: false }
+        })
+            .select('_id role unit')
+            .lean();
+
+        return (Array.isArray(recipients) ? recipients : [])
+            .filter((entry = {}) => String(entry._id || '').trim() && String(entry._id || '').trim() !== requesterId)
+            .sort((a = {}, b = {}) => {
+                const aUnit = String(a.unit || '').trim().toLowerCase();
+                const bUnit = String(b.unit || '').trim().toLowerCase();
+                const aWeight = requesterUnit && aUnit === requesterUnit ? 0 : 1;
+                const bWeight = requesterUnit && bUnit === requesterUnit ? 0 : 1;
+                if (aWeight !== bWeight) return aWeight - bWeight;
+                return String(a.role || '').localeCompare(String(b.role || ''));
+            })
+            .slice(0, 24)
+            .map((entry = {}) => String(entry._id || '').trim());
+    }
+
+    async createTierReviewRequestRecord(user = {}, payload = {}) {
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        this.assertAssignmentOperationAccess(assignment, user, {
+            allowCreator: true,
+            errorMessage: 'Only the assigned mentor, intervention owner, or MTSS admin can request tier review.'
+        });
+
+        const evidenceFromPayload = this.sanitizeEvidenceList(payload.evidence || []);
+        const evidenceFromUpload = await this.uploadEvidenceCandidates(payload);
+        const mergedEvidence = this.sanitizeEvidenceList([...evidenceFromPayload, ...evidenceFromUpload]).slice(0, this.maxAutomationEvidenceFiles);
+
+        const currentTier = this.normalizeTierCode(payload.currentTier || assignment.tier || 'tier2');
+        const requestedTier = this.normalizeTierCode(payload.requestedTier || payload.requestTier || currentTier);
+        const rationale = this.sanitizePlainText(payload.rationale || payload.summary, 1000);
+        if (!rationale) {
+            throw new Error('rationale is required for tier review request.');
+        }
+
+        const viewerId = String(user?._id || user?.id || '').trim();
+        const requestDoc = await MTSSTierReviewRequest.create({
+            assignmentId: assignment._id,
+            studentIds: this.extractObjectIdList(assignment.studentIds || []),
+            requestedBy: viewerId,
+            requestedByRole: this.normalizeRole(user?.role || ''),
+            currentTier,
+            requestedTier,
+            direction: this.normalizeTierReviewDirection(payload.direction, currentTier, requestedTier),
+            rationale,
+            evidence: mergedEvidence,
+            priority: this.normalizePriorityLevel(payload.priority || 'medium'),
+            recommendedSupport: this.sanitizePlainText(payload.recommendedSupport, 240) || undefined,
+            unit: user?.unit || undefined,
+            department: user?.department || undefined,
+            source: 'ai_assistant_execute_operation',
+            metadata: {
+                actorName: this.normalizeMessageText(user?.name || user?.username || 'MTSS teacher', 80)
+            }
+        });
+
+        const reviewerIds = await this.resolveTierReviewRecipients(user);
+        reviewerIds.forEach((reviewerId) => {
+            this.dispatchWorkforceMtssNotification({
+                userId: reviewerId,
+                actor: user,
+                operation: 'request_mtss_tier_review',
+                title: 'New MTSS tier review request',
+                message: `Tier review requested (${currentTier} -> ${requestedTier}) for assignment ${assignmentId}.`,
+                category: 'alert',
+                priority: this.normalizePriorityLevel(payload.priority || 'medium'),
+                metadata: {
+                    assignmentId,
+                    tierReviewRequestId: String(requestDoc._id || ''),
+                    requestedTier,
+                    currentTier,
+                    actionRoute: '/mtss/admin'
+                }
+            });
+        });
+
+        return {
+            requestId: String(requestDoc._id || ''),
+            assignmentId,
+            currentTier,
+            requestedTier,
+            direction: requestDoc.direction,
+            priority: requestDoc.priority,
+            reviewerCount: reviewerIds.length,
+            evidenceCount: mergedEvidence.length
+        };
     }
 
     escapeRegExp(value = '') {
@@ -5012,9 +5727,10 @@ Critical language requirement:
         };
     }
 
-    async executeAppendMtssProgressCheckIn(user = {}, payload = {}) {
+    async executeAppendMtssProgressCheckIn(user = {}, payload = {}, options = {}) {
         const viewerId = String(user?._id || user?.id || '').trim();
         if (!viewerId) throw new Error('Authenticated user is required.');
+        const operationName = String(options.operation || 'append_mtss_progress_checkin').trim() || 'append_mtss_progress_checkin';
 
         const assignmentId = String(payload.assignmentId || '').trim();
         if (!assignmentId) {
@@ -5026,32 +5742,38 @@ Critical language requirement:
             throw new Error('Mentor assignment not found.');
         }
 
-        const isAssignedMentor = assignment.mentorId?.toString?.() === viewerId;
-        const isAdmin = this.isMtssAdminRole(user?.role || '');
-        if (!isAssignedMentor && !isAdmin) {
-            throw new Error('Only the assigned mentor or MTSS admin can submit progress updates via automation.');
-        }
+        const { isAdmin } = this.assertAssignmentOperationAccess(assignment, user, {
+            allowCreator: false,
+            errorMessage: 'Only the assigned mentor or MTSS admin can submit progress updates via automation.'
+        });
 
         const summary = String(payload.summary || '').trim();
         if (!summary) {
             throw new Error('summary is required for progress check-in.');
         }
 
+        const uploadedEvidence = await this.uploadEvidenceCandidates(payload);
+        const mergedEvidence = this.sanitizeEvidenceList([
+            ...(payload.evidence || []),
+            ...uploadedEvidence
+        ]).slice(0, this.maxAutomationEvidenceFiles);
+
         const checkIn = this.sanitizeCheckInForOperation({
             date: payload.date,
             summary,
             nextSteps: payload.nextSteps,
-            value: payload.value,
+            value: payload.value != null ? payload.value : payload.score,
             unit: payload.unit || payload.scoreUnit,
             performed: payload.performed,
             skipReason: payload.skipReason,
             skipReasonNote: payload.skipReasonNote,
-            celebration: payload.celebration
+            celebration: payload.celebration,
+            evidence: mergedEvidence
         });
         assignment.checkIns.push(checkIn);
 
-        const requestedStatus = String(payload.status || '').trim().toLowerCase();
-        if (['active', 'paused', 'completed', 'closed'].includes(requestedStatus)) {
+        const requestedStatus = this.normalizeAssignmentStatus(payload.status);
+        if (requestedStatus) {
             assignment.status = requestedStatus;
         }
 
@@ -5068,7 +5790,7 @@ Critical language requirement:
         await this.dispatchStudentMtssNotifications({
             students: assignmentStudents,
             actor: user,
-            operation: 'append_mtss_progress_checkin',
+            operation: operationName,
             assignmentId: String(assignment._id || ''),
             category: 'reminder',
             priority: 'medium',
@@ -5081,7 +5803,7 @@ Critical language requirement:
             this.dispatchWorkforceMtssNotification({
                 userId: String(assignment.mentorId || ''),
                 actor: user,
-                operation: 'append_mtss_progress_checkin',
+                operation: operationName,
                 title: 'Progress logged on your MTSS assignment',
                 message: 'A new MTSS progress check-in was submitted for your assignment.',
                 category: 'reminder',
@@ -5093,7 +5815,7 @@ Critical language requirement:
         }
 
         return {
-            operation: 'append_mtss_progress_checkin',
+            operation: operationName,
             message: 'Progress check-in submitted successfully.',
             assignment: {
                 id: assignment._id?.toString?.() || assignment._id,
@@ -5108,7 +5830,9 @@ Critical language requirement:
                 nextSteps: checkIn.nextSteps || null,
                 value: checkIn.value != null ? checkIn.value : null,
                 unit: checkIn.unit || null,
-                celebration: checkIn.celebration || null
+                celebration: checkIn.celebration || null,
+                evidenceCount: Array.isArray(checkIn.evidence) ? checkIn.evidence.length : 0,
+                evidence: Array.isArray(checkIn.evidence) ? checkIn.evidence : []
             }
         };
     }
@@ -5632,6 +6356,485 @@ Critical language requirement:
         };
     }
 
+    async executeUploadMtssEvidence(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (assignmentId) {
+            const assignment = await MentorAssignment.findById(assignmentId);
+            if (!assignment) throw new Error('Mentor assignment not found.');
+            this.assertAssignmentOperationAccess(assignment, user, {
+                allowCreator: true,
+                errorMessage: 'Only the assigned mentor, intervention owner, or MTSS admin can upload evidence.'
+            });
+        }
+
+        const evidence = await this.uploadEvidenceCandidates(payload);
+        if (!Array.isArray(evidence) || evidence.length === 0) {
+            throw new Error('At least one evidence file/url is required.');
+        }
+
+        return {
+            operation: 'upload_mtss_evidence',
+            message: `${evidence.length} evidence file(s) uploaded successfully.`,
+            assignmentId: assignmentId || null,
+            evidence,
+            evidenceCount: evidence.length
+        };
+    }
+
+    async executeAppendMtssProgressCheckInWithEvidence(user = {}, payload = {}) {
+        const hasEvidencePayload = this.sanitizeEvidenceList(payload.evidence || []).length > 0
+            || this.sanitizeEvidenceUploadCandidates(payload).length > 0;
+        if (!hasEvidencePayload) {
+            throw new Error('Evidence is required for append_mtss_progress_checkin_with_evidence.');
+        }
+
+        return this.executeAppendMtssProgressCheckIn(user, payload, {
+            operation: 'append_mtss_progress_checkin_with_evidence'
+        });
+    }
+
+    async executeUpdateMtssInterventionPlan(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        this.assertAssignmentOperationAccess(assignment, user, {
+            allowCreator: true,
+            errorMessage: 'Only the assigned mentor, intervention owner, or MTSS admin can update intervention plans.'
+        });
+
+        const changedFields = [];
+        const logPlanChange = (field, label, fromValue, toValue) => {
+            const from = fromValue == null ? null : String(fromValue);
+            const to = toValue == null ? null : String(toValue);
+            if (from === to) return;
+            changedFields.push(field);
+            assignment.planChangeLog.push({
+                field,
+                label,
+                fromValue: from,
+                toValue: to,
+                changedAt: new Date(),
+                changedBy: viewerId
+            });
+        };
+
+        const allowedDurations = new Set(['4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks']);
+        const allowedMonitoringMethods = new Set([
+            'Option 1 - Direct Observation',
+            'Option 2 - Student Self-Report',
+            'Option 3 - Assessment Data'
+        ]);
+        const allowedMonitoringFrequencies = new Set(['Daily', 'Weekly', 'Bi-weekly', 'Custom']);
+
+        if (Array.isArray(payload.focusAreas)) {
+            const nextFocusAreas = payload.focusAreas.length > 0 ? payload.focusAreas : ['Universal Supports'];
+            logPlanChange('focusAreas', 'Focus Areas', (assignment.focusAreas || []).join(', '), nextFocusAreas.join(', '));
+            assignment.focusAreas = nextFocusAreas;
+        }
+
+        if (payload.tier) {
+            const nextTier = this.normalizeTierCode(payload.tier);
+            logPlanChange('tier', 'Tier', assignment.tier, nextTier);
+            assignment.tier = nextTier;
+        }
+
+        const statusValue = this.normalizeAssignmentStatus(payload.status);
+        if (statusValue) {
+            logPlanChange('status', 'Status', assignment.status, statusValue);
+            assignment.status = statusValue;
+        }
+
+        if (payload.duration !== undefined) {
+            const duration = allowedDurations.has(String(payload.duration || '').trim())
+                ? String(payload.duration).trim()
+                : undefined;
+            logPlanChange('duration', 'Duration', assignment.duration, duration);
+            assignment.duration = duration;
+        }
+
+        if (payload.strategyName !== undefined) {
+            logPlanChange('strategyName', 'Strategy', assignment.strategyName, payload.strategyName || null);
+            assignment.strategyName = payload.strategyName || undefined;
+        }
+
+        if (payload.monitoringMethod !== undefined) {
+            const monitoringMethod = allowedMonitoringMethods.has(String(payload.monitoringMethod || '').trim())
+                ? String(payload.monitoringMethod).trim()
+                : undefined;
+            logPlanChange('monitoringMethod', 'Monitoring Method', assignment.monitoringMethod, monitoringMethod);
+            assignment.monitoringMethod = monitoringMethod;
+        }
+
+        if (payload.monitoringFrequency !== undefined) {
+            const monitoringFrequency = allowedMonitoringFrequencies.has(String(payload.monitoringFrequency || '').trim())
+                ? String(payload.monitoringFrequency).trim()
+                : undefined;
+            logPlanChange('monitoringFrequency', 'Monitoring Frequency', assignment.monitoringFrequency, monitoringFrequency);
+            assignment.monitoringFrequency = monitoringFrequency;
+
+            if (monitoringFrequency === 'Custom') {
+                if (Array.isArray(payload.customFrequencyDays)) {
+                    const oldValue = (assignment.customFrequencyDays || []).join(', ');
+                    const newValue = payload.customFrequencyDays.join(', ');
+                    logPlanChange('customFrequencyDays', 'Custom Frequency Days', oldValue, newValue);
+                    assignment.customFrequencyDays = payload.customFrequencyDays;
+                }
+                if (payload.customFrequencyNote !== undefined) {
+                    logPlanChange('customFrequencyNote', 'Custom Frequency Note', assignment.customFrequencyNote, payload.customFrequencyNote || null);
+                    assignment.customFrequencyNote = payload.customFrequencyNote || undefined;
+                }
+            } else {
+                assignment.customFrequencyDays = [];
+                assignment.customFrequencyNote = undefined;
+            }
+        }
+
+        if (payload.notes !== undefined) {
+            logPlanChange('notes', 'Notes', assignment.notes, payload.notes || null);
+            assignment.notes = payload.notes || undefined;
+        }
+
+        if (payload.metricLabel !== undefined) {
+            logPlanChange('metricLabel', 'Metric Label', assignment.metricLabel, payload.metricLabel || null);
+            assignment.metricLabel = payload.metricLabel || undefined;
+        }
+
+        if (payload.baselineScore !== undefined) {
+            const fromValue = assignment.baselineScore?.value != null
+                ? `${assignment.baselineScore.value} ${assignment.baselineScore.unit || ''}`.trim()
+                : null;
+            const toValue = payload.baselineScore?.value != null
+                ? `${payload.baselineScore.value} ${payload.baselineScore.unit || ''}`.trim()
+                : null;
+            logPlanChange('baselineScore', 'Baseline', fromValue, toValue);
+            assignment.baselineScore = payload.baselineScore || {
+                value: null,
+                unit: undefined
+            };
+        }
+
+        if (payload.targetScore !== undefined) {
+            const fromValue = assignment.targetScore?.value != null
+                ? `${assignment.targetScore.value} ${assignment.targetScore.unit || ''}`.trim()
+                : null;
+            const toValue = payload.targetScore?.value != null
+                ? `${payload.targetScore.value} ${payload.targetScore.unit || ''}`.trim()
+                : null;
+            logPlanChange('targetScore', 'Target', fromValue, toValue);
+            assignment.targetScore = payload.targetScore || {
+                value: null,
+                unit: undefined
+            };
+        }
+
+        if (Array.isArray(payload.goals)) {
+            logPlanChange('goals', 'Goals', JSON.stringify(assignment.goals || []), JSON.stringify(payload.goals || []));
+            assignment.goals = payload.goals;
+        }
+
+        if (payload.startDate) {
+            const parsedDate = new Date(payload.startDate);
+            if (!Number.isNaN(parsedDate.getTime())) {
+                logPlanChange('startDate', 'Start Date', assignment.startDate, parsedDate);
+                assignment.startDate = parsedDate;
+            }
+        }
+
+        if (payload.endDate) {
+            const parsedDate = new Date(payload.endDate);
+            if (!Number.isNaN(parsedDate.getTime())) {
+                logPlanChange('endDate', 'End Date', assignment.endDate, parsedDate);
+                assignment.endDate = parsedDate;
+            }
+        }
+
+        assignment.lastPlanUpdatedAt = new Date();
+        assignment.lastPlanUpdatedBy = viewerId;
+        await assignment.save();
+
+        return {
+            operation: 'update_mtss_intervention_plan',
+            message: changedFields.length > 0
+                ? `Intervention plan updated (${changedFields.length} field change(s)).`
+                : 'Intervention plan reviewed. No field changes detected.',
+            assignment: {
+                id: assignment._id?.toString?.() || assignment._id,
+                tier: assignment.tier,
+                status: assignment.status,
+                focusAreas: assignment.focusAreas || [],
+                strategyName: assignment.strategyName || null,
+                monitoringMethod: assignment.monitoringMethod || null,
+                monitoringFrequency: assignment.monitoringFrequency || null,
+                duration: assignment.duration || null,
+                updatedAt: assignment.updatedAt
+            },
+            changedFields
+        };
+    }
+
+    async executeBulkAppendMtssProgressCheckIn(user = {}, payload = {}) {
+        const items = this.buildBulkAutomationItems(payload, 'assignmentId', this.maxBulkAutomationItems);
+        if (items.length === 0) {
+            throw new Error('Provide items[] or assignmentIds for bulk progress check-in.');
+        }
+
+        const results = [];
+        for (const item of items) {
+            try {
+                const response = await this.executeAppendMtssProgressCheckIn(user, item, {
+                    operation: 'bulk_append_mtss_progress_checkin'
+                });
+                results.push({
+                    assignmentId: item.assignmentId,
+                    success: true,
+                    message: response?.message || 'Progress submitted.',
+                    checkInCount: response?.assignment?.checkInCount || 0
+                });
+            } catch (error) {
+                results.push({
+                    assignmentId: item.assignmentId,
+                    success: false,
+                    message: error?.message || 'Failed to submit progress.'
+                });
+            }
+        }
+
+        const successCount = results.filter((entry = {}) => entry.success).length;
+        if (successCount === 0) {
+            throw new Error(`Bulk progress check-in failed for all ${results.length} assignment(s).`);
+        }
+
+        return {
+            operation: 'bulk_append_mtss_progress_checkin',
+            message: `Bulk progress check-in completed: ${successCount}/${results.length} successful.`,
+            successCount,
+            failedCount: results.length - successCount,
+            results
+        };
+    }
+
+    async executeBulkUpdateMtssAssignmentStatus(user = {}, payload = {}) {
+        const items = this.buildBulkAutomationItems(payload, 'assignmentId', this.maxBulkAutomationItems);
+        if (items.length === 0) {
+            throw new Error('Provide items[] or assignmentIds for bulk status update.');
+        }
+
+        const statusValue = this.normalizeAssignmentStatus(payload.status);
+        if (!statusValue && !items.some((entry = {}) => this.normalizeAssignmentStatus(entry.status))) {
+            throw new Error('status must be one of: active, paused, completed, closed.');
+        }
+
+        const results = [];
+        for (const item of items) {
+            const nextPayload = {
+                ...item,
+                status: this.normalizeAssignmentStatus(item.status || payload.status),
+                summary: this.sanitizePlainText(item.summary || payload.summary, 1200),
+                notes: this.sanitizePlainText(item.notes || payload.notes, 1000)
+            };
+
+            try {
+                const response = await this.executeUpdateMtssAssignmentStatus(user, nextPayload);
+                results.push({
+                    assignmentId: item.assignmentId,
+                    success: true,
+                    message: response?.message || 'Status updated.',
+                    status: response?.assignment?.status || nextPayload.status
+                });
+            } catch (error) {
+                results.push({
+                    assignmentId: item.assignmentId,
+                    success: false,
+                    message: error?.message || 'Failed to update status.',
+                    status: nextPayload.status
+                });
+            }
+        }
+
+        const successCount = results.filter((entry = {}) => entry.success).length;
+        if (successCount === 0) {
+            throw new Error(`Bulk assignment status update failed for all ${results.length} assignment(s).`);
+        }
+
+        return {
+            operation: 'bulk_update_mtss_assignment_status',
+            message: `Bulk status update completed: ${successCount}/${results.length} successful.`,
+            successCount,
+            failedCount: results.length - successCount,
+            results
+        };
+    }
+
+    async executeCloneMtssInterventionPlan(user = {}, payload = {}) {
+        const viewerId = String(user?._id || user?.id || '').trim();
+        if (!viewerId) throw new Error('Authenticated user is required.');
+
+        const sourceAssignmentId = String(payload.sourceAssignmentId || payload.assignmentId || '').trim();
+        if (!sourceAssignmentId) throw new Error('sourceAssignmentId is required.');
+
+        const sourceAssignment = await MentorAssignment.findById(sourceAssignmentId).lean();
+        if (!sourceAssignment) throw new Error('Source mentor assignment not found.');
+
+        this.assertAssignmentOperationAccess(sourceAssignment, user, {
+            allowCreator: true,
+            errorMessage: 'Only the assigned mentor, intervention owner, or MTSS admin can clone this plan.'
+        });
+
+        const role = this.normalizeRole(user?.role || '');
+        const isAdmin = this.isMtssAdminRole(role);
+        const requestedMentorId = String(payload.mentorId || '').trim();
+        const mentorId = isAdmin && requestedMentorId ? requestedMentorId : viewerId;
+        if (!isAdmin && requestedMentorId && requestedMentorId !== viewerId) {
+            throw new Error('You can only clone plans to yourself as mentor.');
+        }
+
+        await this.ensureMentorEligibleForAutomation(mentorId);
+        const targetStudentIds = this.extractObjectIdList(payload.studentIds || []);
+        if (targetStudentIds.length === 0) {
+            throw new Error('At least one target studentId is required.');
+        }
+        const targetStudents = await this.ensureActiveMtssStudents(targetStudentIds);
+
+        const newAssignment = await MentorAssignment.create({
+            mentorId,
+            studentIds: targetStudentIds,
+            tier: payload.tier ? this.normalizeTierCode(payload.tier) : this.normalizeTierCode(sourceAssignment.tier || 'tier2'),
+            focusAreas: Array.isArray(payload.focusAreas) && payload.focusAreas.length > 0
+                ? payload.focusAreas
+                : (Array.isArray(sourceAssignment.focusAreas) && sourceAssignment.focusAreas.length > 0
+                    ? sourceAssignment.focusAreas
+                    : ['Universal Supports']),
+            status: 'active',
+            startDate: payload.startDate || new Date(),
+            duration: payload.duration || sourceAssignment.duration || undefined,
+            strategyId: sourceAssignment.strategyId || undefined,
+            strategyName: payload.strategyName || sourceAssignment.strategyName || undefined,
+            monitoringMethod: payload.monitoringMethod || sourceAssignment.monitoringMethod || undefined,
+            monitoringFrequency: payload.monitoringFrequency || sourceAssignment.monitoringFrequency || undefined,
+            customFrequencyDays: payload.customFrequencyDays || sourceAssignment.customFrequencyDays || [],
+            customFrequencyNote: payload.customFrequencyNote || sourceAssignment.customFrequencyNote || undefined,
+            metricLabel: payload.metricLabel || sourceAssignment.metricLabel || undefined,
+            baselineScore: payload.baselineScore || sourceAssignment.baselineScore || undefined,
+            targetScore: payload.targetScore || sourceAssignment.targetScore || undefined,
+            notes: this.sanitizePlainText(payload.notes, 1000)
+                || [this.sanitizePlainText(sourceAssignment.notes, 800), `[Clone] from assignment ${sourceAssignmentId}`]
+                    .filter(Boolean)
+                    .join(' | ')
+                    || undefined,
+            goals: Array.isArray(payload.goals)
+                ? payload.goals
+                : Array.isArray(sourceAssignment.goals)
+                    ? sourceAssignment.goals.map((goal = {}) => ({
+                        description: goal.description,
+                        successCriteria: goal.successCriteria,
+                        completed: false
+                    }))
+                    : [],
+            createdBy: viewerId,
+            lastPlanUpdatedBy: viewerId,
+            lastPlanUpdatedAt: new Date()
+        });
+
+        await this.dispatchStudentMtssNotifications({
+            students: targetStudents,
+            actor: user,
+            operation: 'clone_mtss_intervention_plan',
+            assignmentId: String(newAssignment._id || ''),
+            category: 'alert',
+            priority: 'high',
+            titleBuilder: () => 'New MTSS intervention cloned',
+            messageBuilder: () =>
+                `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} assigned a cloned MTSS support plan.`
+        });
+
+        return {
+            operation: 'clone_mtss_intervention_plan',
+            message: `Intervention plan cloned successfully to ${targetStudentIds.length} student(s).`,
+            sourceAssignmentId,
+            assignment: {
+                id: String(newAssignment._id || ''),
+                mentorId: String(newAssignment.mentorId || ''),
+                studentIds: this.extractObjectIdList(newAssignment.studentIds || []),
+                tier: newAssignment.tier,
+                status: newAssignment.status
+            }
+        };
+    }
+
+    async executeCompleteMtssAssignmentWithOutcomeSummary(user = {}, payload = {}) {
+        const assignmentId = String(payload.assignmentId || '').trim();
+        if (!assignmentId) throw new Error('assignmentId is required.');
+
+        const assignment = await MentorAssignment.findById(assignmentId);
+        if (!assignment) throw new Error('Mentor assignment not found.');
+
+        this.assertAssignmentOperationAccess(assignment, user, {
+            allowCreator: false,
+            errorMessage: 'Only the assigned mentor or MTSS admin can complete this assignment.'
+        });
+
+        const summaryText = this.buildCompletionOutcomeSummary(assignment, payload);
+        const recommendation = this.deriveAssignmentNextSupportRecommendation(assignment);
+        const completionResult = await this.executeUpdateMtssAssignmentStatus(user, {
+            assignmentId,
+            status: 'completed',
+            summary: summaryText,
+            notes: payload.notes || undefined,
+            nextSteps: payload.nextSteps || recommendation.recommendation,
+            value: Number.isFinite(Number(payload.value)) ? Number(payload.value) : undefined,
+            unit: payload.unit || undefined,
+            celebration: payload.celebration || 'Great effort and persistence through this MTSS cycle.'
+        });
+
+        let tierReviewRequest = null;
+        const shouldCreateTierReview = payload.autoRequestTierReview === true
+            || (payload.autoRequestTierReview !== false && recommendation.shouldRequestTierReview);
+        if (shouldCreateTierReview) {
+            tierReviewRequest = await this.createTierReviewRequestRecord(user, {
+                assignmentId,
+                requestedTier: payload.requestTier || recommendation.requestTier,
+                currentTier: assignment.tier,
+                priority: payload.requestPriority || 'medium',
+                rationale: payload.requestRationale || recommendation.rationale,
+                evidence: payload.requestEvidence || payload.evidence || [],
+                files: payload.files || [],
+                recommendedSupport: recommendation.recommendation
+            });
+        }
+
+        return {
+            operation: 'complete_mtss_assignment_with_outcome_summary',
+            message: tierReviewRequest
+                ? 'Assignment completed and tier review request submitted.'
+                : 'Assignment completed with outcome summary.',
+            assignment: completionResult.assignment,
+            outcome: {
+                summary: summaryText,
+                recommendation: recommendation.recommendation,
+                rationale: recommendation.rationale
+            },
+            tierReviewRequest
+        };
+    }
+
+    async executeRequestMtssTierReview(user = {}, payload = {}) {
+        const request = await this.createTierReviewRequestRecord(user, payload);
+        return {
+            operation: 'request_mtss_tier_review',
+            message: `Tier review request submitted (${request.currentTier} -> ${request.requestedTier}).`,
+            request
+        };
+    }
+
     async executeOperation(userId, { operation = '', payload = {}, sessionId = null } = {}) {
         const user = await this.resolveUserProfile(userId);
         if (!user) {
@@ -5644,13 +6847,29 @@ Critical language requirement:
         }
 
         const safeOperation = String(operation || '').trim().toLowerCase();
-        const safePayload = this.sanitizeOperationPayload(payload);
+        const safePayload = this.sanitizeOperationPayload(safeOperation, payload);
         let result = null;
 
         if (safeOperation === 'create_mtss_intervention') {
             result = await this.executeCreateMtssIntervention(user, safePayload);
         } else if (safeOperation === 'append_mtss_progress_checkin') {
             result = await this.executeAppendMtssProgressCheckIn(user, safePayload);
+        } else if (safeOperation === 'append_mtss_progress_checkin_with_evidence') {
+            result = await this.executeAppendMtssProgressCheckInWithEvidence(user, safePayload);
+        } else if (safeOperation === 'upload_mtss_evidence') {
+            result = await this.executeUploadMtssEvidence(user, safePayload);
+        } else if (safeOperation === 'update_mtss_intervention_plan') {
+            result = await this.executeUpdateMtssInterventionPlan(user, safePayload);
+        } else if (safeOperation === 'bulk_append_mtss_progress_checkin') {
+            result = await this.executeBulkAppendMtssProgressCheckIn(user, safePayload);
+        } else if (safeOperation === 'bulk_update_mtss_assignment_status') {
+            result = await this.executeBulkUpdateMtssAssignmentStatus(user, safePayload);
+        } else if (safeOperation === 'clone_mtss_intervention_plan') {
+            result = await this.executeCloneMtssInterventionPlan(user, safePayload);
+        } else if (safeOperation === 'complete_mtss_assignment_with_outcome_summary') {
+            result = await this.executeCompleteMtssAssignmentWithOutcomeSummary(user, safePayload);
+        } else if (safeOperation === 'request_mtss_tier_review') {
+            result = await this.executeRequestMtssTierReview(user, safePayload);
         } else if (safeOperation === 'assign_students_to_mtss_mentor') {
             result = await this.executeAssignStudentsToMtssMentor(user, safePayload);
         } else if (safeOperation === 'assign_intervention_mentor') {
