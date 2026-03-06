@@ -14,6 +14,11 @@ const wantsPlanning = (message = '') => /(study plan|daily plan|jadwal|time bloc
 const wantsProgress = (message = '') => /(progress|mtss|tier|intervention|task|assignment|chart|table|grafik|tabel)/i.test(String(message || ''));
 const wantsSupport = (message = '') => /(help|bantu|coach|guide|nudge|focus|stuck)/i.test(String(message || ''));
 
+const normalizeRole = (value = '') => String(value || '').trim().toLowerCase();
+
+const isTeacherRole = (role = '') => ['teacher', 'se_teacher'].includes(normalizeRole(role));
+const isLeadershipRole = (role = '') => ['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(normalizeRole(role));
+
 class TwinWorkspaceService {
     async getTwinSnapshot(userId) {
         if (!userId) return null;
@@ -24,63 +29,148 @@ class TwinWorkspaceService {
         const studentName = readModel?.student?.preferredName || 'there';
         const scope = String(readModel?.actor?.scope || 'student').toLowerCase();
         const isStudent = scope === 'student';
+        const actorRole = normalizeRole(readModel?.actor?.role || '');
+        const isTeacher = isTeacherRole(actorRole);
+        const isLeadership = isLeadershipRole(actorRole);
         const roleLabel = readModel?.workforce?.roleLabel || readModel?.actor?.roleLabel || 'Workforce';
         const focusArea = toList(readModel?.mtss?.focusAreas)[0] || toList(readModel?.mtss?.openTasks)[0] || 'your priority subject';
         const riskLevel = String(readModel?.twin?.riskLevel || 'low').toLowerCase();
         const highRisk = riskLevel === 'high';
 
-        const cards = [
-            {
-                id: 'skill-plan-sprint',
-                icon: '🧭',
-                title: '15-Minute Focus Sprint',
-                description: `Create a concrete micro-plan for ${focusArea} with one immediate action.`,
+        const cards = isStudent
+            ? [
+                {
+                    id: 'skill-plan-sprint',
+                    icon: '🧭',
+                    title: '15-Minute Study Sprint',
+                    description: `Create a concrete micro-plan for ${focusArea} with one immediate action.`,
+                    action: {
+                        type: 'prefill',
+                        value: `Build a 15-minute study sprint for ${focusArea} with clear steps and one first action.`
+                    }
+                },
+                {
+                    id: 'skill-manual-checkin',
+                    icon: '💬',
+                    title: 'Quick Emotional Check-in',
+                    description: 'Open manual check-in and log how you feel before continuing study.',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_manual_emotional_checkin',
+                        navigateTo: '/student/emotional-checkin/manual',
+                        label: 'Manual Emotional Check-in',
+                        confidence: 0.98
+                    }
+                },
+                {
+                    id: 'skill-profile-insights',
+                    icon: '📈',
+                    title: 'My Progress Snapshot',
+                    description: `Open your profile insights and review progress trend, ${studentName}.`,
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_profile_emotional_patterns',
+                        navigateTo: '/profile/emotional-patterns',
+                        label: 'Emotional Insights',
+                        confidence: 0.96
+                    }
+                },
+                {
+                    id: 'skill-quiz-recall',
+                    icon: '📝',
+                    title: 'Quick Recall Quiz',
+                    description: `Generate a 5-question quiz for ${focusArea} so you can test retention quickly.`,
+                    action: {
+                        type: 'prefill',
+                        value: `Quiz me in 5 quick questions about ${focusArea} and explain each answer briefly.`
+                    }
+                }
+            ]
+            : [
+                {
+                    id: 'skill-workday-priority',
+                    icon: '🧭',
+                    title: isLeadership ? 'Leadership Priority Triage' : 'Caseload Priority Triage',
+                    description: isLeadership
+                        ? 'Rank top risks for your unit and define owner + due date for each action.'
+                        : 'Rank your MTSS students by urgency and define first response for each.',
+                    action: {
+                        type: 'prefill',
+                        value: isLeadership
+                            ? 'Build a principal priority triage for today: top risks, root causes, owner, and due date.'
+                            : 'Analyze my assigned MTSS students, rank urgency, and give first response per student.'
+                    }
+                },
+                {
+                    id: 'skill-workforce-checkin',
+                    icon: '💬',
+                    title: 'Quick Wellbeing Check-in',
+                    description: 'Open staff emotional check-in and reset focus before critical tasks.',
+                    action: {
+                        type: 'navigate',
+                        intent: 'open_staff_emotional_checkin',
+                        navigateTo: '/emotional-checkin/staff',
+                        label: 'Emotional Check-in',
+                        confidence: 0.98
+                    }
+                },
+                {
+                    id: 'skill-workforce-dashboard',
+                    icon: '📊',
+                    title: isLeadership ? 'Open Leadership Dashboard' : 'Open MTSS Workspace',
+                    description: isLeadership
+                        ? 'Open dashboard and review unit-level signals before taking decisions.'
+                        : 'Open MTSS teacher dashboard to continue intervention workflow.',
+                    action: {
+                        type: 'navigate',
+                        intent: isLeadership ? 'open_emotional_dashboard' : 'open_mtss_teacher_dashboard',
+                        navigateTo: isLeadership ? '/emotional-checkin/dashboard' : '/mtss/teacher',
+                        label: isLeadership ? 'Emotional Dashboard' : 'MTSS Teacher Dashboard',
+                        confidence: 0.96
+                    }
+                },
+                {
+                    id: 'skill-draft-communication',
+                    icon: '✍️',
+                    title: isLeadership ? 'Draft Team Briefing' : 'Draft Parent-Friendly Update',
+                    description: isLeadership
+                        ? 'Generate concise staff briefing: risk highlights, action owners, and escalation notes.'
+                        : 'Generate clear progress update language for caregiver/parent communication.',
+                    action: {
+                        type: 'prefill',
+                        value: isLeadership
+                            ? 'Draft a principal briefing for today: top risks, action owners, and escalation points.'
+                            : 'Draft a parent-friendly MTSS progress update with next steps and support recommendations.'
+                    }
+                }
+            ];
+
+        if (!isStudent && isTeacher) {
+            cards.push({
+                id: 'skill-teacher-intervention',
+                icon: '🛠️',
+                title: 'Intervention Draft Builder',
+                description: `Create a structured intervention draft for ${focusArea} with baseline, target, and weekly monitoring.`,
                 action: {
                     type: 'prefill',
-                    value: `Build a 15-minute focus sprint for ${focusArea} with clear steps and one first action.`
+                    value: `Draft an MTSS intervention for ${focusArea}: student challenge, baseline, target, strategy, and monitoring plan.`
                 }
-            },
-            {
-                id: 'skill-manual-checkin',
-                icon: '💬',
-                title: isStudent ? 'Quick Emotional Check-in' : 'Quick Wellbeing Check-in',
-                description: isStudent
-                    ? 'Open manual check-in and log how you feel before continuing study.'
-                    : 'Open staff emotional check-in and log your current state before continuing work.',
-                action: {
-                    type: 'navigate',
-                    intent: isStudent ? 'open_manual_emotional_checkin' : 'open_staff_emotional_checkin',
-                    navigateTo: isStudent ? '/student/emotional-checkin/manual' : '/emotional-checkin/staff',
-                    label: isStudent ? 'Manual Emotional Check-in' : 'Emotional Check-in',
-                    confidence: 0.98
-                }
-            },
-            {
-                id: 'skill-profile-insights',
-                icon: '📈',
-                title: isStudent ? 'My Progress Snapshot' : 'My Work Snapshot',
-                description: isStudent
-                    ? `Open your profile insights and review progress trend, ${studentName}.`
-                    : `Open your profile insights and review your current ${roleLabel.toLowerCase()} momentum, ${studentName}.`,
-                action: {
-                    type: 'navigate',
-                    intent: 'open_profile_emotional_patterns',
-                    navigateTo: '/profile/emotional-patterns',
-                    label: 'Emotional Insights',
-                    confidence: 0.96
-                }
-            }
-        ];
+            });
+        }
 
         if (highRisk) {
             cards.unshift({
                 id: 'skill-calming-routine',
                 icon: '🫶',
-                title: 'Calm + Reset Routine',
-                description: 'Get a short calming routine before returning to class tasks.',
+                title: isStudent ? 'Calm + Reset Routine' : 'High-Pressure Reset Routine',
+                description: isStudent
+                    ? 'Get a short calming routine before returning to class tasks.'
+                    : 'Run a fast reset sequence before returning to high-impact work decisions.',
                 action: {
                     type: 'prefill',
-                    value: 'Guide me through a 5-minute calm reset routine and then give my next best school action.'
+                    value: isStudent
+                        ? 'Guide me through a 5-minute calm reset routine and then give my next best school action.'
+                        : 'Guide me through a 5-minute reset routine and then give my highest-impact next work action.'
                 }
             });
         }

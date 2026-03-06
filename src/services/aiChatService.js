@@ -33,6 +33,7 @@ class AIChatService {
             'teacher',
             'se_teacher',
             'head_unit',
+            'principal',
             'directorate',
             'admin',
             'superadmin',
@@ -167,6 +168,21 @@ class AIChatService {
 
     isMtssAutomationRole(role = '') {
         return this.mtssAutomationRoleSet.has(this.normalizeRole(role));
+    }
+
+    isTeacherLikeRole(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        return ['teacher', 'se_teacher'].includes(normalizedRole);
+    }
+
+    isLeadershipRole(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        return ['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(normalizedRole);
+    }
+
+    isPrincipalLikeRole(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        return ['head_unit', 'principal'].includes(normalizedRole);
     }
 
     isEligibleMtssMentorRole(role = '') {
@@ -474,6 +490,8 @@ class AIChatService {
         const workforce = context?.workforce || {};
         const emotional = context?.emotional || {};
         const memory = assistantProfile.memory || {};
+        const role = this.normalizeRole(actor?.role || '');
+        const leadershipSnapshot = workforce?.leadershipSnapshot || null;
 
         const focusItems = [];
         const quickActions = [];
@@ -505,16 +523,40 @@ class AIChatService {
             quickActions.push(`Coach me on this challenge: ${memory.challenges[0]}`);
         }
 
-        if (actor?.role === 'teacher' || actor?.role === 'se_teacher' || actor?.role === 'head_unit') {
+        if (this.isTeacherLikeRole(role) || this.isPrincipalLikeRole(role)) {
+            focusItems.push('Prioritize one high-impact MTSS follow-up block before noon.');
+            quickActions.push('Rank my MTSS students by urgency and suggest the first intervention move.');
+            quickActions.push('Draft a parent-friendly update for one student with clear next steps.');
             quickActions.push('Open MTSS teacher dashboard');
+        }
+
+        if (this.isLeadershipRole(role)) {
+            const activeAssignments = Number(leadershipSnapshot?.activeAssignments || 0);
+            const overdueAssignments = Number(leadershipSnapshot?.overdueAssignments || 0);
+            const tier3Assignments = Number(leadershipSnapshot?.tier3Assignments || 0);
+
+            if (activeAssignments > 0) {
+                focusItems.push(`Leadership watch: ${activeAssignments} active MTSS assignment(s) across your unit.`);
+            }
+            if (overdueAssignments > 0) {
+                focusItems.push(`${overdueAssignments} assignment(s) have overdue/no recent check-in and need escalation.`);
+            }
+            if (tier3Assignments > 0) {
+                focusItems.push(`${tier3Assignments} tier-3 assignment(s) need priority oversight this week.`);
+            }
+
+            quickActions.push('Create a principal briefing: top risks, owner, and due date.');
+            quickActions.push('Recommend mentor workload rebalance based on assignment pressure.');
+            quickActions.push('Open emotional dashboard for unit-level signal review.');
+            quickActions.push('Open MTSS admin dashboard to coordinate assignment updates.');
         }
 
         quickActions.push('Open support hub');
         quickActions.push('Open my profile');
 
         return {
-            focusItems: this.normalizeList(focusItems).slice(0, 5),
-            quickActions: this.normalizeList(quickActions).slice(0, 6)
+            focusItems: this.normalizeList(focusItems).slice(0, 6),
+            quickActions: this.normalizeList(quickActions).slice(0, 8)
         };
     }
 
@@ -565,12 +607,17 @@ class AIChatService {
             quickActions.push(`Help me with ${memory.challenges[0]}`);
         }
 
+        if ((mtss.focusAreas || []).length > 0) {
+            quickActions.push(`Make a short exam prep plan for ${mtss.focusAreas[0]}.`);
+        }
+
         quickActions.push('What should I do after school today?');
         quickActions.push('Quiz me in 5 quick questions');
+        quickActions.push('Draft a message I can send to my teacher if I get stuck.');
 
         return {
-            focusItems: this.normalizeList(focusItems).slice(0, 5),
-            quickActions: this.normalizeList(quickActions).slice(0, 6)
+            focusItems: this.normalizeList(focusItems).slice(0, 6),
+            quickActions: this.normalizeList(quickActions).slice(0, 8)
         };
     }
 
@@ -704,6 +751,61 @@ class AIChatService {
                 lastCheckInDate: checkIns.length ? checkIns[checkIns.length - 1].date : null
             };
         });
+    }
+
+    buildLeadershipSnapshot(assignments = []) {
+        const rows = Array.isArray(assignments) ? assignments : [];
+        const summary = {
+            totalAssignments: rows.length,
+            activeAssignments: 0,
+            pausedAssignments: 0,
+            completedAssignments: 0,
+            closedAssignments: 0,
+            tier3Assignments: 0,
+            overdueAssignments: 0,
+            uniqueStudents: 0,
+            uniqueMentors: 0
+        };
+
+        const mentorSet = new Set();
+        const studentSet = new Set();
+        const overdueThresholdDays = 10;
+
+        rows.forEach((assignment = {}) => {
+            const status = this.normalizeRole(assignment.status || 'active');
+            if (status === 'active') summary.activeAssignments += 1;
+            else if (status === 'paused') summary.pausedAssignments += 1;
+            else if (status === 'completed') summary.completedAssignments += 1;
+            else if (status === 'closed') summary.closedAssignments += 1;
+
+            const tierCode = this.normalizeTierCode(assignment.tier || 'tier2');
+            if (tierCode === 'tier3') summary.tier3Assignments += 1;
+
+            const mentorId = String(assignment?.mentorId?._id || assignment?.mentorId || '').trim();
+            if (mentorId) mentorSet.add(mentorId);
+
+            const studentIds = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+            studentIds.forEach((entry) => {
+                const key = String(entry?._id || entry || '').trim();
+                if (key) studentSet.add(key);
+            });
+
+            const checkIns = Array.isArray(assignment.checkIns) ? assignment.checkIns : [];
+            const latestCheckInDate = checkIns.length > 0
+                ? checkIns[checkIns.length - 1]?.date
+                : assignment.lastPlanUpdatedAt || assignment.updatedAt || assignment.createdAt;
+            const daysSince = this.getDaysSince(latestCheckInDate);
+            if (
+                (status === 'active' || status === 'paused')
+                && (daysSince === null || daysSince >= overdueThresholdDays)
+            ) {
+                summary.overdueAssignments += 1;
+            }
+        });
+
+        summary.uniqueMentors = mentorSet.size;
+        summary.uniqueStudents = studentSet.size;
+        return summary;
     }
 
     toShortDate(dateValue, locale = 'en-GB') {
@@ -1098,7 +1200,13 @@ class AIChatService {
         const teacherCount = Number(classroom?.teacherCount || 0);
         const taskCount = Array.isArray(mtss?.openTasks) ? mtss.openTasks.length : 0;
         const isStudent = this.isStudentContext(context);
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const isTeacherRole = this.isTeacherLikeRole(role);
+        const isLeadershipRole = this.isLeadershipRole(role);
         const roleLabel = context?.actor?.roleLabel || 'Workforce';
+        const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
+        const leadershipActive = Number(leadershipSnapshot?.activeAssignments || 0);
+        const leadershipOverdue = Number(leadershipSnapshot?.overdueAssignments || 0);
 
         return [
             {
@@ -1117,28 +1225,46 @@ class AIChatService {
                         title: 'Live Data Insight',
                         description: isStudent
                             ? `Can analyze your MTSS records (${taskCount} open task(s)) with visual outputs.`
-                            : `Can analyze your role data, assignment snapshot, and priorities (${taskCount} open task(s)) with visual outputs.`
+                            : isLeadershipRole
+                                ? `Can synthesize unit-level MTSS pressure (${leadershipActive} active, ${leadershipOverdue} overdue) and turn it into decisions.`
+                                : `Can analyze your role data, caseload snapshot, and priorities (${taskCount} open task(s)) with visual outputs.`
                     },
                     {
                         icon: '🗂️',
-                        title: isStudent ? 'Teacher + Class Intelligence' : 'Role + Team Context',
+                        title: isStudent
+                            ? 'Teacher + Class Intelligence'
+                            : isLeadershipRole
+                                ? 'Principal / Unit Intelligence'
+                                : isTeacherRole
+                                    ? 'Student Caseload Intelligence'
+                                    : 'Role + Team Context',
                         description: isStudent
                             ? `Uses your class mapping with ${teacherCount} linked teacher(s).`
-                            : `Uses your ${roleLabel.toLowerCase()} profile, unit context, and related operational signals.`
+                            : isLeadershipRole
+                                ? `Uses your ${roleLabel.toLowerCase()} context plus cross-assignment risk signals for escalation planning.`
+                                : isTeacherRole
+                                    ? `Uses your assigned student list, tier progression, and check-in cadence for intervention follow-up.`
+                                    : `Uses your ${roleLabel.toLowerCase()} profile, unit context, and related operational signals.`
                     },
                     {
                         icon: '🧭',
-                        title: 'Action Routing',
+                        title: isLeadershipRole ? 'Workflow + Delegation Routing' : 'Action Routing',
                         description: isStudent
                             ? 'Can route you to profile, check-in, support hub, AI chat, and MTSS portal flows.'
-                            : 'Can route you across profile, support hub, dashboards, MTSS flows, and assistant workspace.'
+                            : isLeadershipRole
+                                ? 'Can route you to support hub, MTSS admin, emotional dashboard, and execution-ready review flows.'
+                                : 'Can route you across profile, support hub, dashboards, MTSS flows, and assistant workspace.'
                     },
                     {
                         icon: '🎯',
                         title: 'Daily Coaching',
                         description: isStudent
                             ? 'Generates timeline plans, checklists, and next best actions.'
-                            : 'Generates practical workday plans, checklists, and prioritized next actions.'
+                            : isLeadershipRole
+                                ? 'Generates principal briefing notes, owner-based action plans, and escalation checklists.'
+                                : isTeacherRole
+                                    ? 'Generates classroom-ready intervention plans, progress notes, and follow-up sequences.'
+                                    : 'Generates practical workday plans, checklists, and prioritized next actions.'
                     }
                 ]
             }
@@ -1219,6 +1345,8 @@ class AIChatService {
     buildWorkforceVisualizationWidgets(context = {}) {
         const workforce = context?.workforce || {};
         const mtss = context?.mtss || {};
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const leadershipSnapshot = workforce?.leadershipSnapshot || null;
         const tierMap = workforce?.assignmentsByTier && typeof workforce.assignmentsByTier === 'object'
             ? workforce.assignmentsByTier
             : {};
@@ -1278,6 +1406,23 @@ class AIChatService {
                     { key: 'focus', label: 'Focus' }
                 ],
                 rows: assignmentRows
+            });
+        }
+
+        if (this.isLeadershipRole(role) && leadershipSnapshot && Number(leadershipSnapshot.totalAssignments || 0) > 0) {
+            widgets.push({
+                id: 'workforce_leadership_stats',
+                type: 'stats',
+                title: 'Leadership MTSS Snapshot',
+                subtitle: 'Unit-level intervention health',
+                items: [
+                    { label: 'Unit Assignments', value: Number(leadershipSnapshot.totalAssignments || 0) },
+                    { label: 'Active', value: Number(leadershipSnapshot.activeAssignments || 0) },
+                    { label: 'Overdue Check-ins', value: Number(leadershipSnapshot.overdueAssignments || 0) },
+                    { label: 'Tier 3 Cases', value: Number(leadershipSnapshot.tier3Assignments || 0) },
+                    { label: 'Mentors Active', value: Number(leadershipSnapshot.uniqueMentors || 0) },
+                    { label: 'Students Covered', value: Number(leadershipSnapshot.uniqueStudents || 0) }
+                ]
             });
         }
 
@@ -1971,6 +2116,8 @@ class AIChatService {
 
     buildWorkforceActionChipsWidget(context = {}) {
         const role = this.normalizeRole(context?.actor?.role || '');
+        const isLeadershipRole = this.isLeadershipRole(role);
+        const isTeacherRole = this.isTeacherLikeRole(role);
         const baseActions = [
             {
                 label: 'Open Support Hub',
@@ -2077,7 +2224,26 @@ class AIChatService {
             );
         }
 
-        if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
+        if (isTeacherRole || this.isPrincipalLikeRole(role)) {
+            mtssActions.push(
+                {
+                    label: 'Draft Parent Update',
+                    action: {
+                        type: 'prefill',
+                        value: 'Draft a concise parent-friendly MTSS update with progress, concern, and next support step.'
+                    }
+                },
+                {
+                    label: 'Classroom Follow-up Sequence',
+                    action: {
+                        type: 'prefill',
+                        value: 'Build my classroom follow-up sequence for today: highest-risk student first, then medium-risk, then maintenance.'
+                    }
+                }
+            );
+        }
+
+        if (isLeadershipRole) {
             mtssActions.push({
                 label: 'Open MTSS Admin',
                 action: {
@@ -2089,7 +2255,7 @@ class AIChatService {
             });
         }
 
-        if (['head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
+        if (isLeadershipRole) {
             const emotionalDashboardAction = {
                 label: 'Open Emotional Dashboard',
                 action: {
@@ -2105,6 +2271,23 @@ class AIChatService {
             } else {
                 baseActions.push(emotionalDashboardAction);
             }
+
+            mtssActions.push(
+                {
+                    label: 'Executive MTSS Brief',
+                    action: {
+                        type: 'prefill',
+                        value: 'Create an executive MTSS brief for today: top risks, overdue check-ins, owner, and due date.'
+                    }
+                },
+                {
+                    label: 'Rebalance Mentor Workload',
+                    action: {
+                        type: 'prefill',
+                        value: 'Recommend mentor workload rebalance based on active assignments, tier-3 pressure, and overdue follow-up.'
+                    }
+                }
+            );
         }
 
         const actions = this.isMtssCapableWorkforceRole(role)
@@ -2115,7 +2298,7 @@ class AIChatService {
             id: 'assistant_quick_actions',
             type: 'action_chips',
             title: 'Try Next',
-            actions: actions.slice(0, 8)
+            actions: actions.slice(0, 10)
         };
     }
 
@@ -2344,8 +2527,20 @@ Quick snapshot: current MTSS tier ${tierLabel}, ${activeAssignmentCount} active 
         const teacherCount = Number(classroom.teacherCount || 0);
         const openTaskCount = Array.isArray(mtss.openTasks) ? mtss.openTasks.length : 0;
         const workforce = context?.workforce || {};
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const leadershipSnapshot = workforce?.leadershipSnapshot || {};
 
         if (!this.isStudentContext(context)) {
+            if (this.isLeadershipRole(role)) {
+                return `Absolutely, ${preferredName}. I can operate as your leadership copilot across planning, execution, and oversight.
+I can synthesize unit MTSS pressure (${Number(leadershipSnapshot.activeAssignments || 0)} active assignments, ${Number(leadershipSnapshot.overdueAssignments || 0)} overdue check-ins), produce principal-ready briefing notes, recommend mentor workload balancing, and route you to MTSS admin/emotional dashboards with execution-ready next steps.`;
+            }
+
+            if (this.isTeacherLikeRole(role) || this.isPrincipalLikeRole(role)) {
+                return `Absolutely, ${preferredName}. I can support your MTSS classroom workflow end-to-end.
+I can triage your assigned students, draft intervention and progress notes, suggest evidence-based strategies, prepare parent-friendly updates, and guide you through execute_operation flows safely. I can already use your live caseload snapshot (${openTaskCount} open task(s)) to recommend the next best action.`;
+            }
+
             return `Absolutely, ${preferredName}. I can support you as a full personal workforce assistant, not only chat.
 I can read your role profile, generate visual insights, build adaptive workday timelines, produce actionable checklists, trigger quick navigation actions, and run MTSS execute_operation automations (intervention creation, progress logging, mentor assignment, status updates, and goal completion) for authorized roles. Right now I can already use your assignment/task snapshot (${openTaskCount} open task(s)) and your role context (${workforce.roleLabel || context?.actor?.roleLabel || 'Workforce'}) to give concrete guidance.`;
         }
@@ -2379,6 +2574,10 @@ I can read your latest records, generate visual insights, build adaptive study t
             const department = context?.actor?.department || context?.workforce?.department || 'not recorded';
             const unit = context?.actor?.unit || context?.workforce?.unit || 'not recorded';
             const activeAssignments = Number(context?.workforce?.activeMentorAssignments || mtss.activeAssignmentCount || 0);
+            const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
+            const leadershipLine = this.isLeadershipRole(context?.actor?.role || '')
+                ? `Leadership MTSS view: ${Number(leadershipSnapshot.activeAssignments || 0)} active assignment(s), ${Number(leadershipSnapshot.overdueAssignments || 0)} overdue check-in(s), ${Number(leadershipSnapshot.tier3Assignments || 0)} tier-3 case(s).`
+                : '';
             const taskLineWorkforce = openTasks.length
                 ? `You currently have ${openTasks.length} open task(s): ${openTasks.slice(0, 3).join('; ')}.`
                 : 'You currently have no open tasks recorded from your current assignment snapshot.';
@@ -2386,6 +2585,7 @@ I can read your latest records, generate visual insights, build adaptive study t
             return `Hi ${preferredName}! I can help using your current workforce records.
 Role: ${roleLabel || 'Workforce'} | Department: ${department} | Unit: ${unit}
 Active assignment snapshot: ${activeAssignments}.
+${leadershipLine}
 ${taskLineWorkforce}
 
 Tell me your exact next request (for example: "open support hub", "show my assignment tiers", "build my work plan", or "open MTSS dashboard"), and I will execute it concretely.`;
@@ -3563,6 +3763,7 @@ ${teacherLines}`;
                 .lean();
 
             const isMentorRole = this.isMtssCapableWorkforceRole(normalizedRole);
+            const isLeadershipRole = this.isLeadershipRole(normalizedRole);
             const mentorAssignmentsPromise = isMentorRole
                 ? MentorAssignment.find({
                     mentorId: userId,
@@ -3573,10 +3774,20 @@ ${teacherLines}`;
                     .populate('studentIds', 'name nickname currentGrade className tags')
                     .lean()
                 : Promise.resolve([]);
+            const leadershipAssignmentsPromise = isLeadershipRole
+                ? MentorAssignment.find({
+                    status: { $in: ['active', 'paused', 'completed', 'closed'] }
+                })
+                    .sort({ updatedAt: -1 })
+                    .limit(220)
+                    .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
+                    .lean()
+                : Promise.resolve([]);
 
-            const [recentCheckIns, mentorAssignments] = await Promise.all([
+            const [recentCheckIns, mentorAssignments, leadershipAssignments] = await Promise.all([
                 recentCheckInsPromise,
-                mentorAssignmentsPromise
+                mentorAssignmentsPromise,
+                leadershipAssignmentsPromise
             ]);
 
             const assignmentSnapshot = this.buildAssignmentSnapshot(mentorAssignments);
@@ -3607,6 +3818,9 @@ ${teacherLines}`;
             const enrichedAssignments = isMentorRole
                 ? this.buildMtssRichStudentContext(mentorAssignments)
                 : [];
+            const leadershipSnapshot = isLeadershipRole
+                ? this.buildLeadershipSnapshot(leadershipAssignments)
+                : null;
 
             const context = {
                 student: {
@@ -3662,7 +3876,8 @@ ${teacherLines}`;
                     totalMentoredStudents: uniqueStudentCount,
                     flaggedSelfCheckins,
                     assignmentsByTier,
-                    enrichedAssignments
+                    enrichedAssignments,
+                    leadershipSnapshot
                 },
                 assistant: this.buildDefaultAssistantRuntime(userId),
                 emotional: {
@@ -3738,7 +3953,18 @@ ${teacherLines}`;
                     totalMentoredStudents: 0,
                     flaggedSelfCheckins: 0,
                     assignmentsByTier: {},
-                    enrichedAssignments: []
+                    enrichedAssignments: [],
+                    leadershipSnapshot: {
+                        totalAssignments: 0,
+                        activeAssignments: 0,
+                        pausedAssignments: 0,
+                        completedAssignments: 0,
+                        closedAssignments: 0,
+                        tier3Assignments: 0,
+                        overdueAssignments: 0,
+                        uniqueStudents: 0,
+                        uniqueMentors: 0
+                    }
                 },
                 assistant: this.buildDefaultAssistantRuntime(userId),
                 emotional: {
@@ -4088,6 +4314,8 @@ Response guidelines:
 - For class/teacher questions, list teacher names from the classroom snapshot above and do not answer generically.
 - When mentioning teachers, use their display names exactly as listed in the classroom snapshot (for example: "Ms. Tata").
 - For planning questions ("today", "daily", "jadwal", "what should I do"), always return a concrete short plan with time blocks and first action.
+- For homework or exam requests, provide a complete study workflow: priority order, estimated time, and one measurable outcome.
+- For "I am stuck" requests, provide: quick explanation -> mini practice -> escalation message draft for teacher.
 - If the student asks for chart/table/visualization, never say you cannot create charts or tables. Explain the insight and assume visual cards are available in the UI.
 - You can rely on interactive UI widgets (charts, tables, timelines, checklists, and quick actions) to support your response.
 - End most responses with one practical next action the student can do now.
@@ -4210,11 +4438,57 @@ ${rosterLines.join('\n') || '  - No active student assignments found.'}
 - End MTSS responses with a concrete next step (e.g., "Open the MTSS Teacher Dashboard to submit this plan").`;
     }
 
+    buildWorkforceRolePlaybookSection(context = {}) {
+        const role = this.normalizeRole(context?.actor?.role || '');
+        const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(role);
+        const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
+
+        if (this.isLeadershipRole(role)) {
+            return `
+## Leadership Playbook (${roleLabel})
+
+You are a strategic copilot for unit-level decision making.
+- Always prioritize: risk radar -> owner assignment -> due date -> escalation path.
+- For principal/head-unit style requests, provide concise executive output:
+  1) Current risk summary,
+  2) Immediate actions (with owner),
+  3) 24-hour follow-up plan,
+  4) Weekly stabilization plan.
+- When giving recommendations, tie them to current snapshot metrics:
+  active assignments ${Number(leadershipSnapshot.activeAssignments || 0)},
+  overdue check-ins ${Number(leadershipSnapshot.overdueAssignments || 0)},
+  tier-3 cases ${Number(leadershipSnapshot.tier3Assignments || 0)}.
+- If user asks for team coordination, suggest delegation by mentor capacity and urgency.
+- Keep leadership responses practical and short: max 6 bullets unless user requests detail.`;
+        }
+
+        if (this.isTeacherLikeRole(role) || this.isPrincipalLikeRole(role)) {
+            return `
+## Teacher Workflow Playbook (${roleLabel})
+
+You are an instructional and MTSS workflow copilot.
+- For student-support requests, produce: priority student -> intervention step -> evidence to collect -> follow-up message.
+- For progress updates, provide structured note format (date, summary, next steps, metric delta).
+- For parent communication requests, draft clear language that is supportive and action-oriented.
+- If student identity is ambiguous, ask one short clarification before drafting.
+- End with one concrete action the teacher can do now in MTSS dashboard.`;
+        }
+
+        return `
+## Workforce Playbook (${roleLabel})
+
+You are a practical operations assistant.
+- Turn vague requests into clear task plans with priority + next action.
+- Keep recommendations realistic for the current workload snapshot.
+- End with one concrete next step and relevant workspace route if needed.`;
+    }
+
     buildWorkforceSystemPrompt(context) {
         const { student, actor, workforce, mtss, emotional, assistant } = context;
         const preferredName = student?.preferredName || student?.name || 'Team member';
         const assistantName = assistant?.assistantName || 'Nova';
         const roleLabel = actor?.roleLabel || this.getWorkforceRoleLabel(actor?.role || '');
+        const leadershipSnapshot = workforce?.leadershipSnapshot || {};
         const assignmentLines = (mtss?.assignments || []).length
             ? mtss.assignments
                 .slice(0, 10)
@@ -4235,6 +4509,12 @@ ${rosterLines.join('\n') || '  - No active student assignments found.'}
             : '- Keep momentum by prioritizing your top-impact tasks.';
         const twinSummary = assistantOrchestrator.summarizeTwinForPrompt(context?.twin || null);
         const teacherMtssSection = this.buildTeacherMtssPromptSection(context);
+        const rolePlaybookSection = this.buildWorkforceRolePlaybookSection(context);
+        const leadershipLines = this.isLeadershipRole(actor?.role || '')
+            ? `- Unit-level active assignments: ${Number(leadershipSnapshot.activeAssignments || 0)}
+- Unit-level overdue check-ins: ${Number(leadershipSnapshot.overdueAssignments || 0)}
+- Unit-level tier-3 cases: ${Number(leadershipSnapshot.tier3Assignments || 0)}`
+            : '- Unit-level leadership metrics are not required for this role.';
 
         const prompt = `You are ${assistantName}, the dedicated personal AI assistant for ${preferredName}.
 You support this user as a professional daily copilot inside MWS IntegraLearn workforce workspace.
@@ -4261,11 +4541,14 @@ Workforce snapshot (internal data):
 - Total mentored students (snapshot): ${workforce?.totalMentoredStudents || 0}
 - Recent self check-ins needing support: ${workforce?.flaggedSelfCheckins || 0}
 - Current assignment tier signal: ${mtss?.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded'}
+Leadership metrics (if applicable):
+${leadershipLines}
 Assignment details:
 ${assignmentLines}
 Open tasks:
 ${taskLines}
 ${teacherMtssSection}
+${rolePlaybookSection}
 
 Personal assistant profile (memory):
 - Assistant name to use: ${assistantName}
