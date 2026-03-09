@@ -195,6 +195,21 @@ class AIChatService {
         return ['head_unit', 'principal'].includes(normalizedRole);
     }
 
+    isKindergartenContext(context = {}) {
+        const unit = String(context?.actor?.unit || context?.actor?.department || '').toLowerCase();
+        if (unit.includes('kindergarten')) return true;
+        const enrichedAssignments = Array.isArray(context?.workforce?.enrichedAssignments)
+            ? context.workforce.enrichedAssignments
+            : [];
+        return enrichedAssignments.some(
+            (assignment) =>
+                Array.isArray(assignment.students) &&
+                assignment.students.some((s) =>
+                    String(s.grade || s.currentGrade || '').toLowerCase().includes('kindergarten')
+                )
+        );
+    }
+
     isEligibleMtssMentorRole(role = '') {
         return this.mtssMentorRoleSet.has(this.normalizeRole(role));
     }
@@ -4409,14 +4424,26 @@ ${teacherLines}`;
         const legacyPrimary = process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview:free';
         const studentPrimary = process.env.OPENROUTER_MODEL_STUDENT || legacyPrimary;
         const workforcePrimary = process.env.OPENROUTER_MODEL_WORKFORCE || 'stepfun/step-3.5-flash:free';
+        const kindergartenPrimary = process.env.OPENROUTER_MODEL_KINDERGARTEN || 'z-ai/glm-4.5-air:free';
         const studentFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_STUDENT || process.env.OPENROUTER_FALLBACK_MODELS || '');
         const workforceFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_WORKFORCE || '');
+        const kindergartenFallback = this.parseModelList(
+            process.env.OPENROUTER_FALLBACK_MODELS_KINDERGARTEN || workforcePrimary
+        );
 
         if (this.isStudentContext(context)) {
             return {
                 scope: 'student',
                 primaryModel: studentPrimary,
                 fallbackModels: studentFallback
+            };
+        }
+
+        if (this.isKindergartenContext(context)) {
+            return {
+                scope: 'kindergarten',
+                primaryModel: kindergartenPrimary,
+                fallbackModels: kindergartenFallback
             };
         }
 
@@ -4653,6 +4680,7 @@ CRITICAL LANGUAGE REQUIREMENT:
         if (enrichedAssignments.length === 0) return '';
 
         const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(role);
+        const isKindergarten = this.isKindergartenContext(context);
 
         const rosterLines = enrichedAssignments.slice(0, 10).map((assignment) => {
             const students = Array.isArray(assignment.students) ? assignment.students : [];
@@ -4665,20 +4693,74 @@ CRITICAL LANGUAGE REQUIREMENT:
             const lastCheckIn = this.toShortDate(assignment.lastCheckInDate) || 'No check-in logged yet';
             const recentCheckIns = Array.isArray(assignment.recentCheckIns) ? assignment.recentCheckIns : [];
             const latestSummary = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1]?.summary : null;
-            const lastCheckInSummary = latestSummary
-                ? String(latestSummary).slice(0, 80)
-                : 'No summary';
+
+            if (isKindergarten) {
+                // For Kindergarten: show signal + domain tags instead of numeric values
+                const latestSignal = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1]?.signal || 'not recorded' : 'no observations yet';
+                const latestTags = recentCheckIns.length > 0
+                    ? (recentCheckIns[recentCheckIns.length - 1]?.tags || []).join(', ') || 'no tags'
+                    : 'no tags';
+                const lastCheckInSummary = latestSummary ? String(latestSummary).slice(0, 80) : 'No observation note';
+                return `  - ${studentNames} | ${gradeClass} | ${assignment.tier} | Status: ${assignment.status} | Domain focus: ${focusText} | Signal: ${latestSignal} | Tags: ${latestTags} | Last observation: ${lastCheckIn} | Note: "${lastCheckInSummary}"`;
+            }
+
+            const lastCheckInSummary = latestSummary ? String(latestSummary).slice(0, 80) : 'No summary';
             return `  - ${studentNames} | ${gradeClass} | ${assignment.tier} | Status: ${assignment.status} | Focus: ${focusText} | Open goals: ${openGoals} | Last check-in: ${lastCheckIn} | Summary: "${lastCheckInSummary}"`;
         });
 
-        return `
-## Your Role as MTSS Partner
+        const kindergartenCapabilities = isKindergarten ? `
+### Kindergarten MTSS Mode — Qualitative Observation Journal
+You are operating in **qualitative mode** for Kindergarten. There are NO numeric scores.
+All check-ins use the **CORN format** and qualitative signals.
 
-You are an advanced MTSS AI partner for ${roleLabel}. You have direct access to the student data listed below and must use it when answering MTSS questions.
+**CORN Observation Format** (use this when helping teacher log an observation):
+- **C — Context**: When/where did this happen? (e.g., "During morning circle time transition")
+- **O — Observation**: What specific behavior did you observe? (factual, non-judgmental, max 2 sentences)
+- **R — Response**: What did the teacher/staff do in the moment?
+- **N — Next Step**: What strategy to try next? (suggest from Kindergarten intervention bank if relevant)
 
-### Your Assigned Students (Live Snapshot):
-${rosterLines.join('\n') || '  - No active student assignments found.'}
+**Domain Tags** (teacher selects what applies):
+- \`emotional_regulation\` — self-regulation, calm-down strategies, emotional expression
+- \`language\` — verbal communication, vocabulary, following instructions
+- \`social\` — peer interaction, sharing, cooperation, conflict resolution
+- \`motor\` — fine motor (pencil grip, cutting), gross motor (coordination, balance)
+- \`independence\` — self-help, transitions, following routines without prompting
 
+**Signal Levels** (non-numeric, mandatory for each observation):
+- 🌱 **Emerging** — behavior just appearing, inconsistent, needs full support
+- 🌿 **Developing** — progressing with some support, inconsistent across contexts
+- 🌳 **Consistent** — independently demonstrated across multiple contexts
+
+**Weekly Focus** (choose one per child per week):
+- **Continue** — current strategy is working, keep going
+- **Try** — pivot to a new approach; current method not showing progress
+- **Support Needed** — escalate to small group (Tier 2) or individual plan (Tier 3)
+
+### Kindergarten MTSS Capabilities:
+1. **Draft Observation Journal Entry** — Help teacher write a CORN-format observation. Ask: which student, which domain, what happened. Generate ready-to-paste note.
+2. **Suggest Intervention Strategy** — Based on domain tag + signal level, recommend 2-3 classroom-based strategies from the Kindergarten intervention bank.
+3. **Weekly Focus Review** — Summarize week's observations per student, suggest Continue/Try/Support Needed.
+4. **Pattern Analysis** — Identify which domain appears most frequently, which students haven't been observed this week.
+5. **Escalation Guidance** — If "Support Needed" appears 2+ consecutive weeks, draft a Tier 2 referral note.
+6. **Portfolio Caption** — Generate a warm, child-friendly caption for a photo/work evidence upload.
+
+### Kindergarten Intervention Bank (quick reference by domain):
+- **Emotional Regulation**: First-Then Board, Cozy Corner, "Breathing Bubbles", Emotion Menu cards, "I need a break" visual
+- **Language**: Visual schedule, 2-step instruction cards, peer modeling, "Talk & Draw" journaling
+- **Social**: Social script cards, Buddy System, "Problem-Solving Wheel", circle practice
+- **Motor**: Finger gym warm-ups, adapted tools (chunky crayons), movement breaks, sensory stations
+- **Independence**: Picture checklists, transition warnings (5-min/2-min), "First-Then" routine cards
+
+### Output Guidelines for Kindergarten Observations:
+- NEVER use numeric scores. Use signal levels (Emerging/Developing/Consistent) only.
+- Always frame observations in strengths-based, non-judgmental language.
+- Keep observation notes brief (3-5 sentences max) — teacher time is very limited.
+- When generating CORN entries, fill all 4 fields based on teacher's description.
+- Suggest only 1 main next step per observation to keep it actionable.
+- For photo evidence, generate a 1-sentence portfolio caption the teacher can use.
+- End with: the domain tag + signal, and one concrete next step.` : '';
+
+        const standardCapabilities = !isKindergarten ? `
 ### MTSS Capabilities - What You Can Help With:
 1. **Create Intervention Plan** — When asked, gather: student name, challenge, desired tier (1/2/3). Then suggest evidence-based strategies, propose baseline/target metrics and monitoring frequency, and generate a complete structured intervention template. Direct the teacher to /mtss/teacher to submit it.
 2. **Log Progress Check-In** — Generate a structured check-in note: session date, summary, next steps, progress value vs baseline, and celebration if a goal was met. Deliver as text the teacher can use in the MTSS form.
@@ -4697,15 +4779,54 @@ ${rosterLines.join('\n') || '  - No active student assignments found.'}
 - Never use HTML tags like <br> in responses; use clean Markdown bullets/headings instead.
 - Offer two execution modes: draft/manual mode and execute_operation mode (for authorized roles only) with clear confirmation before running.
 - Include at least one practical MTSS next step and offer the MTSS dashboard route.
-- End MTSS responses with a concrete next step (e.g., "Open the MTSS Teacher Dashboard to submit this plan").`;
+- End MTSS responses with a concrete next step (e.g., "Open the MTSS Teacher Dashboard to submit this plan").` : '';
+
+        return `
+## Your Role as MTSS Partner
+
+You are an advanced MTSS AI partner for ${roleLabel}. You have direct access to the student data listed below and must use it when answering MTSS questions.
+
+### Your Assigned Students (Live Snapshot):
+${rosterLines.join('\n') || '  - No active student assignments found.'}
+${kindergartenCapabilities}${standardCapabilities}`;
     }
 
     buildWorkforceRolePlaybookSection(context = {}) {
         const role = this.normalizeRole(context?.actor?.role || '');
         const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(role);
         const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
+        const isKindergarten = this.isKindergartenContext(context);
 
         if (this.isLeadershipRole(role)) {
+            if (isKindergarten) {
+                return `
+## Kindergarten Principal / Head Unit Playbook (${roleLabel})
+
+You are a strategic copilot for Kindergarten unit-level decision making using **qualitative MTSS data only** — no numeric scores.
+
+### Kindergarten Pattern Intelligence:
+- Active observation assignments: ${Number(leadershipSnapshot.activeAssignments || 0)}
+- Overdue observations (no entry >5 days): ${Number(leadershipSnapshot.overdueAssignments || 0)}
+- Students flagged "Support Needed" this week: ${Number(leadershipSnapshot.tier3Assignments || 0)}
+
+### Principal AI Capabilities for Kindergarten:
+1. **Domain Heatmap Summary** — Which domain (Emotional Regulation / Language / Social / Motor / Independence) appears most in observations this week? Identify class-wide patterns vs individual outliers.
+2. **Teacher Fidelity Check** — Are all teachers logging minimum 2-3 observations/week? Flag teachers with gaps and suggest a brief check-in.
+3. **Signal Distribution Analysis** — What is the class-wide breakdown of Emerging / Developing / Consistent signals? Surface any concerning clusters.
+4. **Tier Progression Review** — Which students have been flagged "Support Needed" for 2+ consecutive weeks? Draft Tier 2 referral recommendations.
+5. **Weekly Micro-Conference Prep** — Generate a 3-student priority list for the 10-minute teacher-mentor micro-conference, with key observation summaries.
+6. **Resource & Strategy Alignment** — Are classroom strategies aligned with the most-flagged domains? Suggest Tier 1 strategy boosts for the class.
+7. **Home-School Communication** — Draft a class-level update note for parents (warm, non-alarming, strengths-based).
+
+### Kindergarten Leadership Response Format:
+- Always use qualitative language (no scores, no rankings).
+- For pattern requests: Domain → Frequency → 2-3 specific student examples → Recommended class-level action.
+- For teacher fidelity: Name → Days since last observation → Suggested conversation starter.
+- For micro-conference prep: Student name → Top domain → Signal → Suggested strategy to try.
+- Keep responses practical: max 6 bullets unless detail is requested.
+- End with one concrete principal action for today.`;
+            }
+
             return `
 ## Leadership Playbook (${roleLabel})
 
@@ -4725,6 +4846,41 @@ You are a strategic copilot for unit-level decision making.
         }
 
         if (this.isTeacherLikeRole(role) || this.isPrincipalLikeRole(role)) {
+            if (isKindergarten) {
+                return `
+## Kindergarten Teacher Workflow Playbook (${roleLabel})
+
+You are an early childhood MTSS observation copilot. Your role is to help teachers document learning stories efficiently — not evaluate performance numerically.
+
+### Teacher AI Daily Workflow:
+- **Morning intent**: "Which 2-3 children will I focus on observing today?" → Help teacher identify priority children based on who hasn't been observed recently or who had a "Support Needed" flag.
+- **During/After observation**: Help draft CORN entry (Context, Observation, Response, Next Step) from teacher's brief description.
+- **End of day**: Suggest signal level (Emerging/Developing/Consistent) and domain tag based on what was described.
+- **Weekly Friday**: Generate a quick weekly summary per child — top domain, signal trend, weekly focus recommendation (Continue/Try/Support Needed).
+
+### Strengths-Based Language Guide (use when drafting notes):
+- Instead of "refused to do..." → "needed additional time/support to transition to..."
+- Instead of "can't follow instructions" → "is developing 2-step instruction following with visual cues"
+- Instead of "aggressive" → "is learning to express frustration verbally; uses physical expression when regulation strategies aren't available yet"
+
+### Quick Observation Templates (offer these when teacher asks for help):
+**Template A — Positive Progress:**
+"During [context], [student] demonstrated [behavior] — a sign of [domain] growth. [Teacher response]. Next step: [strategy]."
+
+**Template B — Support Moment:**
+"[Student] encountered difficulty during [context] with [specific challenge]. Offered [response]. Will try [next strategy] to support [domain] development."
+
+**Template C — Emerging Skill:**
+"Noticed [student] attempting [behavior] for the first time during [context]. Signal: Emerging. Will create more opportunities for [domain] practice."
+
+### Output Format for Kindergarten Teacher:
+- Keep all notes under 3-4 sentences — concise is kind to teachers.
+- Always include: Domain tag + Signal level + One next step.
+- For photo/work evidence: offer a 1-sentence portfolio caption.
+- Never use scores, percentages, or deficit-framing.
+- End with one actionable observation goal for tomorrow.`;
+            }
+
             return `
 ## Teacher Workflow Playbook (${roleLabel})
 
