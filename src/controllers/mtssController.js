@@ -666,12 +666,28 @@ const sanitizeScorePayload = (score = {}) => {
     };
 };
 
+const VALID_SIGNALS = new Set(['emerging', 'developing', 'consistent']);
+const VALID_TAGS = new Set(['emotional_regulation', 'language', 'social', 'motor', 'independence']);
+const VALID_WEEKLY_FOCUS = new Set(['continue', 'try', 'support_needed']);
+
 const sanitizeCheckIn = (checkIn = {}) => {
     const parsedValue = Number(checkIn.value);
     const summary = typeof checkIn.summary === 'string' ? checkIn.summary.trim() : checkIn.summary;
     const nextSteps = typeof checkIn.nextSteps === 'string' ? checkIn.nextSteps.trim() : checkIn.nextSteps;
     const candidateDate = checkIn.date ? new Date(checkIn.date) : new Date();
     const safeDate = Number.isNaN(candidateDate.getTime()) ? new Date() : candidateDate;
+
+    // Qualitative fields (Kindergarten mode)
+    const signal = VALID_SIGNALS.has(checkIn.signal) ? checkIn.signal : undefined;
+    const tags = Array.isArray(checkIn.tags)
+        ? checkIn.tags.filter(t => VALID_TAGS.has(t))
+        : undefined;
+    const context = typeof checkIn.context === 'string' ? checkIn.context.trim().slice(0, 300) : undefined;
+    const observation = typeof checkIn.observation === 'string' ? checkIn.observation.trim().slice(0, 500) : undefined;
+    const observationResponse = typeof checkIn.response === 'string' ? checkIn.response.trim().slice(0, 300) : undefined;
+    const nextStep = typeof checkIn.nextStep === 'string' ? checkIn.nextStep.trim().slice(0, 300) : undefined;
+    const weeklyFocus = VALID_WEEKLY_FOCUS.has(checkIn.weeklyFocus) ? checkIn.weeklyFocus : undefined;
+
     return {
         date: safeDate,
         summary: summary || 'Progress update',
@@ -682,6 +698,13 @@ const sanitizeCheckIn = (checkIn = {}) => {
         skipReason: checkIn.skipReason || undefined,
         skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
         celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined,
+        signal,
+        tags: tags?.length ? tags : undefined,
+        context: context || undefined,
+        observation: observation || undefined,
+        response: observationResponse || undefined,
+        nextStep: nextStep || undefined,
+        weeklyFocus,
         evidence: Array.isArray(checkIn.evidence)
             ? checkIn.evidence.filter(ev => ev && ev.url).map(ev => ({
                 url: ev.url,
@@ -881,7 +904,8 @@ const updateMentorAssignment = async (req, res) => {
             checkIns,
             metricLabel,
             baselineScore,
-            targetScore
+            targetScore,
+            mode
         } = req.body;
         const assignment = await MentorAssignment.findById(req.params.id);
 
@@ -1037,6 +1061,9 @@ const updateMentorAssignment = async (req, res) => {
             if (customFrequencyNote !== undefined) {
                 assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
             }
+        }
+        if (mode !== undefined && ['quantitative', 'qualitative'].includes(mode)) {
+            assignment.mode = mode;
         }
         if (notes !== undefined && typeof notes === 'string') {
             logChange('notes', 'Notes', assignment.notes, notes || null);

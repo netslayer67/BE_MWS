@@ -676,7 +676,15 @@ const getStudent = async (req, res) => {
                 notes: checkIn.summary || checkIn.nextSteps || 'Check-in recorded',
                 score: checkIn.value,
                 celebration: checkIn.celebration,
-                evidence: checkIn.evidence || []
+                evidence: checkIn.evidence || [],
+                // Qualitative mode fields (Kindergarten)
+                signal: checkIn.signal || null,
+                tags: checkIn.tags || [],
+                context: checkIn.context || null,
+                observation: checkIn.observation || null,
+                response: checkIn.response || null,
+                nextStep: checkIn.nextStep || null,
+                weeklyFocus: checkIn.weeklyFocus || null
             }));
 
             return {
@@ -713,6 +721,7 @@ const getStudent = async (req, res) => {
                 history,
                 goals: assignment.goals || [],
                 notes: assignment.notes,
+                mode: assignment.mode || 'quantitative',
                 planChangeLog: assignment.planChangeLog || []
             };
         });

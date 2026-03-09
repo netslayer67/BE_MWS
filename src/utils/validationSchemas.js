@@ -306,6 +306,7 @@ const mentorAssignmentUpdateSchema = Joi.object({
     customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
     customFrequencyNote: Joi.string().trim().optional().allow('', null),
     notes: Joi.string().optional().allow(''),
+    mode: Joi.string().valid('quantitative', 'qualitative').optional(),
     metricLabel: Joi.string().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),
@@ -330,6 +331,16 @@ const mentorAssignmentUpdateSchema = Joi.object({
         skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
         skipReasonNote: Joi.string().allow('', null).optional(),
         celebration: Joi.string().allow('', null),
+        // Qualitative mode fields (Kindergarten MTSS)
+        signal: Joi.string().valid('emerging', 'developing', 'consistent').allow(null).optional(),
+        tags: Joi.array().items(
+            Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+        ).max(5).optional(),
+        context: Joi.string().max(300).allow('', null).optional(),
+        observation: Joi.string().max(500).allow('', null).optional(),
+        response: Joi.string().max(300).allow('', null).optional(),
+        nextStep: Joi.string().max(300).allow('', null).optional(),
+        weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow(null).optional(),
         evidence: Joi.array().items(Joi.object({
             url: Joi.string().uri().required(),
             publicId: Joi.string().allow('', null).optional(),

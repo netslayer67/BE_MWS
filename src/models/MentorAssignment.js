@@ -98,6 +98,11 @@ const mentorAssignmentSchema = new mongoose.Schema({
             trim: true
         }
     },
+    mode: {
+        type: String,
+        enum: ['quantitative', 'qualitative'],
+        default: 'quantitative'
+    },
     notes: {
         type: String,
         trim: true
@@ -137,6 +142,23 @@ const mentorAssignmentSchema = new mongoose.Schema({
         },
         skipReasonNote: String,
         celebration: String,
+        // Qualitative mode fields (Kindergarten MTSS)
+        signal: {
+            type: String,
+            enum: ['emerging', 'developing', 'consistent']
+        },
+        tags: [{
+            type: String,
+            enum: ['emotional_regulation', 'language', 'social', 'motor', 'independence']
+        }],
+        context: { type: String, trim: true },
+        observation: { type: String, trim: true },
+        response: { type: String, trim: true },
+        nextStep: { type: String, trim: true },
+        weeklyFocus: {
+            type: String,
+            enum: ['continue', 'try', 'support_needed']
+        },
         evidence: [{
             url: { type: String, required: true },
             publicId: String,
