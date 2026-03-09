@@ -4,6 +4,7 @@ const { sendSuccess, sendError } = require('../utils/response');
 const MentorAssignment = require('../models/MentorAssignment');
 const User = require('../models/User');
 const MTSSStudent = require('../models/MTSSStudent');
+const openRouterChat = require('../config/openRouterChat');
 const { emitAssignmentEvent } = require('../services/mtssRealtimeService');
 const {
     KINDERGARTEN_SIGNAL_LEVELS,
@@ -796,7 +797,7 @@ const ensureMentorEligibility = async (mentorId) => {
 };
 
 const ensureStudentsValid = async (studentIds) => {
-    const students = await MTSSStudent.find({ _id: { $in: studentIds } }).select('name status');
+    const students = await MTSSStudent.find({ _id: { $in: studentIds } }).select('name status currentGrade className');
     if (students.length !== studentIds.length) {
         throw new Error('One or more students were not found in the MTSS roster');
     }
@@ -902,6 +903,235 @@ const sanitizeScorePayload = (score = {}) => {
 const VALID_SIGNALS = new Set(['emerging', 'developing', 'consistent']);
 const VALID_TAGS = new Set(['emotional_regulation', 'language', 'social', 'motor', 'independence']);
 const VALID_WEEKLY_FOCUS = new Set(['continue', 'try', 'support_needed']);
+const VALID_TIERS = new Set(['tier1', 'tier2', 'tier3']);
+
+const trimTo = (value, maxLength) => {
+    if (typeof value !== 'string') return '';
+    return value.trim().slice(0, maxLength);
+};
+
+const normalizeDomainTag = (value = '') => {
+    const normalized = value.toString().trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (VALID_TAGS.has(normalized)) return normalized;
+    if (normalized.includes('emotion')) return 'emotional_regulation';
+    if (normalized.includes('language') || normalized.includes('communication')) return 'language';
+    if (normalized.includes('social')) return 'social';
+    if (normalized.includes('motor')) return 'motor';
+    if (normalized.includes('independ')) return 'independence';
+    return '';
+};
+
+const parseModelList = (value = '') =>
+    value
+        .toString()
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+const normalizeKindergartenDraft = (payload = {}) => {
+    const domainTags = Array.isArray(payload.domainTags)
+        ? payload.domainTags.map((entry) => normalizeDomainTag(entry)).filter(Boolean)
+        : [];
+    const tier = VALID_TIERS.has(String(payload.tier || '').toLowerCase()) ? String(payload.tier).toLowerCase() : '';
+    const weeklyFocus = VALID_WEEKLY_FOCUS.has(String(payload.weeklyFocus || '').toLowerCase())
+        ? String(payload.weeklyFocus).toLowerCase()
+        : '';
+    const initialSignal = VALID_SIGNALS.has(String(payload.initialSignal || payload.signal || '').toLowerCase())
+        ? String(payload.initialSignal || payload.signal).toLowerCase()
+        : '';
+
+    return {
+        domainTags: Array.from(new Set(domainTags)).slice(0, 5),
+        tier,
+        strategyName: trimTo(payload.strategyName, 220),
+        goal: trimTo(payload.goal, 300),
+        notes: trimTo(payload.notes, 600),
+        monitorFrequency: trimTo(payload.monitorFrequency, 60),
+        monitorMethod: trimTo(payload.monitorMethod, 120),
+        weeklyFocus,
+        initialSignal,
+        context: trimTo(payload.context, 300),
+        observation: trimTo(payload.observation, 500),
+        response: trimTo(payload.response, 300),
+        nextStep: trimTo(payload.nextStep, 300)
+    };
+};
+
+const extractFirstJsonObject = (text = '') => {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+
+    const parseCandidate = (candidate = '') => {
+        try {
+            return JSON.parse(candidate);
+        } catch (_error) {
+            const strictCandidate = String(candidate || '')
+                .replace(/[“”]/g, '"')
+                .replace(/[‘’]/g, '\'')
+                .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
+                .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_match, group) => {
+                    const escaped = String(group || '').replace(/"/g, '\\"');
+                    return `"${escaped}"`;
+                })
+                .replace(/,\s*([}\]])/g, '$1');
+            try {
+                return JSON.parse(strictCandidate);
+            } catch {
+                return null;
+            }
+        }
+    };
+
+    const direct = parseCandidate(raw);
+    if (direct && typeof direct === 'object') return direct;
+
+    const fenced = raw.match(/```json\s*([\s\S]*?)```/i) || raw.match(/```\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) {
+        const fencedParsed = parseCandidate(fenced[1].trim());
+        if (fencedParsed && typeof fencedParsed === 'object') return fencedParsed;
+    }
+
+    const firstBrace = raw.indexOf('{');
+    if (firstBrace < 0) return null;
+    let depth = 0;
+    for (let idx = firstBrace; idx < raw.length; idx += 1) {
+        const char = raw[idx];
+        if (char === '{') depth += 1;
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                const candidate = raw.slice(firstBrace, idx + 1);
+                const parsed = parseCandidate(candidate);
+                if (parsed && typeof parsed === 'object') return parsed;
+                break;
+            }
+        }
+    }
+    return null;
+};
+
+const toSeedNumber = (seedInput = 0) => {
+    if (typeof seedInput === 'number' && Number.isFinite(seedInput)) {
+        return Math.abs(Math.trunc(seedInput));
+    }
+    const seedText = String(seedInput || '').trim();
+    if (!seedText) return 0;
+    const asNumber = Number.parseInt(seedText, 10);
+    if (Number.isFinite(asNumber)) return Math.abs(asNumber);
+    let hash = 0;
+    for (let idx = 0; idx < seedText.length; idx += 1) {
+        hash = (hash * 31 + seedText.charCodeAt(idx)) >>> 0;
+    }
+    return hash;
+};
+
+const pickBySeed = (list = [], seedNumber = 0, fallbackIndex = 0) => {
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const safeIndex = Math.abs(seedNumber) % list.length;
+    return list[safeIndex] || list[fallbackIndex] || list[0];
+};
+
+const pickInterventionStrategy = (domainTag = 'social', signal = 'developing', seedNumber = 0) => {
+    const domain = KINDERGARTEN_INTERVENTION_BANK?.[domainTag];
+    const strategies = Array.isArray(domain?.strategies) ? domain.strategies : [];
+    const matchingBySignal = strategies.filter((entry) => Array.isArray(entry.signals) && entry.signals.includes(signal));
+    const picked = pickBySeed(matchingBySignal.length ? matchingBySignal : strategies, seedNumber);
+    return picked?.title || strategies[0]?.title || 'Classroom support strategy';
+};
+
+const buildFallbackKindergartenDraft = (input = {}, student = {}, variationSeed = 0) => {
+    const normalizedInput = normalizeKindergartenDraft(input);
+    const seedNumber = toSeedNumber(variationSeed);
+    const domainTags = normalizedInput.domainTags.length ? normalizedInput.domainTags : ['social'];
+    const firstDomain = domainTags[0];
+    const studentName = student?.name || 'Student';
+    const weeklyFocusVariants = ['try', 'continue', 'support_needed'];
+    const signalVariants = ['developing', 'emerging', 'consistent'];
+    const weeklyFocus = normalizedInput.weeklyFocus || pickBySeed(weeklyFocusVariants, seedNumber, 0);
+    const initialSignal = normalizedInput.initialSignal || pickBySeed(signalVariants, seedNumber + 3, 0);
+    const tier = normalizedInput.tier || 'tier1';
+    const strategyName = normalizedInput.strategyName || pickInterventionStrategy(firstDomain, initialSignal, seedNumber + 5);
+    const domainLabel = KINDERGARTEN_INTERVENTION_BANK?.[firstDomain]?.label || 'Social';
+    const objective = trimTo(input.objective, 600);
+    const contextVariants = [
+        'During classroom transitions',
+        'During circle time to table transition',
+        'During independent work setup',
+        'During free-play cleanup routine'
+    ];
+    const observationVariants = [
+        `${studentName} needs adult prompts to complete the expected routine.`,
+        `${studentName} started the routine but paused and waited for adult direction.`,
+        `${studentName} attempted the routine and needed reminder cues to continue.`,
+        `${studentName} followed part of the routine and needed support for completion.`
+    ];
+    const responseVariants = [
+        `Teacher used ${strategyName} and short visual cues.`,
+        `Teacher modeled the next step, then used ${strategyName}.`,
+        `Teacher provided a calm prompt and reinforced with ${strategyName}.`,
+        `Teacher gave a two-step cue and anchored the routine with ${strategyName}.`
+    ];
+    const nextStepVariants = [
+        'Continue one consistent strategy for the next 3 school days, then review signal.',
+        'Use the same support in two daily routines and review progress at week end.',
+        'Maintain visual cueing for this routine and log one observation tomorrow.',
+        'Repeat this strategy during transition blocks and check consistency in 48 hours.'
+    ];
+
+    return {
+        domainTags,
+        tier,
+        strategyName,
+        goal: normalizedInput.goal || `${studentName} will show progress in ${domainLabel.toLowerCase()} through guided classroom routines.`,
+        notes: normalizedInput.notes || (objective || `Weekly classroom objective for ${studentName}: reinforce ${domainLabel.toLowerCase()} with one repeatable strategy.`),
+        monitorFrequency: normalizedInput.monitorFrequency || 'Weekly',
+        monitorMethod: normalizedInput.monitorMethod || 'Option 1 - Direct Observation',
+        weeklyFocus,
+        initialSignal,
+        context: normalizedInput.context || pickBySeed(contextVariants, seedNumber + 7, 0),
+        observation: normalizedInput.observation || pickBySeed(observationVariants, seedNumber + 11, 0),
+        response: normalizedInput.response || pickBySeed(responseVariants, seedNumber + 13, 0),
+        nextStep: normalizedInput.nextStep || pickBySeed(nextStepVariants, seedNumber + 17, 0)
+    };
+};
+
+const mergeKindergartenDraft = (fallbackDraft = {}, candidateDraft = {}) => {
+    const normalizedCandidate = normalizeKindergartenDraft(candidateDraft);
+    return {
+        domainTags: normalizedCandidate.domainTags.length ? normalizedCandidate.domainTags : (fallbackDraft.domainTags || ['social']),
+        tier: normalizedCandidate.tier || fallbackDraft.tier || 'tier1',
+        strategyName: normalizedCandidate.strategyName || fallbackDraft.strategyName || 'Classroom support strategy',
+        goal: normalizedCandidate.goal || fallbackDraft.goal || '',
+        notes: normalizedCandidate.notes || fallbackDraft.notes || '',
+        monitorFrequency: normalizedCandidate.monitorFrequency || fallbackDraft.monitorFrequency || 'Weekly',
+        monitorMethod: normalizedCandidate.monitorMethod || fallbackDraft.monitorMethod || 'Option 1 - Direct Observation',
+        weeklyFocus: normalizedCandidate.weeklyFocus || fallbackDraft.weeklyFocus || 'try',
+        initialSignal: normalizedCandidate.initialSignal || fallbackDraft.initialSignal || 'developing',
+        context: normalizedCandidate.context || fallbackDraft.context || '',
+        observation: normalizedCandidate.observation || fallbackDraft.observation || '',
+        response: normalizedCandidate.response || fallbackDraft.response || '',
+        nextStep: normalizedCandidate.nextStep || fallbackDraft.nextStep || ''
+    };
+};
+
+const buildDraftFingerprint = (draft = {}) => {
+    const normalized = normalizeKindergartenDraft(draft);
+    return JSON.stringify({
+        domainTags: Array.isArray(normalized.domainTags) ? [...normalized.domainTags].sort() : [],
+        tier: normalized.tier || '',
+        strategyName: normalized.strategyName || '',
+        goal: normalized.goal || '',
+        notes: normalized.notes || '',
+        monitorFrequency: normalized.monitorFrequency || '',
+        monitorMethod: normalized.monitorMethod || '',
+        weeklyFocus: normalized.weeklyFocus || '',
+        initialSignal: normalized.initialSignal || '',
+        context: normalized.context || '',
+        observation: normalized.observation || '',
+        response: normalized.response || '',
+        nextStep: normalized.nextStep || ''
+    });
+};
 
 const sanitizeCheckIn = (checkIn = {}) => {
     const parsedValue = Number(checkIn.value);
@@ -982,7 +1212,8 @@ const createMentorAssignment = async (req, res) => {
             monitoringFrequency,
             customFrequencyDays,
             customFrequencyNote,
-            mode
+            mode,
+            initialCheckIn
         } = req.body;
 
         if (!studentIds || !studentIds.length) {
@@ -1000,15 +1231,33 @@ const createMentorAssignment = async (req, res) => {
         }
 
         await ensureMentorEligibility(mentorId);
-        await ensureStudentsValid(studentIds);
+        const scopedStudents = await ensureStudentsValid(studentIds);
         await ensureStudentsWithinViewerScope(studentIds, req.user);
 
         const normalizedFocusAreas = Array.isArray(focusAreas)
             ? focusAreas.map(area => area?.trim()).filter(Boolean)
             : [];
+
+        const normalizedMode = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+        const allKindergartenStudents = scopedStudents.every((student) => isKindergartenStudent(student));
+        const resolvedMode = ['quantitative', 'qualitative'].includes(normalizedMode)
+            ? normalizedMode
+            : (allKindergartenStudents ? 'qualitative' : 'quantitative');
+        const filteredQualitativeFocus = normalizedFocusAreas.filter((area) => VALID_TAGS.has(area));
+        const initialCheckInTags = Array.isArray(initialCheckIn?.tags)
+            ? initialCheckIn.tags.filter((tag) => VALID_TAGS.has(tag))
+            : [];
+        const resolvedFocusAreas = resolvedMode === 'qualitative'
+            ? (
+                filteredQualitativeFocus.length
+                    ? filteredQualitativeFocus
+                    : (initialCheckInTags.length ? initialCheckInTags : ['social'])
+            )
+            : (normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports']);
+
         const cleanedStrategyName = strategyName?.trim() || undefined;
         const requestedSubjectKeys = extractAssignmentSubjectKeys({
-            focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
+            focusAreas: resolvedFocusAreas,
             strategyName: cleanedStrategyName
         });
         const conflicts = await findSubjectConflicts({
@@ -1019,14 +1268,18 @@ const createMentorAssignment = async (req, res) => {
             return sendError(res, buildDuplicateInterventionMessage(conflicts), 409);
         }
 
-        const sanitizedBaseline = sanitizeScorePayload(baselineScore);
-        const sanitizedTarget = sanitizeScorePayload(targetScore);
+        const sanitizedBaseline = resolvedMode === 'quantitative'
+            ? sanitizeScorePayload(baselineScore)
+            : undefined;
+        const sanitizedTarget = resolvedMode === 'quantitative'
+            ? sanitizeScorePayload(targetScore)
+            : undefined;
 
         const assignment = await MentorAssignment.create({
             mentorId,
             studentIds,
             tier: normalizeAssignmentTier(tier),
-            focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
+            focusAreas: resolvedFocusAreas,
             startDate: startDate || Date.now(),
             duration: duration || undefined,
             strategyId: strategyId || undefined,
@@ -1037,14 +1290,33 @@ const createMentorAssignment = async (req, res) => {
             customFrequencyNote: monitoringFrequency === 'Custom' && customFrequencyNote ? customFrequencyNote.trim() : undefined,
             goals,
             notes,
-            mode: ['quantitative', 'qualitative'].includes(mode) ? mode : undefined,
-            metricLabel: metricLabel?.trim() || undefined,
+            mode: resolvedMode,
+            metricLabel: resolvedMode === 'quantitative' ? metricLabel?.trim() || undefined : undefined,
             baselineScore: sanitizedBaseline,
             targetScore: sanitizedTarget,
             createdBy: req.user?.id || null,
             lastPlanUpdatedAt: new Date(),
             lastPlanUpdatedBy: req.user?.id || null
         });
+
+        if (resolvedMode === 'qualitative' && initialCheckIn && typeof initialCheckIn === 'object') {
+            const derivedSummary = typeof initialCheckIn.summary === 'string' && initialCheckIn.summary.trim()
+                ? initialCheckIn.summary.trim()
+                : [
+                    typeof initialCheckIn.observation === 'string' ? initialCheckIn.observation.trim() : '',
+                    typeof initialCheckIn.nextStep === 'string' && initialCheckIn.nextStep.trim()
+                        ? `Next: ${initialCheckIn.nextStep.trim()}`
+                        : ''
+                ].filter(Boolean).join(' | ');
+
+            const sanitizedInitialCheckIn = sanitizeCheckIn({
+                ...initialCheckIn,
+                summary: derivedSummary || 'Initial observation',
+                performed: initialCheckIn.performed !== false
+            });
+            assignment.checkIns.push(sanitizedInitialCheckIn);
+            await assignment.save();
+        }
 
         sendSuccess(res, 'Intervention plan created', { assignment }, 201);
 
@@ -1789,6 +2061,188 @@ const getKindergartenAdminAnalytics = async (req, res) => {
     }
 };
 
+const generateKindergartenAiDraft = async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const variationSeedInput = payload.regenerationKey || payload.regenerateSeed || payload.variationSeed || Date.now();
+        const variationSeedNumber = toSeedNumber(variationSeedInput);
+        const previousDraftFingerprint = trimTo(payload.previousDraftFingerprint || payload.previousDraftHash, 3000);
+        let student = null;
+
+        if (payload.studentId) {
+            const studentRecord = await MTSSStudent.findById(payload.studentId)
+                .select('name status currentGrade className')
+                .lean();
+            if (!studentRecord) {
+                return sendError(res, 'Student not found in MTSS roster.', 404);
+            }
+            if (studentRecord.status !== 'active') {
+                return sendError(res, 'Student is not active for MTSS planning.', 400);
+            }
+            if (!isKindergartenStudent(studentRecord)) {
+                return sendError(res, 'Kindergarten AI Draft is available only for Kindergarten students.', 400);
+            }
+            try {
+                await ensureStudentsWithinViewerScope([payload.studentId], req.user);
+            } catch (scopeError) {
+                return sendError(res, scopeError.message || 'Student is outside your MTSS scope.', 403);
+            }
+            student = studentRecord;
+        }
+
+        const fallbackDraft = buildFallbackKindergartenDraft(payload, student, variationSeedNumber);
+        if (!openRouterChat.isAvailable()) {
+            let draft = fallbackDraft;
+            let source = 'fallback_service_unavailable';
+            if (previousDraftFingerprint && buildDraftFingerprint(fallbackDraft) === previousDraftFingerprint) {
+                draft = buildFallbackKindergartenDraft(payload, student, variationSeedNumber + 97);
+                source = 'forced_variation_fallback_unavailable';
+            }
+            return sendSuccess(res, 'Kindergarten AI draft generated (fallback mode).', {
+                draft,
+                preview: '',
+                source,
+                parseStatus: 'fallback',
+                variationSeed: variationSeedNumber
+            });
+        }
+
+        const schemaText = `{
+  "domainTags": ["emotional_regulation" | "language" | "social" | "motor" | "independence"],
+  "tier": "tier1" | "tier2" | "tier3",
+  "strategyName": "string",
+  "goal": "string",
+  "notes": "string",
+  "monitorFrequency": "Daily" | "Weekly" | "Bi-weekly" | "Custom",
+  "monitorMethod": "Option 1 - Direct Observation" | "Option 2 - Student Self-Report" | "Option 3 - Assessment Data",
+  "weeklyFocus": "continue" | "try" | "support_needed",
+  "initialSignal": "emerging" | "developing" | "consistent",
+  "context": "string",
+  "observation": "string",
+  "response": "string",
+  "nextStep": "string"
+}`;
+
+        const domainGuides = QUALITATIVE_TAGS.map((tag) => {
+            const domain = KINDERGARTEN_INTERVENTION_BANK?.[tag] || {};
+            const strategyList = Array.isArray(domain?.strategies)
+                ? domain.strategies.map((entry) => entry.title).join(', ')
+                : '';
+            return `- ${tag}: ${domain.label || tag}; strategies: ${strategyList || 'N/A'}`;
+        }).join('\n');
+
+        const userContext = [
+            `Student: ${student?.name || 'Not specified'}`,
+            `Grade: ${student?.currentGrade || 'Not specified'}`,
+            `Class: ${student?.className || 'Not specified'}`,
+            `Objective: ${trimTo(payload.objective, 600) || 'Not specified'}`,
+            `Selected domain tags: ${(Array.isArray(payload.domainTags) ? payload.domainTags.join(', ') : '') || 'none'}`,
+            `Preferred strategy: ${trimTo(payload.strategyName, 220) || 'none'}`,
+            `Current goal draft: ${trimTo(payload.goal, 300) || 'none'}`,
+            `Current notes: ${trimTo(payload.notes, 600) || 'none'}`,
+            `CORN seed context: ${trimTo(payload.context, 300) || 'none'}`,
+            `CORN seed observation: ${trimTo(payload.observation, 500) || 'none'}`,
+            `Variation seed: ${variationSeedNumber}`
+        ].join('\n');
+
+        const systemPrompt = `You are a Kindergarten MTSS planning assistant.
+Return one strict JSON object only. No markdown, no prose, no extra text.
+Use strengths-based language, keep entries concise and classroom-ready.
+Never use numeric scoring. Use qualitative signal only.
+Prefer Tier 1 supports unless the prompt clearly indicates higher intensity.
+Ensure all fields in the schema are present and non-empty where possible.
+When a Variation seed is provided, produce a fresh variant (different strategy wording/CORN phrasing) from previous drafts while staying valid and practical.`;
+
+        const userPrompt = `Generate a Kindergarten qualitative intervention draft.
+
+Allowed domains and strategy catalog:
+${domainGuides}
+
+Required JSON schema:
+${schemaText}
+
+Teacher context:
+${userContext}`;
+
+        const kindergartenPrimary = process.env.OPENROUTER_MODEL_KINDERGARTEN || 'z-ai/glm-4.5-air:free';
+        const kindergartenFallback = parseModelList(
+            process.env.OPENROUTER_MODEL_KINDERGARTEN_FALLBACK ||
+            process.env.OPENROUTER_MODEL_WORKFORCE_FALLBACK ||
+            process.env.OPENROUTER_FALLBACK_MODELS ||
+            'stepfun/step-3.5-flash:free'
+        );
+
+        let aiText = '';
+        let modelUsed = kindergartenPrimary;
+        try {
+            const aiResponse = await openRouterChat.generateContent(
+                [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                {
+                    primaryModel: kindergartenPrimary,
+                    fallbackModels: kindergartenFallback,
+                    temperature: 0.55,
+                    maxTokens: 900
+                }
+            );
+            aiText = String(aiResponse?.choices?.[0]?.message?.content || '').trim();
+            modelUsed = aiResponse?._model || kindergartenPrimary;
+        } catch (aiError) {
+            console.error('Kindergarten AI draft generation failed, using fallback:', aiError);
+            let draft = fallbackDraft;
+            let source = 'fallback_model_error';
+            if (previousDraftFingerprint && buildDraftFingerprint(fallbackDraft) === previousDraftFingerprint) {
+                draft = buildFallbackKindergartenDraft(payload, student, variationSeedNumber + 97);
+                source = 'forced_variation_fallback_model_error';
+            }
+            return sendSuccess(res, 'Kindergarten AI draft generated (fallback mode).', {
+                draft,
+                preview: '',
+                source,
+                parseStatus: 'fallback',
+                variationSeed: variationSeedNumber
+            });
+        }
+
+        const parsedDraft = extractFirstJsonObject(aiText);
+        const resolvedDraft = parsedDraft
+            ? mergeKindergartenDraft(fallbackDraft, parsedDraft)
+            : fallbackDraft;
+        const resolvedFingerprint = buildDraftFingerprint(resolvedDraft);
+        let finalDraft = resolvedDraft;
+        let source = parsedDraft ? 'model' : 'fallback_parse';
+
+        if (previousDraftFingerprint && resolvedFingerprint === previousDraftFingerprint) {
+            const forcedVariant = buildFallbackKindergartenDraft(payload, student, variationSeedNumber + 97);
+            finalDraft = {
+                ...resolvedDraft,
+                strategyName: forcedVariant.strategyName || resolvedDraft.strategyName,
+                weeklyFocus: forcedVariant.weeklyFocus || resolvedDraft.weeklyFocus,
+                initialSignal: forcedVariant.initialSignal || resolvedDraft.initialSignal,
+                context: forcedVariant.context || resolvedDraft.context,
+                observation: forcedVariant.observation || resolvedDraft.observation,
+                response: forcedVariant.response || resolvedDraft.response,
+                nextStep: forcedVariant.nextStep || resolvedDraft.nextStep
+            };
+            source = 'forced_variation';
+        }
+
+        sendSuccess(res, 'Kindergarten AI draft generated.', {
+            draft: finalDraft,
+            preview: aiText,
+            source,
+            parseStatus: parsedDraft ? 'parsed' : 'fallback',
+            model: modelUsed,
+            variationSeed: variationSeedNumber
+        });
+    } catch (error) {
+        console.error('Failed to generate Kindergarten AI draft:', error);
+        sendError(res, error.message || 'Failed to generate Kindergarten AI draft.', 500);
+    }
+};
+
 const getKindergartenInterventionBank = async (_req, res) => {
     try {
         sendSuccess(res, 'Kindergarten intervention bank retrieved', {
@@ -1817,5 +2271,6 @@ module.exports = {
     getMyAssignedStudents,
     listMentors,
     getKindergartenAdminAnalytics,
+    generateKindergartenAiDraft,
     getKindergartenInterventionBank
 };

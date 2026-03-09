@@ -63,8 +63,61 @@ const FOCUS_TYPE_MATCHERS = [
     { key: 'ENGLISH', pattern: /english|ela|literacy|reading|writing|fluency/i },
     { key: 'SEL', pattern: /sel|social|emotional|wellbeing|well-being/i }
 ];
+const KINDERGARTEN_MOOD_META = [
+    { value: 'very_happy', label: 'Very Happy', icon: '😄' },
+    { value: 'happy', label: 'Happy', icon: '🙂' },
+    { value: 'okay', label: 'Okay', icon: '😐' },
+    { value: 'sad', label: 'Sad', icon: '😟' },
+    { value: 'upset', label: 'Upset', icon: '😤' }
+];
+const KINDERGARTEN_REGULATION_META = [
+    { value: 'deep_breathing', label: 'Deep Breathing', icon: '🌬️' },
+    { value: 'cozy_corner', label: 'Cozy Corner', icon: '🛋️' },
+    { value: 'talk_to_friend', label: 'Talk to a Friend', icon: '🤝' },
+    { value: 'quiet_time', label: 'Quiet Time', icon: '🌈' },
+    { value: 'ask_teacher', label: 'Ask My Teacher', icon: '🧑‍🏫' }
+];
+const KINDERGARTEN_SIGNAL_UNLOCK = new Set(['developing', 'consistent']);
+const KINDERGARTEN_ALLOWED_SOURCES = new Set(['student', 'parent_proxy']);
+const KINDERGARTEN_MOOD_RETENTION = 90;
+const KINDERGARTEN_HOME_OBSERVATION_RETENTION = 120;
+const KINDERGARTEN_STAMP_MILESTONE_STEP = 5;
 
 const normalizeFocusArea = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const isKindergartenText = (value = '') =>
+    /(kindergarten|pre[-\s]?k|\bk\s*1\b|\bk\s*2\b|kindy)/i.test(String(value || '').trim());
+
+const isKindergartenStudentRecord = (student = {}) => {
+    const pool = [student.currentGrade, student.grade, student.className];
+    return pool.some((entry) => isKindergartenText(entry));
+};
+
+const formatMonthDayYear = (value, fallback = '-') => {
+    if (!value) return fallback;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return fallback;
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
+};
+
+const toDateKey = (value) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const toSafeArray = (value) => (Array.isArray(value) ? value : []);
+
+const sanitizeSubmissionSource = (source, fallback = 'student') => {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (KINDERGARTEN_ALLOWED_SOURCES.has(normalized)) {
+        return normalized;
+    }
+    return fallback;
+};
 
 const resolveInterventionTypeKey = (focusArea) => {
     const cleaned = normalizeFocusArea(focusArea);
@@ -543,6 +596,166 @@ const buildFallbackSummary = (mentors = []) => {
     };
 };
 
+const resolveScopedStudent = async ({ id, viewer }) => {
+    const filter = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
+    const student = await MTSSStudent.findOne(filter);
+    if (!student) {
+        return { student: null, statusCode: 404, error: 'Student not found' };
+    }
+
+    const scopedFilter = applyViewerScope({ _id: student._id }, viewer);
+    const canAccess = await MTSSStudent.exists(scopedFilter);
+    if (!canAccess) {
+        return { student: null, statusCode: 403, error: 'Insufficient permissions to view this student' };
+    }
+
+    return { student, statusCode: 200, error: null };
+};
+
+const buildKindergartenGrowthBoard = (assignments = []) => {
+    const cards = [];
+
+    assignments.forEach((assignment) => {
+        const focusArea = normalizeFocusArea(assignment.focusAreas?.[0] || assignment.strategyName || assignment.monitoringMethod || '');
+        const checkIns = toSafeArray(assignment.checkIns);
+        checkIns.forEach((entry, index) => {
+            const signal = String(entry?.signal || '').trim().toLowerCase();
+            const evidence = toSafeArray(entry?.evidence);
+            if (!KINDERGARTEN_SIGNAL_UNLOCK.has(signal) || evidence.length === 0) return;
+
+            const date = entry?.date || assignment?.updatedAt || null;
+            const imageEvidence = evidence.filter((item = {}) => (item.resourceType || 'image') === 'image');
+            const audioEvidence = evidence.filter((item = {}) => {
+                const fileType = String(item.fileType || '').toLowerCase();
+                return fileType.startsWith('audio/');
+            });
+            const caption = entry.summary || entry.observation || entry.nextStep || 'New growth moment recorded.';
+            cards.push({
+                id: `${assignment._id || 'assignment'}-${entry?._id || index}`,
+                assignmentId: assignment._id,
+                date: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                signal,
+                tags: toSafeArray(entry.tags).filter(Boolean),
+                focusArea: focusArea || null,
+                caption: String(caption).trim(),
+                imageEvidence,
+                audioEvidence
+            });
+        });
+    });
+
+    cards.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    const stampDays = new Set(cards.map((card) => toDateKey(card.date)).filter(Boolean));
+    const stampCount = stampDays.size;
+    const milestoneTarget = Math.max(
+        KINDERGARTEN_STAMP_MILESTONE_STEP,
+        Math.ceil(Math.max(stampCount, 1) / KINDERGARTEN_STAMP_MILESTONE_STEP) * KINDERGARTEN_STAMP_MILESTONE_STEP
+    );
+    const remainingToMilestone = Math.max(0, milestoneTarget - stampCount);
+
+    return {
+        cards: cards.slice(0, 30),
+        stampCount,
+        milestone: {
+            current: stampCount,
+            target: milestoneTarget,
+            remaining: remainingToMilestone
+        },
+        latestCardDate: cards[0]?.date || null
+    };
+};
+
+const buildKindergartenMoodSnapshot = (student = {}) => {
+    const entries = toSafeArray(student.kindergartenMoodCheckIns)
+        .map((entry) => {
+            const date = entry?.date || null;
+            const source = sanitizeSubmissionSource(entry?.source, 'student');
+            return {
+                id: entry?._id?.toString?.() || null,
+                date: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                dateKey: toDateKey(date),
+                mood: entry?.mood || null,
+                regulationChoice: entry?.regulationChoice || null,
+                note: entry?.note || null,
+                source,
+                submittedByName: entry?.submittedByName || null
+            };
+        })
+        .filter((entry) => entry.date)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const todayKey = toDateKey(new Date());
+    const today = entries.find((entry) => entry.dateKey === todayKey && entry.source === 'student')
+        || entries.find((entry) => entry.dateKey === todayKey)
+        || null;
+
+    return {
+        options: KINDERGARTEN_MOOD_META,
+        regulationOptions: KINDERGARTEN_REGULATION_META,
+        today,
+        recent: entries.slice(0, 7)
+    };
+};
+
+const buildKindergartenParentProxySnapshot = (student = {}) => {
+    const homeObservations = toSafeArray(student.kindergartenHomeObservations)
+        .map((entry) => {
+            const date = entry?.createdAt || null;
+            const source = sanitizeSubmissionSource(entry?.source, 'parent_proxy');
+            return {
+                id: entry?._id?.toString?.() || null,
+                createdAt: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                note: entry?.note || '',
+                source,
+                submittedByName: entry?.submittedByName || null
+            };
+        })
+        .filter((entry) => entry.createdAt)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return {
+        homeObservations: homeObservations.slice(0, 15),
+        canSubmit: true
+    };
+};
+
+const buildKindergartenPortalPayload = ({ student = {}, assignments = [] } = {}) => {
+    const hasQualitativeAssignments = toSafeArray(assignments).some((assignment) => assignment.mode === 'qualitative');
+    return {
+        isKindergarten: isKindergartenStudentRecord(student),
+        isQualitative: hasQualitativeAssignments,
+        growthBoard: buildKindergartenGrowthBoard(assignments),
+        moodCheckin: buildKindergartenMoodSnapshot(student),
+        parentProxy: buildKindergartenParentProxySnapshot(student)
+    };
+};
+
+const appendParentObservationToQualitativeAssignment = async ({ studentId, note }) => {
+    const assignment = await MentorAssignment.findOne({
+        studentIds: studentId,
+        mode: 'qualitative',
+        status: { $in: ['active', 'paused'] }
+    }).sort({ updatedAt: -1 });
+
+    if (!assignment) return null;
+
+    assignment.checkIns.push({
+        date: new Date(),
+        summary: `Home observation: ${note}`,
+        nextSteps: 'Review this note with the classroom strategy plan.',
+        context: 'Home Observation',
+        observation: note,
+        response: 'Submitted via parent proxy portal',
+        nextStep: 'Teacher to align next in-class support step',
+        performed: true
+    });
+    await assignment.save();
+    return assignment._id?.toString?.() || null;
+};
+
 const listStudents = async (req, res) => {
     try {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
@@ -580,7 +793,7 @@ const listStudents = async (req, res) => {
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
                   .populate('mentorId', 'name email username gender jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog mode')
                   .lean()
             : [];
 
@@ -616,23 +829,15 @@ const listStudents = async (req, res) => {
 const getStudent = async (req, res) => {
     try {
         const { id } = req.params;
-        const filter = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
-        const student = await MTSSStudent.findOne(filter).lean();
-
-        if (!student) {
-            return sendError(res, 'Student not found', 404);
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
         }
-
-        // Enforce viewer scope for single-student endpoint as well.
-        const scopedFilter = applyViewerScope({ _id: student._id }, req.user);
-        const canAccess = await MTSSStudent.exists(scopedFilter);
-        if (!canAccess) {
-            return sendError(res, 'Insufficient permissions to view this student', 403);
-        }
+        const student = scopedStudent.student.toObject();
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username gender jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog mode')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -738,6 +943,11 @@ const getStudent = async (req, res) => {
             .sort((a, b) => b - a)[0]?.toISOString() || null;
         payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
 
+        const hasQualitativeAssignments = assignments.some((assignment) => assignment.mode === 'qualitative');
+        if (isKindergartenStudentRecord(student) || hasQualitativeAssignments) {
+            payload.kindergartenPortal = buildKindergartenPortalPayload({ student, assignments });
+        }
+
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {
         console.error('Failed to retrieve student:', error);
@@ -776,9 +986,125 @@ const updateStudent = async (req, res) => {
     }
 };
 
+const submitKindergartenMoodCheckin = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { mood, regulationChoice, note, source } = req.body;
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
+        }
+
+        const student = scopedStudent.student;
+        if (!isKindergartenStudentRecord(student)) {
+            return sendError(res, 'Mood check-in is only available for Kindergarten records', 400);
+        }
+
+        const fallbackSource = req.user?.role === 'student' ? 'student' : 'parent_proxy';
+        const resolvedSource = sanitizeSubmissionSource(source, fallbackSource);
+        const now = new Date();
+        const todayKey = toDateKey(now);
+        const currentEntries = toSafeArray(student.kindergartenMoodCheckIns);
+        const existingIndex = currentEntries.findIndex((entry = {}) => (
+            toDateKey(entry.date) === todayKey &&
+            sanitizeSubmissionSource(entry.source, 'student') === resolvedSource
+        ));
+
+        const nextEntry = {
+            date: now,
+            mood,
+            regulationChoice: regulationChoice || undefined,
+            note: typeof note === 'string' && note.trim() ? note.trim() : undefined,
+            source: resolvedSource,
+            submittedByName: req.user?.name || req.user?.username || 'Family User',
+            submittedByUserId: req.user?.id || req.user?._id
+        };
+
+        if (existingIndex >= 0) {
+            const existing = currentEntries[existingIndex]?.toObject?.() || currentEntries[existingIndex];
+            currentEntries[existingIndex] = { ...existing, ...nextEntry };
+        } else {
+            currentEntries.push(nextEntry);
+        }
+
+        student.kindergartenMoodCheckIns = currentEntries.slice(-KINDERGARTEN_MOOD_RETENTION);
+        await student.save();
+
+        const assignments = await MentorAssignment.find({ studentIds: student._id })
+            .select('focusAreas strategyName monitoringMethod checkIns mode updatedAt')
+            .lean();
+
+        const kindergartenPortal = buildKindergartenPortalPayload({ student: student.toObject(), assignments });
+
+        sendSuccess(res, 'Kindergarten mood check-in saved', {
+            moodCheckin: kindergartenPortal.moodCheckin,
+            kindergartenPortal
+        });
+    } catch (error) {
+        console.error('Failed to submit Kindergarten mood check-in:', error);
+        sendError(res, 'Failed to submit mood check-in', 500);
+    }
+};
+
+const submitKindergartenHomeObservation = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { note, source } = req.body;
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
+        }
+
+        const student = scopedStudent.student;
+        if (!isKindergartenStudentRecord(student)) {
+            return sendError(res, 'Home observations are only available for Kindergarten records', 400);
+        }
+
+        const trimmedNote = String(note || '').trim();
+        if (!trimmedNote) {
+            return sendError(res, 'Observation note is required', 400);
+        }
+
+        const fallbackSource = req.user?.role === 'student' ? 'student' : 'parent_proxy';
+        const resolvedSource = sanitizeSubmissionSource(source, fallbackSource);
+        const observations = toSafeArray(student.kindergartenHomeObservations);
+        observations.push({
+            createdAt: new Date(),
+            note: trimmedNote,
+            source: resolvedSource,
+            submittedByName: req.user?.name || req.user?.username || 'Family User',
+            submittedByUserId: req.user?.id || req.user?._id
+        });
+
+        student.kindergartenHomeObservations = observations.slice(-KINDERGARTEN_HOME_OBSERVATION_RETENTION);
+        await student.save();
+
+        const assignmentId = await appendParentObservationToQualitativeAssignment({
+            studentId: student._id,
+            note: trimmedNote
+        });
+
+        const assignments = await MentorAssignment.find({ studentIds: student._id })
+            .select('focusAreas strategyName monitoringMethod checkIns mode updatedAt')
+            .lean();
+        const kindergartenPortal = buildKindergartenPortalPayload({ student: student.toObject(), assignments });
+
+        sendSuccess(res, 'Kindergarten home observation saved', {
+            parentProxy: kindergartenPortal.parentProxy,
+            kindergartenPortal,
+            syncedAssignmentId: assignmentId
+        });
+    } catch (error) {
+        console.error('Failed to submit Kindergarten home observation:', error);
+        sendError(res, 'Failed to submit home observation', 500);
+    }
+};
+
 module.exports = {
     listStudents,
     getStudent,
     createStudent,
-    updateStudent
+    updateStudent,
+    submitKindergartenMoodCheckin,
+    submitKindergartenHomeObservation
 };

@@ -41,6 +41,10 @@ const interventionPayloadSchema = Joi.object({
     updatedAt: Joi.date().optional()
 });
 
+const KINDERGARTEN_MOOD_VALUES = ['very_happy', 'happy', 'okay', 'sad', 'upset'];
+const KINDERGARTEN_REGULATION_VALUES = ['deep_breathing', 'cozy_corner', 'talk_to_friend', 'quiet_time', 'ask_teacher'];
+const KINDERGARTEN_SUBMISSION_SOURCE_VALUES = ['student', 'parent_proxy'];
+
 // User validation schemas
 const userLoginSchema = Joi.object({
     email: Joi.string().email().required().messages({
@@ -285,6 +289,21 @@ const mentorAssignmentCreateSchema = Joi.object({
         description: Joi.string().required(),
         successCriteria: Joi.string().optional().allow('', null)
     })).optional(),
+    initialCheckIn: Joi.object({
+        date: Joi.date().optional(),
+        summary: Joi.string().trim().allow('', null).optional(),
+        nextSteps: Joi.string().allow('', null).optional(),
+        performed: Joi.boolean().optional(),
+        signal: Joi.string().valid('emerging', 'developing', 'consistent').allow('', null).optional(),
+        tags: Joi.array().items(
+            Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+        ).max(5).optional(),
+        context: Joi.string().max(300).allow('', null).optional(),
+        observation: Joi.string().max(500).allow('', null).optional(),
+        response: Joi.string().max(300).allow('', null).optional(),
+        nextStep: Joi.string().max(300).allow('', null).optional(),
+        weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow('', null).optional()
+    }).optional(),
     notes: Joi.string().optional().allow(''),
     mode: Joi.string().valid('quantitative', 'qualitative').optional()
 });
@@ -383,6 +402,47 @@ const mtssStudentUpdateSchema = Joi.object({
     interventions: Joi.array().items(interventionPayloadSchema).optional()
 });
 
+const kindergartenMoodCheckinSchema = Joi.object({
+    mood: Joi.string().valid(...KINDERGARTEN_MOOD_VALUES).required(),
+    regulationChoice: Joi.string().valid(...KINDERGARTEN_REGULATION_VALUES).allow('', null).optional(),
+    note: Joi.string().trim().max(220).allow('', null).optional(),
+    source: Joi.string().valid(...KINDERGARTEN_SUBMISSION_SOURCE_VALUES).optional()
+});
+
+const kindergartenHomeObservationSchema = Joi.object({
+    note: Joi.string().trim().max(260).required(),
+    source: Joi.string().valid(...KINDERGARTEN_SUBMISSION_SOURCE_VALUES).optional()
+});
+
+const kindergartenAiDraftSchema = Joi.object({
+    studentId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+    regenerateSeed: Joi.alternatives().try(
+        Joi.number().integer().min(0),
+        Joi.string().trim().max(120)
+    ).optional(),
+    regenerationKey: Joi.string().trim().max(120).optional(),
+    variationSeed: Joi.alternatives().try(
+        Joi.number().integer().min(0),
+        Joi.string().trim().max(120)
+    ).optional(),
+    previousDraftFingerprint: Joi.string().trim().max(3000).allow('', null).optional(),
+    previousDraftHash: Joi.string().trim().max(3000).allow('', null).optional(),
+    objective: Joi.string().trim().max(600).allow('', null).optional(),
+    domainTags: Joi.array().items(
+        Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+    ).max(5).optional(),
+    strategyName: Joi.string().trim().max(220).allow('', null).optional(),
+    goal: Joi.string().trim().max(300).allow('', null).optional(),
+    notes: Joi.string().trim().max(600).allow('', null).optional(),
+    context: Joi.string().trim().max(300).allow('', null).optional(),
+    observation: Joi.string().trim().max(500).allow('', null).optional(),
+    response: Joi.string().trim().max(300).allow('', null).optional(),
+    nextStep: Joi.string().trim().max(300).allow('', null).optional(),
+    tier: Joi.string().valid('tier1', 'tier2', 'tier3').optional(),
+    weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow('', null).optional(),
+    signal: Joi.string().valid('emerging', 'developing', 'consistent').allow('', null).optional()
+});
+
 module.exports = {
     userLoginSchema,
     userRegistrationSchema,
@@ -396,5 +456,8 @@ module.exports = {
     mentorAssignmentCreateSchema,
     mentorAssignmentUpdateSchema,
     mtssStudentCreateSchema,
-    mtssStudentUpdateSchema
+    mtssStudentUpdateSchema,
+    kindergartenMoodCheckinSchema,
+    kindergartenHomeObservationSchema,
+    kindergartenAiDraftSchema
 };

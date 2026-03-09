@@ -239,6 +239,22 @@ class AIChatService {
         const parsedValue = Number(checkIn.value);
         const candidateDate = checkIn.date ? new Date(checkIn.date) : new Date();
         const safeDate = Number.isNaN(candidateDate.getTime()) ? new Date() : candidateDate;
+        const validSignals = new Set(['emerging', 'developing', 'consistent']);
+        const validTags = new Set(['emotional_regulation', 'language', 'social', 'motor', 'independence']);
+        const validWeeklyFocus = new Set(['continue', 'try', 'support_needed']);
+        const signal = String(checkIn.signal || '').trim().toLowerCase();
+        const normalizedSignal = validSignals.has(signal) ? signal : undefined;
+        const tags = Array.isArray(checkIn.tags)
+            ? checkIn.tags
+                .map((entry) => String(entry || '').trim().toLowerCase())
+                .filter((entry) => validTags.has(entry))
+            : undefined;
+        const weeklyFocus = String(checkIn.weeklyFocus || '').trim().toLowerCase();
+        const normalizedWeeklyFocus = validWeeklyFocus.has(weeklyFocus) ? weeklyFocus : undefined;
+        const context = this.sanitizePlainText(checkIn.context, 300) || undefined;
+        const observation = this.sanitizePlainText(checkIn.observation, 500) || undefined;
+        const response = this.sanitizePlainText(checkIn.response, 300) || undefined;
+        const nextStep = this.sanitizePlainText(checkIn.nextStep, 300) || undefined;
         return {
             date: safeDate,
             summary: String(checkIn.summary || 'Progress update').trim() || 'Progress update',
@@ -249,7 +265,14 @@ class AIChatService {
             skipReason: checkIn.skipReason || undefined,
             skipReasonNote: checkIn.skipReasonNote ? String(checkIn.skipReasonNote).trim() : undefined,
             celebration: String(checkIn.celebration || '').trim() || undefined,
-            evidence: this.sanitizeEvidenceList(checkIn.evidence || []).slice(0, this.maxAutomationEvidenceFiles)
+            evidence: this.sanitizeEvidenceList(checkIn.evidence || []).slice(0, this.maxAutomationEvidenceFiles),
+            signal: normalizedSignal,
+            tags: tags?.length ? tags : undefined,
+            context,
+            observation,
+            response,
+            nextStep,
+            weeklyFocus: normalizedWeeklyFocus
         };
     }
 
@@ -5248,6 +5271,66 @@ Critical language requirement:
             };
         }
 
+        if (safeOperation === 'create_mtss_intervention') {
+            const rawMode = String(safePayload.mode || '').trim().toLowerCase();
+            const mode = ['quantitative', 'qualitative'].includes(rawMode) ? rawMode : undefined;
+            const focusAreas = this.parseFocusAreas(safePayload.focusAreas).slice(0, 8);
+            const initialCheckIn = safePayload.initialCheckIn && typeof safePayload.initialCheckIn === 'object'
+                ? {
+                    summary: this.sanitizePlainText(safePayload.initialCheckIn.summary, 500),
+                    context: this.sanitizePlainText(safePayload.initialCheckIn.context, 300),
+                    observation: this.sanitizePlainText(safePayload.initialCheckIn.observation, 500),
+                    response: this.sanitizePlainText(safePayload.initialCheckIn.response, 300),
+                    nextStep: this.sanitizePlainText(safePayload.initialCheckIn.nextStep, 300),
+                    signal: this.sanitizePlainText(safePayload.initialCheckIn.signal, 40).toLowerCase() || undefined,
+                    weeklyFocus: this.sanitizePlainText(safePayload.initialCheckIn.weeklyFocus, 40).toLowerCase() || undefined,
+                    tags: this.parseFocusAreas(safePayload.initialCheckIn.tags).slice(0, 5)
+                }
+                : undefined;
+
+            return {
+                ...safePayload,
+                studentId: String(safePayload.studentId || '').trim(),
+                mentorId: String(safePayload.mentorId || '').trim() || undefined,
+                mode,
+                tier: this.normalizeTierCode(safePayload.tier || 'tier2'),
+                focusAreas,
+                strategyName: this.sanitizePlainText(safePayload.strategyName, 220) || undefined,
+                duration: this.sanitizePlainText(safePayload.duration, 20) || undefined,
+                monitoringMethod: this.sanitizePlainText(safePayload.monitoringMethod, 120) || undefined,
+                monitoringFrequency: this.sanitizePlainText(safePayload.monitoringFrequency, 40) || undefined,
+                metricLabel: this.sanitizePlainText(safePayload.metricLabel, 120) || undefined,
+                baselineScore: this.sanitizeScorePayloadForOperation(safePayload.baselineScore || {
+                    value: safePayload.baselineValue,
+                    unit: safePayload.baselineUnit || safePayload.metricLabel || 'score'
+                }),
+                targetScore: this.sanitizeScorePayloadForOperation(safePayload.targetScore || {
+                    value: safePayload.targetValue,
+                    unit: safePayload.targetUnit || safePayload.metricLabel || 'score'
+                }),
+                notes: this.sanitizePlainText(safePayload.notes, 1200) || undefined,
+                goal: this.sanitizePlainText(safePayload.goal || safePayload.goalText, 240) || undefined,
+                goals: Array.isArray(safePayload.goals)
+                    ? safePayload.goals
+                        .slice(0, 12)
+                        .map((goal = {}) => ({
+                            description: this.sanitizePlainText(goal.description, 240),
+                            successCriteria: this.sanitizePlainText(goal.successCriteria, 240) || undefined
+                        }))
+                        .filter((goal = {}) => goal.description)
+                    : undefined,
+                startDate: safePayload.startDate || undefined,
+                context: this.sanitizePlainText(safePayload.context, 300) || undefined,
+                observation: this.sanitizePlainText(safePayload.observation, 500) || undefined,
+                response: this.sanitizePlainText(safePayload.response, 300) || undefined,
+                nextStep: this.sanitizePlainText(safePayload.nextStep, 300) || undefined,
+                signal: this.sanitizePlainText(safePayload.signal, 40).toLowerCase() || undefined,
+                weeklyFocus: this.sanitizePlainText(safePayload.weeklyFocus, 40).toLowerCase() || undefined,
+                tags: this.parseFocusAreas(safePayload.tags).slice(0, 5),
+                initialCheckIn
+            };
+        }
+
         return safePayload;
     }
 
@@ -5337,7 +5420,7 @@ Critical language requirement:
             throw new Error('At least one studentId is required.');
         }
 
-        const students = await MTSSStudent.find({ _id: { $in: ids } }).select('_id name status interventions').exec();
+        const students = await MTSSStudent.find({ _id: { $in: ids } }).select('_id name status interventions currentGrade className').exec();
         if (students.length !== ids.length) {
             throw new Error('One or more students were not found in the MTSS roster.');
         }
@@ -5790,20 +5873,37 @@ Critical language requirement:
         const [student] = await this.ensureActiveMtssStudents([studentId]);
         await this.ensureMentorEligibleForAutomation(mentorId);
 
+        const isKindergartenStudent = /(kindergarten|pre[-\s]?k|\bk\s*1\b|\bk\s*2\b|kindy)/i.test(
+            `${student?.currentGrade || ''} ${student?.className || ''}`
+        );
+        const requestedMode = String(payload.mode || '').trim().toLowerCase();
+        const isQualitativeMode = requestedMode === 'qualitative'
+            || (requestedMode !== 'quantitative' && isKindergartenStudent);
+
         const focusAreas = this.parseFocusAreas(payload.focusAreas);
+        const qualitativeTags = focusAreas
+            .map((entry) => String(entry || '').trim().toLowerCase())
+            .filter((entry) => ['emotional_regulation', 'language', 'social', 'motor', 'independence'].includes(entry));
+        const resolvedFocusAreas = isQualitativeMode
+            ? (qualitativeTags.length > 0 ? qualitativeTags : ['social'])
+            : focusAreas;
         const goals = this.normalizeGoalsPayload(payload);
-        const baselineScore = this.sanitizeScorePayloadForOperation(
-            payload.baselineScore || {
-                value: payload.baselineValue,
-                unit: payload.baselineUnit || payload.metricLabel || 'score'
-            }
-        );
-        const targetScore = this.sanitizeScorePayloadForOperation(
-            payload.targetScore || {
-                value: payload.targetValue,
-                unit: payload.targetUnit || payload.metricLabel || 'score'
-            }
-        );
+        const baselineScore = isQualitativeMode
+            ? undefined
+            : this.sanitizeScorePayloadForOperation(
+                payload.baselineScore || {
+                    value: payload.baselineValue,
+                    unit: payload.baselineUnit || payload.metricLabel || 'score'
+                }
+            );
+        const targetScore = isQualitativeMode
+            ? undefined
+            : this.sanitizeScorePayloadForOperation(
+                payload.targetScore || {
+                    value: payload.targetValue,
+                    unit: payload.targetUnit || payload.metricLabel || 'score'
+                }
+            );
 
         const allowedDurations = new Set(['4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks']);
         const duration = allowedDurations.has(String(payload.duration || '').trim())
@@ -5826,19 +5926,57 @@ Critical language requirement:
             mentorId,
             studentIds: [studentId],
             tier: this.normalizeTierCode(payload.tier || 'tier2'),
-            focusAreas: focusAreas.length > 0 ? focusAreas : ['Universal Supports'],
+            mode: isQualitativeMode ? 'qualitative' : 'quantitative',
+            focusAreas: resolvedFocusAreas.length > 0
+                ? resolvedFocusAreas
+                : (isQualitativeMode ? ['social'] : ['Universal Supports']),
             startDate: payload.startDate || new Date(),
             duration,
             strategyName: String(payload.strategyName || '').trim() || undefined,
             monitoringMethod,
             monitoringFrequency,
-            metricLabel: String(payload.metricLabel || '').trim() || undefined,
+            metricLabel: isQualitativeMode ? undefined : String(payload.metricLabel || '').trim() || undefined,
             baselineScore,
             targetScore,
             notes: String(payload.notes || '').trim() || undefined,
             goals,
             createdBy: viewerId
         });
+
+        const initialCheckInSource = payload?.initialCheckIn && typeof payload.initialCheckIn === 'object'
+            ? payload.initialCheckIn
+            : {
+                summary: payload.initialSummary || payload.summary,
+                context: payload.context,
+                observation: payload.observation,
+                response: payload.response,
+                nextStep: payload.nextStep,
+                signal: payload.signal,
+                tags: payload.tags,
+                weeklyFocus: payload.weeklyFocus
+            };
+        const hasInitialQualitativeSeed = isQualitativeMode && Boolean(
+            this.sanitizePlainText(initialCheckInSource.summary, 500)
+            || this.sanitizePlainText(initialCheckInSource.context, 300)
+            || this.sanitizePlainText(initialCheckInSource.observation, 500)
+            || this.sanitizePlainText(initialCheckInSource.response, 300)
+            || this.sanitizePlainText(initialCheckInSource.nextStep, 300)
+            || String(initialCheckInSource.signal || '').trim()
+            || (Array.isArray(initialCheckInSource.tags) && initialCheckInSource.tags.length)
+            || String(initialCheckInSource.weeklyFocus || '').trim()
+        );
+        if (hasInitialQualitativeSeed) {
+            assignment.checkIns.push(this.sanitizeCheckInForOperation({
+                ...initialCheckInSource,
+                summary: this.sanitizePlainText(initialCheckInSource.summary, 500)
+                    || [this.sanitizePlainText(initialCheckInSource.observation, 300), this.sanitizePlainText(initialCheckInSource.nextStep, 220) ? `Next: ${this.sanitizePlainText(initialCheckInSource.nextStep, 220)}` : '']
+                        .filter(Boolean)
+                        .join(' | ')
+                    || 'Initial observation',
+                performed: initialCheckInSource.performed !== false
+            }));
+            await assignment.save();
+        }
 
         await this.dispatchStudentMtssNotifications({
             students: [student],
@@ -5870,9 +6008,10 @@ Critical language requirement:
 
         return {
             operation: 'create_mtss_intervention',
-            message: `Intervention plan submitted for ${student.name || 'student'}.`,
+            message: `${isQualitativeMode ? 'Kindergarten qualitative intervention' : 'Intervention plan'} submitted for ${student.name || 'student'}.`,
             assignment: {
                 id: assignment._id?.toString?.() || assignment._id,
+                mode: assignment.mode || 'quantitative',
                 tier: assignment.tier,
                 status: assignment.status,
                 mentorId: assignment.mentorId?.toString?.() || assignment.mentorId,

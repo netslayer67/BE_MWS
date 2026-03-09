@@ -75,6 +75,66 @@ const interventionSchema = new mongoose.Schema({
     history: [interventionHistorySchema]
 }, { _id: false });
 
+const kindergartenMoodCheckInSchema = new mongoose.Schema({
+    date: {
+        type: Date,
+        default: Date.now
+    },
+    mood: {
+        type: String,
+        enum: ['very_happy', 'happy', 'okay', 'sad', 'upset'],
+        required: true
+    },
+    regulationChoice: {
+        type: String,
+        enum: ['deep_breathing', 'cozy_corner', 'talk_to_friend', 'quiet_time', 'ask_teacher']
+    },
+    note: {
+        type: String,
+        trim: true,
+        maxlength: 220
+    },
+    source: {
+        type: String,
+        enum: ['student', 'parent_proxy'],
+        default: 'student'
+    },
+    submittedByName: {
+        type: String,
+        trim: true
+    },
+    submittedByUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }
+}, { _id: true });
+
+const kindergartenHomeObservationSchema = new mongoose.Schema({
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    note: {
+        type: String,
+        trim: true,
+        maxlength: 260,
+        required: true
+    },
+    source: {
+        type: String,
+        enum: ['student', 'parent_proxy'],
+        default: 'parent_proxy'
+    },
+    submittedByName: {
+        type: String,
+        trim: true
+    },
+    submittedByUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }
+}, { _id: true });
+
 const ensureInterventionDefaults = (entries = []) => {
     const normalized = Array.isArray(entries) ? entries : [];
     const map = new Map();
@@ -180,7 +240,9 @@ const studentSchema = new mongoose.Schema(
             type: Map,
             of: String
         },
-        interventions: [interventionSchema]
+        interventions: [interventionSchema],
+        kindergartenMoodCheckIns: [kindergartenMoodCheckInSchema],
+        kindergartenHomeObservations: [kindergartenHomeObservationSchema]
     },
     {
         timestamps: true
