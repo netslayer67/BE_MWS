@@ -12,7 +12,7 @@ const KINDERGARTEN_WEEKLY_FOCUS_OPTIONS = [
 
 const KINDERGARTEN_INTERVENTION_BANK = {
     emotional_regulation: {
-        label: 'Regulasi Emosi',
+        label: 'Emotional Regulation',
         strategies: [
             { id: 'first_then_board', title: 'First-Then Board', signals: ['emerging', 'developing'] },
             { id: 'cozy_corner', title: 'Cozy Corner Reset', signals: ['emerging', 'developing'] },
@@ -21,7 +21,7 @@ const KINDERGARTEN_INTERVENTION_BANK = {
         ]
     },
     language: {
-        label: 'Bahasa & Komunikasi',
+        label: 'Language & Communication',
         strategies: [
             { id: 'visual_schedule', title: 'Visual Schedule Prompts', signals: ['emerging', 'developing'] },
             { id: 'two_step_cards', title: '2-Step Instruction Cards', signals: ['emerging', 'developing'] },
@@ -30,7 +30,7 @@ const KINDERGARTEN_INTERVENTION_BANK = {
         ]
     },
     social: {
-        label: 'Sosial',
+        label: 'Social',
         strategies: [
             { id: 'social_script_cards', title: 'Social Script Cards', signals: ['emerging', 'developing'] },
             { id: 'buddy_system', title: 'Buddy System', signals: ['developing', 'consistent'] },
@@ -39,7 +39,7 @@ const KINDERGARTEN_INTERVENTION_BANK = {
         ]
     },
     motor: {
-        label: 'Motorik',
+        label: 'Motor Skills',
         strategies: [
             { id: 'finger_gym', title: 'Finger Gym Warm-Up', signals: ['emerging', 'developing'] },
             { id: 'adapted_tools', title: 'Adapted Tools (Chunky Crayons)', signals: ['emerging', 'developing'] },
@@ -48,7 +48,7 @@ const KINDERGARTEN_INTERVENTION_BANK = {
         ]
     },
     independence: {
-        label: 'Kemandirian',
+        label: 'Independence',
         strategies: [
             { id: 'picture_checklist', title: 'Picture Checklist', signals: ['emerging', 'developing'] },
             { id: 'transition_warning', title: 'Transition Warning (5/2 min)', signals: ['emerging', 'developing'] },
