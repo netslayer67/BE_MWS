@@ -14,7 +14,8 @@ const {
     getMentorAssignmentById,
     updateMentorAssignment,
     getMyAssignedStudents,
-    listMentors
+    listMentors,
+    getKindergartenInterventionBank
 } = require('../controllers/mtssController');
 const {
     listStudents,
@@ -61,6 +62,7 @@ router.post('/students', requireMTSSAdmin, validate(mtssStudentCreateSchema), cr
 router.put('/students/:id', requireMTSSAdmin, validate(mtssStudentUpdateSchema), updateStudent);
 
 router.get('/mentors', requireMTSSAdmin, listMentors);
+router.get('/kindergarten/intervention-bank', requireStaffOrTeacher, getKindergartenInterventionBank);
 
 router.post('/upload-evidence', requireStaffOrTeacher, evidenceUpload.array('evidence', MAX_FILES), uploadEvidence);
 

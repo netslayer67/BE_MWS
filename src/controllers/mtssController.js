@@ -6,6 +6,11 @@ const User = require('../models/User');
 const MTSSStudent = require('../models/MTSSStudent');
 const { emitAssignmentEvent } = require('../services/mtssRealtimeService');
 const {
+    KINDERGARTEN_SIGNAL_LEVELS,
+    KINDERGARTEN_WEEKLY_FOCUS_OPTIONS,
+    KINDERGARTEN_INTERVENTION_BANK
+} = require('../constants/kindergartenMtss');
+const {
     buildClassFilterClauses,
     buildGradeFilterClauses,
     deriveAllowedGradesForUser,
@@ -47,6 +52,7 @@ const PLAN_EDITABLE_FIELDS = new Set([
     'customFrequencyDays',
     'customFrequencyNote',
     'notes',
+    'mode',
     'goals',
     'metricLabel',
     'baselineScore',
@@ -407,6 +413,92 @@ const hydrateAssignmentStudents = async (assignmentList = []) => {
     }));
 };
 
+const toValidDate = (value) => {
+    const candidate = new Date(value);
+    return Number.isNaN(candidate.getTime()) ? null : candidate;
+};
+
+const toIsoDate = (value) => {
+    const parsed = toValidDate(value);
+    return parsed ? parsed.toISOString() : null;
+};
+
+const buildWeeklyFocusOverview = (checkIns = []) => {
+    if (!Array.isArray(checkIns) || !checkIns.length) return null;
+
+    const normalized = checkIns
+        .map((entry = {}) => ({
+            date: toValidDate(entry.date),
+            weeklyFocus: entry.weeklyFocus || null,
+            signal: entry.signal || null,
+            tags: Array.isArray(entry.tags) ? entry.tags.filter(Boolean) : [],
+            summary: entry.summary || null,
+            nextStep: entry.nextStep || entry.nextSteps || null
+        }))
+        .filter((entry) => entry.date)
+        .sort((a, b) => b.date - a.date);
+
+    if (!normalized.length) return null;
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - 6);
+
+    const windowEntries = normalized.filter((entry) => entry.date >= weekStart);
+    const focusCounts = { continue: 0, try: 0, support_needed: 0 };
+    windowEntries.forEach((entry) => {
+        if (entry.weeklyFocus && Object.prototype.hasOwnProperty.call(focusCounts, entry.weeklyFocus)) {
+            focusCounts[entry.weeklyFocus] += 1;
+        }
+    });
+
+    const latestFocus = normalized.find((entry) => entry.weeklyFocus) || null;
+    const latestSignal = normalized.find((entry) => entry.signal) || null;
+
+    let supportNeededStreak = 0;
+    const focusTimeline = normalized.filter((entry) => entry.weeklyFocus);
+    for (const entry of focusTimeline) {
+        if (entry.weeklyFocus === 'support_needed') {
+            supportNeededStreak += 1;
+            continue;
+        }
+        break;
+    }
+
+    return {
+        latest: latestFocus
+            ? {
+                value: latestFocus.weeklyFocus,
+                date: latestFocus.date.toISOString(),
+                signal: latestFocus.signal,
+                tags: latestFocus.tags,
+                summary: latestFocus.summary,
+                nextStep: latestFocus.nextStep
+            }
+            : null,
+        latestSignal: latestSignal
+            ? {
+                value: latestSignal.signal,
+                date: latestSignal.date.toISOString()
+            }
+            : null,
+        weekWindow: {
+            from: toIsoDate(weekStart),
+            to: toIsoDate(now),
+            checkInCount: windowEntries.length,
+            focusCounts
+        },
+        supportNeededStreak,
+        escalationSuggested: supportNeededStreak >= 2
+    };
+};
+
+const enrichAssignmentForTeacherTools = (assignment = {}) => ({
+    ...assignment,
+    weeklyFocusOverview: buildWeeklyFocusOverview(assignment.checkIns || [])
+});
+
 const getTierMetadata = async (req, res) => {
     try {
         const tiers = await MTSSTier.find().sort({ code: 1 });
@@ -748,7 +840,8 @@ const createMentorAssignment = async (req, res) => {
             monitoringMethod,
             monitoringFrequency,
             customFrequencyDays,
-            customFrequencyNote
+            customFrequencyNote,
+            mode
         } = req.body;
 
         if (!studentIds || !studentIds.length) {
@@ -803,6 +896,7 @@ const createMentorAssignment = async (req, res) => {
             customFrequencyNote: monitoringFrequency === 'Custom' && customFrequencyNote ? customFrequencyNote.trim() : undefined,
             goals,
             notes,
+            mode: ['quantitative', 'qualitative'].includes(mode) ? mode : undefined,
             metricLabel: metricLabel?.trim() || undefined,
             baselineScore: sanitizedBaseline,
             targetScore: sanitizedTarget,
@@ -842,7 +936,7 @@ const getMentorAssignments = async (req, res) => {
             .populate('lastPlanUpdatedBy', 'name username email')
             .lean();
         const hydratedAssignments = await hydrateAssignmentStudents(assignmentsRaw);
-        const assignments = isAdmin
+        const scopedAssignments = isAdmin
             ? hydratedAssignments
             : hydratedAssignments.filter((assignment) => {
                 const mentorKey = assignment?.mentorId?._id?.toString?.() || assignment?.mentorId?.toString?.();
@@ -856,6 +950,8 @@ const getMentorAssignments = async (req, res) => {
                     students: assignmentStudents
                 });
             });
+
+        const assignments = scopedAssignments.map(enrichAssignmentForTeacherTools);
 
         sendSuccess(res, 'Mentor assignments retrieved', { assignments });
     } catch (error) {
@@ -875,7 +971,8 @@ const getMentorAssignmentById = async (req, res) => {
             return sendError(res, 'Mentor assignment not found', 404);
         }
 
-        const [assignment] = await hydrateAssignmentStudents([assignmentRaw]);
+        const [assignmentHydrated] = await hydrateAssignmentStudents([assignmentRaw]);
+        const assignment = enrichAssignmentForTeacherTools(assignmentHydrated);
 
         sendSuccess(res, 'Mentor assignment retrieved', { assignment });
     } catch (error) {
@@ -1063,6 +1160,7 @@ const updateMentorAssignment = async (req, res) => {
             }
         }
         if (mode !== undefined && ['quantitative', 'qualitative'].includes(mode)) {
+            logChange('mode', 'Mode', assignment.mode, mode);
             assignment.mode = mode;
         }
         if (notes !== undefined && typeof notes === 'string') {
@@ -1200,6 +1298,19 @@ const listMentors = async (req, res) => {
     }
 };
 
+const getKindergartenInterventionBank = async (_req, res) => {
+    try {
+        sendSuccess(res, 'Kindergarten intervention bank retrieved', {
+            interventionBank: KINDERGARTEN_INTERVENTION_BANK,
+            signalLevels: KINDERGARTEN_SIGNAL_LEVELS,
+            weeklyFocusOptions: KINDERGARTEN_WEEKLY_FOCUS_OPTIONS
+        });
+    } catch (error) {
+        console.error('Failed to retrieve Kindergarten intervention bank:', error);
+        sendError(res, 'Failed to retrieve Kindergarten intervention bank', 500);
+    }
+};
+
 module.exports = {
     getTierMetadata,
     upsertTier,
@@ -1213,5 +1324,6 @@ module.exports = {
     getMentorAssignmentById,
     updateMentorAssignment,
     getMyAssignedStudents,
-    listMentors
+    listMentors,
+    getKindergartenInterventionBank
 };

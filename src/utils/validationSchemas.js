@@ -285,7 +285,8 @@ const mentorAssignmentCreateSchema = Joi.object({
         description: Joi.string().required(),
         successCriteria: Joi.string().optional().allow('', null)
     })).optional(),
-    notes: Joi.string().optional().allow('')
+    notes: Joi.string().optional().allow(''),
+    mode: Joi.string().valid('quantitative', 'qualitative').optional()
 });
 
 const mentorAssignmentUpdateSchema = Joi.object({
