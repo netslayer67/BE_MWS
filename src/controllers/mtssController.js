@@ -58,6 +58,13 @@ const PLAN_EDITABLE_FIELDS = new Set([
     'baselineScore',
     'targetScore'
 ]);
+const QUALITATIVE_TAGS = ['emotional_regulation', 'language', 'social', 'motor', 'independence'];
+const DEFAULT_KG_ANALYTICS_WEEKS = 4;
+const DEFAULT_KG_FIDELITY_DAYS = 5;
+const DEFAULT_KG_MIN_WEEKLY_OBSERVATIONS = 2;
+const MAX_KG_ANALYTICS_WEEKS = 8;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
 const slugifyName = (value = '') =>
     value
         .toString()
@@ -266,6 +273,140 @@ const canViewerEditPlanForAssignment = ({ viewer = {}, assignment = {}, students
             return classSubjectKeys.some((subjectKey) => assignmentSubjectKeys.includes(subjectKey));
         });
     });
+};
+
+const parseListQueryValue = (value) => {
+    if (Array.isArray(value)) {
+        return value.flatMap((entry) => parseListQueryValue(entry));
+    }
+    if (value === null || value === undefined) return [];
+    return value
+        .toString()
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+};
+
+const clampNumber = (value, min, max, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    if (parsed < min) return min;
+    if (parsed > max) return max;
+    return parsed;
+};
+
+const isKindergartenStudent = (student = {}) => {
+    const grade = normalizeGradeLabel(student.currentGrade || student.grade || '');
+    const className = normalizeClassLabel(student.className || student.currentGrade || '');
+    return /kindergarten/i.test(`${grade} ${className}`);
+};
+
+const buildKindergartenAnalyticsScope = (req = {}) => {
+    const queryGrades = parseListQueryValue(req.query?.grade);
+    const queryClasses = parseListQueryValue(req.query?.className);
+    const unitGrades = deriveGradesForUnit(req.query?.unit || '');
+
+    let gradeFilters = Array.from(new Set([...queryGrades, ...unitGrades].map((entry) => normalizeGradeLabel(entry)).filter(Boolean)));
+    let classFilters = Array.from(new Set(queryClasses.map((entry) => normalizeClassLabel(entry)).filter(Boolean)));
+
+    // Scoped leaders (head_unit) inherit their grade/class scope when filters are absent.
+    if (req.user?.role === 'head_unit' && !gradeFilters.length && !classFilters.length) {
+        gradeFilters = deriveAllowedGradesForUser(req.user);
+        classFilters = deriveAllowedClassNamesForUser(req.user);
+    }
+
+    const gradeClauses = buildGradeFilterClauses(gradeFilters);
+    const classClauses = buildClassFilterClauses(classFilters);
+
+    return {
+        gradeFilters,
+        classFilters,
+        gradeClauses,
+        classClauses
+    };
+};
+
+const studentMatchesKindergartenScope = (student = {}, scope = {}) => {
+    const studentGradeCandidates = [
+        student.currentGrade,
+        student.grade,
+        student.className
+    ]
+        .filter(Boolean)
+        .map((entry) => entry.toString());
+    const studentClassCandidates = [
+        student.className,
+        student.currentGrade
+    ]
+        .filter(Boolean)
+        .map((entry) => entry.toString());
+
+    const matchesGrade =
+        !Array.isArray(scope.gradeClauses) ||
+        scope.gradeClauses.length === 0 ||
+        scope.gradeClauses.some((clause = {}) =>
+            studentGradeCandidates.some((candidate) => clause.currentGrade?.test?.(candidate))
+        );
+    if (!matchesGrade) return false;
+
+    const matchesClass =
+        !Array.isArray(scope.classClauses) ||
+        scope.classClauses.length === 0 ||
+        scope.classClauses.some((clause = {}) =>
+            studentClassCandidates.some((candidate) => clause.className?.test?.(candidate))
+        );
+
+    return matchesClass;
+};
+
+const getWeekStart = (value = new Date()) => {
+    const date = new Date(value);
+    date.setHours(0, 0, 0, 0);
+    const dayIndex = (date.getDay() + 6) % 7; // Monday start
+    date.setDate(date.getDate() - dayIndex);
+    return date;
+};
+
+const formatShortDate = (value) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(parsed);
+};
+
+const normalizeClassKey = (value = '') => {
+    const normalized = normalizeClassLabel(value);
+    if (normalized) return normalized;
+    return 'Kindergarten (Unassigned Class)';
+};
+
+const normalizeTierCode = (value = '') => {
+    const normalized = (value || '').toString().trim().toLowerCase();
+    if (normalized === 'tier1' || normalized === 'tier2' || normalized === 'tier3') return normalized;
+    return 'tier1';
+};
+
+const sanitizeMentorName = (mentor = {}) =>
+    mentor?.name || mentor?.username || mentor?.email || 'Unassigned Mentor';
+
+const createDomainCountRecord = () =>
+    QUALITATIVE_TAGS.reduce((acc, tag) => {
+        acc[tag] = 0;
+        return acc;
+    }, {});
+
+const computeSupportNeededStreak = (entries = []) => {
+    const sorted = entries
+        .filter((entry) => entry?.weeklyFocus)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+    let streak = 0;
+    for (const entry of sorted) {
+        if (entry.weeklyFocus === 'support_needed') {
+            streak += 1;
+            continue;
+        }
+        break;
+    }
+    return streak;
 };
 
 const hasPlanEditPayload = (payload = {}) =>
@@ -1298,6 +1439,356 @@ const listMentors = async (req, res) => {
     }
 };
 
+const getKindergartenAdminAnalytics = async (req, res) => {
+    try {
+        const weeks = clampNumber(req.query?.weeks, 1, MAX_KG_ANALYTICS_WEEKS, DEFAULT_KG_ANALYTICS_WEEKS);
+        const fidelityDaysThreshold = clampNumber(req.query?.fidelityDays, 1, 30, DEFAULT_KG_FIDELITY_DAYS);
+        const minWeeklyObservations = clampNumber(
+            req.query?.minWeeklyObservations,
+            1,
+            10,
+            DEFAULT_KG_MIN_WEEKLY_OBSERVATIONS
+        );
+        const now = new Date();
+        const currentWeekStart = getWeekStart(now);
+        const weekBuckets = Array.from({ length: weeks }, (_, index) => {
+            const start = new Date(currentWeekStart);
+            start.setDate(start.getDate() - (weeks - 1 - index) * 7);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 6);
+            end.setHours(23, 59, 59, 999);
+            return {
+                key: start.toISOString().slice(0, 10),
+                label: `${formatShortDate(start)} - ${formatShortDate(end)}`,
+                start,
+                end
+            };
+        });
+        const currentWeekIndex = Math.max(weekBuckets.length - 1, 0);
+        const scope = buildKindergartenAnalyticsScope(req);
+
+        const assignments = await MentorAssignment.find({
+            status: { $in: ['active', 'paused', 'completed'] }
+        })
+            .populate('mentorId', 'name username email jobPosition')
+            .populate('studentIds', 'name currentGrade className')
+            .select('mentorId studentIds tier status mode checkIns')
+            .lean();
+
+        const domainLabels = QUALITATIVE_TAGS.reduce((acc, tag) => {
+            acc[tag] = KINDERGARTEN_INTERVENTION_BANK?.[tag]?.label || tag;
+            return acc;
+        }, {});
+        const signalLevelValues = KINDERGARTEN_SIGNAL_LEVELS.map((entry) => entry.value);
+        const signalCounts = signalLevelValues.reduce((acc, signal) => {
+            acc[signal] = 0;
+            return acc;
+        }, {});
+        const domainTrend = QUALITATIVE_TAGS.reduce((acc, tag) => {
+            acc[tag] = Array.from({ length: weeks }, () => 0);
+            return acc;
+        }, {});
+        const classDomainMap = new Map();
+        const mentorMap = new Map();
+        const studentMap = new Map();
+        const studentTierMap = new Map();
+        const studentCurrentWeekSignalMap = new Map();
+        let relevantAssignmentCount = 0;
+
+        const resolveWeekIndex = (dateValue) => {
+            const date = new Date(dateValue);
+            if (Number.isNaN(date.getTime())) return -1;
+            return weekBuckets.findIndex((bucket) => date >= bucket.start && date <= bucket.end);
+        };
+
+        assignments.forEach((assignment = {}) => {
+            const students = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+            const scopedKindergartenStudents = students.filter(
+                (student) => isKindergartenStudent(student) && studentMatchesKindergartenScope(student, scope)
+            );
+            if (!scopedKindergartenStudents.length) return;
+            relevantAssignmentCount += 1;
+
+            const mentorId = assignment?.mentorId?._id?.toString?.() || assignment?.mentorId?.toString?.() || 'unassigned';
+            const mentorName = sanitizeMentorName(assignment.mentorId);
+            const mentorEntry = mentorMap.get(mentorId) || {
+                mentorId: mentorId === 'unassigned' ? null : mentorId,
+                mentorName,
+                trackedStudents: new Set(),
+                observationsThisWeek: 0,
+                lastObservationDate: null
+            };
+
+            scopedKindergartenStudents.forEach((student = {}) => {
+                const studentId = student?._id?.toString?.() || student?.id?.toString?.() || null;
+                if (!studentId) return;
+                mentorEntry.trackedStudents.add(studentId);
+
+                const existingTier = studentTierMap.get(studentId) || 'tier1';
+                const existingRank = TIER_ORDER[existingTier] || 1;
+                const nextTier = normalizeTierCode(assignment.tier);
+                const nextRank = TIER_ORDER[nextTier] || 1;
+                if (!studentTierMap.has(studentId) || nextRank > existingRank) {
+                    studentTierMap.set(studentId, nextTier);
+                }
+
+                if (!studentMap.has(studentId)) {
+                    studentMap.set(studentId, {
+                        studentId,
+                        name: student.name || 'Student',
+                        grade: normalizeGradeLabel(student.currentGrade || student.grade || 'Kindergarten'),
+                        className: normalizeClassKey(student.className || student.currentGrade || 'Kindergarten'),
+                        mentorName,
+                        observationsThisWeek: 0,
+                        lastObservationDate: null,
+                        latestSignal: null,
+                        latestSignalDate: null,
+                        latestNextStep: null,
+                        latestNextStepDate: null,
+                        weeklyFocusEntries: []
+                    });
+                }
+            });
+
+            const checkIns = Array.isArray(assignment.checkIns) ? assignment.checkIns : [];
+            checkIns.forEach((checkIn = {}) => {
+                const checkInDate = new Date(checkIn.date);
+                if (Number.isNaN(checkInDate.getTime())) return;
+
+                const weekIndex = resolveWeekIndex(checkInDate);
+                const isCurrentWeek = weekIndex === currentWeekIndex;
+                const signal = signalLevelValues.includes(checkIn.signal) ? checkIn.signal : null;
+                const tags = Array.isArray(checkIn.tags)
+                    ? checkIn.tags.filter((tag) => QUALITATIVE_TAGS.includes(tag))
+                    : [];
+
+                if (!mentorEntry.lastObservationDate || checkInDate > mentorEntry.lastObservationDate) {
+                    mentorEntry.lastObservationDate = checkInDate;
+                }
+                if (isCurrentWeek) {
+                    mentorEntry.observationsThisWeek += 1;
+                }
+
+                scopedKindergartenStudents.forEach((student = {}) => {
+                    const studentId = student?._id?.toString?.() || student?.id?.toString?.() || null;
+                    if (!studentId) return;
+                    const studentEntry = studentMap.get(studentId);
+                    if (!studentEntry) return;
+
+                    if (!studentEntry.lastObservationDate || checkInDate > studentEntry.lastObservationDate) {
+                        studentEntry.lastObservationDate = checkInDate;
+                    }
+                    if (isCurrentWeek) {
+                        studentEntry.observationsThisWeek += 1;
+                    }
+                    if (signal && (!studentEntry.latestSignalDate || checkInDate > studentEntry.latestSignalDate)) {
+                        studentEntry.latestSignal = signal;
+                        studentEntry.latestSignalDate = checkInDate;
+                    }
+                    const nextStepText = checkIn.nextStep || checkIn.nextSteps || null;
+                    if (nextStepText && (!studentEntry.latestNextStepDate || checkInDate > studentEntry.latestNextStepDate)) {
+                        studentEntry.latestNextStep = nextStepText;
+                        studentEntry.latestNextStepDate = checkInDate;
+                    }
+                    if (checkIn.weeklyFocus) {
+                        studentEntry.weeklyFocusEntries.push({
+                            date: checkInDate,
+                            weeklyFocus: checkIn.weeklyFocus,
+                            signal,
+                            nextStep: nextStepText
+                        });
+                    }
+                    if (isCurrentWeek && signal) {
+                        const currentSignal = studentCurrentWeekSignalMap.get(studentId);
+                        if (!currentSignal || checkInDate > currentSignal.date) {
+                            studentCurrentWeekSignalMap.set(studentId, { signal, date: checkInDate });
+                        }
+                    }
+
+                    if (weekIndex >= 0 && tags.length) {
+                        const classKey = normalizeClassKey(student.className || student.currentGrade || 'Kindergarten');
+                        const classEntry = classDomainMap.get(classKey) || {
+                            className: classKey,
+                            studentIds: new Set(),
+                            domainCounts: createDomainCountRecord(),
+                            totalObservations: 0
+                        };
+                        classEntry.studentIds.add(studentId);
+                        tags.forEach((tag) => {
+                            domainTrend[tag][weekIndex] += 1;
+                            if (isCurrentWeek) {
+                                classEntry.domainCounts[tag] += 1;
+                                classEntry.totalObservations += 1;
+                            }
+                        });
+                        classDomainMap.set(classKey, classEntry);
+                    }
+                });
+            });
+
+            mentorMap.set(mentorId, mentorEntry);
+        });
+
+        studentCurrentWeekSignalMap.forEach((entry = {}) => {
+            if (entry.signal && Object.prototype.hasOwnProperty.call(signalCounts, entry.signal)) {
+                signalCounts[entry.signal] += 1;
+            }
+        });
+
+        const totalSignal = Object.values(signalCounts).reduce((sum, value) => sum + value, 0);
+        const signalPercentages = Object.entries(signalCounts).reduce((acc, [signal, count]) => {
+            acc[signal] = totalSignal ? Math.round((count / totalSignal) * 100) : 0;
+            return acc;
+        }, {});
+
+        const classRows = Array.from(classDomainMap.values())
+            .map((entry) => {
+                const sortedDomains = QUALITATIVE_TAGS
+                    .map((tag) => ({ tag, count: entry.domainCounts[tag] || 0 }))
+                    .sort((a, b) => b.count - a.count);
+                const dominant = sortedDomains[0];
+                return {
+                    className: entry.className,
+                    studentCount: entry.studentIds.size,
+                    totalObservations: entry.totalObservations,
+                    dominantDomain: dominant?.count ? dominant.tag : null,
+                    dominantDomainLabel: dominant?.count ? domainLabels[dominant.tag] : null,
+                    domainCounts: entry.domainCounts
+                };
+            })
+            .filter((entry) => entry.totalObservations > 0)
+            .sort((a, b) => b.totalObservations - a.totalObservations);
+
+        const tierCounts = { tier1: 0, tier2: 0, tier3: 0 };
+        studentTierMap.forEach((tier) => {
+            tierCounts[tier] = (tierCounts[tier] || 0) + 1;
+        });
+
+        const escalationCandidates = Array.from(studentMap.values())
+            .map((student) => {
+                const streak = computeSupportNeededStreak(student.weeklyFocusEntries);
+                if (streak < 2) return null;
+                const latestFocus = student.weeklyFocusEntries
+                    .slice()
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+                return {
+                    studentId: student.studentId,
+                    name: student.name,
+                    grade: student.grade,
+                    className: student.className,
+                    mentorName: student.mentorName,
+                    supportNeededStreak: streak,
+                    latestSignal: latestFocus?.signal || student.latestSignal || null,
+                    latestObservationDate: student.lastObservationDate ? student.lastObservationDate.toISOString() : null,
+                    nextStep: latestFocus?.nextStep || student.latestNextStep || null,
+                    currentTier: studentTierMap.get(student.studentId) || 'tier1',
+                    suggestedTier: (studentTierMap.get(student.studentId) || 'tier1') === 'tier1' ? 'tier2' : 'tier3'
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+                if (b.supportNeededStreak !== a.supportNeededStreak) {
+                    return b.supportNeededStreak - a.supportNeededStreak;
+                }
+                return new Date(b.latestObservationDate || 0) - new Date(a.latestObservationDate || 0);
+            });
+
+        const teachers = Array.from(mentorMap.values())
+            .map((mentor) => {
+                const daysSinceLastObservation = mentor.lastObservationDate
+                    ? Math.floor((now.getTime() - mentor.lastObservationDate.getTime()) / DAY_IN_MS)
+                    : null;
+                let status = 'ok';
+                if (daysSinceLastObservation === null || daysSinceLastObservation >= fidelityDaysThreshold) {
+                    status = 'urgent';
+                } else if (mentor.observationsThisWeek < minWeeklyObservations) {
+                    status = 'attention';
+                }
+                return {
+                    mentorId: mentor.mentorId,
+                    mentorName: mentor.mentorName,
+                    trackedStudents: mentor.trackedStudents.size,
+                    observationsThisWeek: mentor.observationsThisWeek,
+                    lastObservationDate: mentor.lastObservationDate ? mentor.lastObservationDate.toISOString() : null,
+                    daysSinceLastObservation,
+                    status
+                };
+            })
+            .sort((a, b) => {
+                const statusOrder = { urgent: 3, attention: 2, ok: 1 };
+                const statusDiff = (statusOrder[b.status] || 0) - (statusOrder[a.status] || 0);
+                if (statusDiff !== 0) return statusDiff;
+                return (b.daysSinceLastObservation ?? -1) - (a.daysSinceLastObservation ?? -1);
+            });
+
+        const fidelityAlerts = teachers
+            .filter((teacher) => teacher.status !== 'ok')
+            .map((teacher) => ({
+                mentorId: teacher.mentorId,
+                mentorName: teacher.mentorName,
+                type: teacher.status,
+                message:
+                    teacher.daysSinceLastObservation === null
+                        ? `${teacher.mentorName} has no qualitative observation logged yet.`
+                        : `${teacher.mentorName} last logged observation ${teacher.daysSinceLastObservation} day(s) ago.`
+            }));
+
+        const studentsWithoutObservationThisWeek = Array.from(studentMap.values())
+            .filter((student) => student.observationsThisWeek === 0)
+            .map((student) => ({
+                studentId: student.studentId,
+                name: student.name,
+                grade: student.grade,
+                className: student.className,
+                mentorName: student.mentorName,
+                lastObservationDate: student.lastObservationDate ? student.lastObservationDate.toISOString() : null
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        sendSuccess(res, 'Kindergarten admin analytics retrieved', {
+            generatedAt: now.toISOString(),
+            filters: {
+                grades: scope.gradeFilters,
+                classes: scope.classFilters,
+                weeks,
+                fidelityDaysThreshold,
+                minWeeklyObservations
+            },
+            scope: {
+                studentCount: studentMap.size,
+                teacherCount: teachers.length,
+                assignmentCount: relevantAssignmentCount
+            },
+            domainHeatmap: {
+                weeks: weekBuckets.map((bucket) => ({ key: bucket.key, label: bucket.label })),
+                domains: QUALITATIVE_TAGS.map((tag) => ({
+                    tag,
+                    label: domainLabels[tag],
+                    counts: domainTrend[tag]
+                })),
+                classes: classRows
+            },
+            signalDistribution: {
+                counts: signalCounts,
+                percentages: signalPercentages,
+                total: totalSignal
+            },
+            tierMonitoring: {
+                tierCounts,
+                escalationCandidates
+            },
+            fidelity: {
+                teachers,
+                alerts: fidelityAlerts,
+                studentsWithoutObservationThisWeek
+            }
+        });
+    } catch (error) {
+        console.error('Failed to retrieve Kindergarten admin analytics:', error);
+        sendError(res, 'Failed to retrieve Kindergarten admin analytics', 500);
+    }
+};
+
 const getKindergartenInterventionBank = async (_req, res) => {
     try {
         sendSuccess(res, 'Kindergarten intervention bank retrieved', {
@@ -1325,5 +1816,6 @@ module.exports = {
     updateMentorAssignment,
     getMyAssignedStudents,
     listMentors,
+    getKindergartenAdminAnalytics,
     getKindergartenInterventionBank
 };
