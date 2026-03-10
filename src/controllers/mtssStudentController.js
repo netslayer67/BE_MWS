@@ -82,6 +82,13 @@ const KINDERGARTEN_ALLOWED_SOURCES = new Set(['student', 'parent_proxy']);
 const KINDERGARTEN_MOOD_RETENTION = 90;
 const KINDERGARTEN_HOME_OBSERVATION_RETENTION = 120;
 const KINDERGARTEN_STAMP_MILESTONE_STEP = 5;
+const KINDERGARTEN_DOMAIN_LABELS = {
+    emotional_regulation: 'Emotional Regulation',
+    language: 'Language',
+    social: 'Social',
+    motor: 'Motor Skills',
+    independence: 'Independence'
+};
 
 const normalizeFocusArea = (value) => (typeof value === 'string' ? value.trim() : '');
 
@@ -865,15 +872,45 @@ const getStudent = async (req, res) => {
             const checkIns = assignment.checkIns || [];
             const lastCheckIn = checkIns[checkIns.length - 1];
             const firstCheckIn = checkIns[0];
+            const isQualitative = assignment.mode === 'qualitative';
+            const reversedCheckIns = [...checkIns].reverse();
+            const latestQualitativeCheckIn = reversedCheckIns.find((checkIn = {}) => (
+                Boolean(checkIn.signal) ||
+                Boolean(checkIn.weeklyFocus) ||
+                Boolean(checkIn.context) ||
+                Boolean(checkIn.observation) ||
+                Boolean(checkIn.response) ||
+                Boolean(checkIn.nextStep) ||
+                (Array.isArray(checkIn.tags) && checkIn.tags.length > 0)
+            )) || null;
+            const signalDistribution = { emerging: 0, developing: 0, consistent: 0 };
+            checkIns.forEach((checkIn = {}) => {
+                const signal = String(checkIn.signal || '').trim().toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(signalDistribution, signal)) {
+                    signalDistribution[signal] += 1;
+                }
+            });
+            const latestSignal = latestQualitativeCheckIn?.signal || null;
+            const latestWeeklyFocus = latestQualitativeCheckIn?.weeklyFocus || null;
+            const latestTags = Array.isArray(latestQualitativeCheckIn?.tags)
+                ? latestQualitativeCheckIn.tags.filter(Boolean)
+                : [];
+            const latestContext = latestQualitativeCheckIn?.context || null;
+            const latestObservation = latestQualitativeCheckIn?.observation || null;
+            const latestResponse = latestQualitativeCheckIn?.response || null;
+            const latestNextStep = latestQualitativeCheckIn?.nextStep || null;
+            const qualitativeLabel = KINDERGARTEN_DOMAIN_LABELS[focusArea?.toLowerCase?.()] || focusArea;
 
             // Build chart data from check-ins
-            const chart = checkIns.map((checkIn, idx) => ({
-                label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
-                date: checkIn.date,
-                reading: checkIn.value ?? 0,
-                goal: assignment.targetScore?.value || 100,
-                value: checkIn.value ?? 0
-            }));
+            const chart = isQualitative
+                ? []
+                : checkIns.map((checkIn) => ({
+                    label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                    date: checkIn.date,
+                    reading: checkIn.value ?? 0,
+                    goal: assignment.targetScore?.value || 100,
+                    value: checkIn.value ?? 0
+                }));
 
             // Build history from check-ins
             const history = checkIns.slice().reverse().map(checkIn => ({
@@ -895,7 +932,7 @@ const getStudent = async (req, res) => {
             return {
                 id: assignment._id,
                 type: typeKey,
-                label: meta?.label || focusArea || 'SEL',
+                label: isQualitative ? (qualitativeLabel || 'Learning Story') : (meta?.label || focusArea || 'SEL'),
                 focusArea: focusArea || meta?.label || null,
                 tier: assignment.tier,
                 tierLabel: assignment.tier === 'tier3' ? 'Tier 3' : assignment.tier === 'tier2' ? 'Tier 2' : 'Tier 1',
@@ -914,20 +951,32 @@ const getStudent = async (req, res) => {
                 mentorEmail: assignment.mentorId?.email || null,
                 startDate: assignment.startDate,
                 endDate: assignment.endDate,
-                baseline: assignment.baselineScore?.value ?? firstCheckIn?.value ?? null,
-                current: lastCheckIn?.value ?? null,
-                target: assignment.targetScore?.value ?? null,
-                progressUnit: assignment.metricLabel || 'score',
-                progress: assignment.targetScore?.value && lastCheckIn?.value
-                    ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
-                    : 0,
+                baseline: isQualitative ? null : (assignment.baselineScore?.value ?? firstCheckIn?.value ?? null),
+                current: isQualitative ? null : (lastCheckIn?.value ?? null),
+                target: isQualitative ? null : (assignment.targetScore?.value ?? null),
+                progressUnit: isQualitative ? 'signal' : (assignment.metricLabel || 'score'),
+                progress: isQualitative
+                    ? null
+                    : (
+                        assignment.targetScore?.value && lastCheckIn?.value
+                            ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
+                            : 0
+                    ),
                 checkInsCount: checkIns.length,
                 chart,
                 history,
                 goals: assignment.goals || [],
                 notes: assignment.notes,
                 mode: assignment.mode || 'quantitative',
-                planChangeLog: assignment.planChangeLog || []
+                planChangeLog: assignment.planChangeLog || [],
+                latestSignal,
+                latestWeeklyFocus,
+                latestTags,
+                latestContext,
+                latestObservation,
+                latestResponse,
+                latestNextStep,
+                signalDistribution
             };
         });
 
