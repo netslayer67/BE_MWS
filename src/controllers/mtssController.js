@@ -1447,6 +1447,7 @@ const getMentorAssignments = async (req, res) => {
             .populate('mentorId', 'name role email username jobPosition')
             .populate('createdBy', 'name role')
             .populate('lastPlanUpdatedBy', 'name username email')
+            .populate('planChangeLog.changedBy', 'name username email')
             .lean();
         const hydratedAssignments = await hydrateAssignmentStudents(assignmentsRaw);
         const scopedAssignments = isAdmin
@@ -1479,6 +1480,7 @@ const getMentorAssignmentById = async (req, res) => {
             .populate('mentorId', 'name role email username jobPosition')
             .populate('createdBy', 'name role')
             .populate('lastPlanUpdatedBy', 'name username email')
+            .populate('planChangeLog.changedBy', 'name username email')
             .lean();
         if (!assignmentRaw) {
             return sendError(res, 'Mentor assignment not found', 404);

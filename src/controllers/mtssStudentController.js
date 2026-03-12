@@ -879,7 +879,8 @@ const getStudent = async (req, res) => {
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .populate('mentorId', 'name email username gender jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog mode')
+            .populate('planChangeLog.changedBy', 'name username email')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration createdAt updatedAt planChangeLog mode')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -950,8 +951,13 @@ const getStudent = async (req, res) => {
             // Build history from check-ins
             const history = checkIns.slice().reverse().map(checkIn => ({
                 date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                timestamp: checkIn.date,
                 notes: checkIn.summary || checkIn.nextSteps || 'Check-in recorded',
                 score: checkIn.value,
+                unit: checkIn.unit || assignment.targetScore?.unit || assignment.baselineScore?.unit || assignment.metricLabel || null,
+                performed: checkIn.performed !== false,
+                skipReason: checkIn.skipReason || null,
+                skipReasonNote: checkIn.skipReasonNote || null,
                 celebration: checkIn.celebration,
                 evidence: checkIn.evidence || [],
                 // Qualitative mode fields (Kindergarten)
@@ -986,6 +992,8 @@ const getStudent = async (req, res) => {
                 mentorEmail: assignment.mentorId?.email || null,
                 startDate: assignment.startDate,
                 endDate: assignment.endDate,
+                createdAt: assignment.createdAt || assignment.startDate,
+                updatedAt: assignment.updatedAt || assignment.startDate,
                 baseline: isQualitative ? null : (assignment.baselineScore?.value ?? firstCheckIn?.value ?? null),
                 current: isQualitative ? null : (lastCheckIn?.value ?? null),
                 target: isQualitative ? null : (assignment.targetScore?.value ?? null),
@@ -1003,7 +1011,11 @@ const getStudent = async (req, res) => {
                 goals: assignment.goals || [],
                 notes: assignment.notes,
                 mode: assignment.mode || 'quantitative',
-                planChangeLog: assignment.planChangeLog || [],
+                planChangeLog: (assignment.planChangeLog || []).map((entry = {}) => ({
+                    ...entry,
+                    changedByName: entry.changedBy?.name || entry.changedBy?.username || null,
+                    changedByEmail: entry.changedBy?.email || null
+                })),
                 latestSignal,
                 latestWeeklyFocus,
                 latestTags,

@@ -20,6 +20,41 @@ const endOfDay = (date) => {
     return d;
 };
 
+const resolveDashboardRange = (period, anchorDate = new Date()) => {
+    switch (period) {
+        case 'today':
+            return {
+                startDate: startOfDay(anchorDate),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'week':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (6 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'month':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (29 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'semester':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (180 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'all':
+            return {
+                startDate: null,
+                endDate: endOfDay(anchorDate)
+            };
+        default:
+            return {
+                startDate: startOfDay(anchorDate),
+                endDate: endOfDay(anchorDate)
+            };
+    }
+};
+
 // Cache TTL configurations (in seconds)
 const CACHE_CONFIG = {
     DASHBOARD_STATS: parseInt(process.env.CACHE_TTL) || 300, // 5 minutes for testing
@@ -31,55 +66,31 @@ const getDashboardStats = async (req, res) => {
         const { period = 'today', date } = req.query;
         const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
+        let scopedUnitUsers = [];
+        let scopedUserIds = [];
 
-        // Calculate date range based on period
-        let startDate, endDate;
+        if (userRole === 'head_unit' && userUnit) {
+            scopedUnitUsers = await User.find({
+                isActive: true,
+                $or: [
+                    { unit: userUnit },
+                    { department: userUnit }
+                ]
+            }).select('_id name email role department unit');
+            scopedUserIds = scopedUnitUsers.map((user) => user._id);
+        }
+
         const now = new Date();
-
-        switch (period) {
-            case 'today': {
-                startDate = startOfDay(now);
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'week': {
-                startDate = startOfDay(new Date(now.getTime() - (6 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'month': {
-                startDate = startOfDay(new Date(now.getTime() - (29 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'semester': {
-                startDate = startOfDay(new Date(now.getTime() - (180 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'all': {
-                // We'll determine earliest available check-in later
-                startDate = null;
-                endDate = endOfDay(now);
-                break;
-            }
-            default: {
-                startDate = startOfDay(now);
-                endDate = endOfDay(now);
-                break;
-            }
-        }
-
-        // Override with specific date if provided
-        if (date) {
-            const selectedDate = new Date(date);
-            startDate = startOfDay(selectedDate);
-            endDate = endOfDay(selectedDate);
-        }
+        const anchorDate = date ? new Date(date) : now;
+        let { startDate, endDate } = resolveDashboardRange(period, anchorDate);
 
         // For "all" period without a specific date, start from earliest check-in
         if (!date && period === 'all' && !startDate) {
-            const earliestCheckin = await EmotionalCheckin.findOne({}, 'date').sort({ date: 1 });
+            const earliestScopeQuery = {};
+            if (userRole === 'head_unit' && userUnit) {
+                earliestScopeQuery.userId = { $in: scopedUserIds };
+            }
+            const earliestCheckin = await EmotionalCheckin.findOne(earliestScopeQuery, 'date').sort({ date: 1 });
             startDate = startOfDay(earliestCheckin?.date || now);
         }
 
@@ -139,14 +150,7 @@ const getDashboardStats = async (req, res) => {
             // Apply head_unit scoping to checkins if applicable
             if (userRole === 'head_unit' && userUnit) {
                 try {
-                    const unitMembers = await User.find({
-                        isActive: true,
-                        $or: [
-                            { unit: userUnit },
-                            { department: userUnit }
-                        ]
-                    }).select('_id');
-                    checkinQuery.userId = { $in: unitMembers.map(u => u._id) };
+                    checkinQuery.userId = { $in: scopedUserIds };
                 } catch (e) {
                     checkinQuery.userId = { $in: [] };
                 }
@@ -170,7 +174,8 @@ const getDashboardStats = async (req, res) => {
                         count: 0,
                         flagged: 0,
                         presence: 0,
-                        capacity: 0
+                        capacity: 0,
+                        users: []
                     };
                 }
 
@@ -178,6 +183,19 @@ const getDashboardStats = async (req, res) => {
                 bucket.count += 1;
                 bucket.presence += checkin.presenceLevel || 0;
                 bucket.capacity += checkin.capacityLevel || 0;
+                bucket.users.push({
+                    id: checkin._id,
+                    userId: checkin.userId?._id || null,
+                    name: checkin.userId?.name || 'Unknown',
+                    role: checkin.userId?.role || 'Unknown',
+                    department: checkin.userId?.department || checkin.userId?.unit || 'Unknown',
+                    weatherType: checkin.weatherType,
+                    selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+                    presenceLevel: checkin.presenceLevel,
+                    capacityLevel: checkin.capacityLevel,
+                    submittedAt: checkin.submittedAt || null,
+                    date: checkin.date || checkin.submittedAt || null
+                });
                 if (checkin.aiAnalysis?.needsSupport) {
                     bucket.flagged += 1;
                 }
@@ -222,26 +240,22 @@ const getDashboardStats = async (req, res) => {
             const timelineEnd = startOfDay(endDate);
             for (let cursor = new Date(timelineStart); cursor <= timelineEnd; cursor.setDate(cursor.getDate() + 1)) {
                 const key = cursor.toISOString().split('T')[0];
-                const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0 };
+                const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0, users: [] };
                 timeline.push({
                     date: key,
                     totalCheckins: bucket.count,
+                    submissions: bucket.count,
                     needsSupport: bucket.flagged,
                     avgPresence: bucket.count ? Math.round((bucket.presence / bucket.count) * 10) / 10 : 0,
-                    avgCapacity: bucket.count ? Math.round((bucket.capacity / bucket.count) * 10) / 10 : 0
+                    avgCapacity: bucket.count ? Math.round((bucket.capacity / bucket.count) * 10) / 10 : 0,
+                    users: bucket.users
                 });
             }
 
             // Get all users for role-based statistics (filtered for head_unit)
             let userQuery = {};
             if (userRole === 'head_unit' && userUnit) {
-                userQuery = {
-                    isActive: true,
-                    $or: [
-                        { unit: userUnit },
-                        { department: userUnit }
-                    ]
-                };
+                userQuery = { _id: { $in: scopedUserIds } };
             }
             // For head_unit, temporarily allow access to all users (like directorate)
             // TODO: Revert to unit-specific filtering when more data is available
@@ -258,7 +272,9 @@ const getDashboardStats = async (req, res) => {
             //     console.log('👥 Unit users for statistics:', unitUsers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
             // }
 
-            const allUsers = await User.find(userQuery, 'name email role department unit');
+            const allUsers = userRole === 'head_unit' && userUnit
+                ? scopedUnitUsers
+                : await User.find(userQuery, 'name email role department unit');
             const totalUsersByRole = {
                 student: allUsers.filter(u => u.role === 'student').length,
                 staff: allUsers.filter(u => u.role === 'staff').length,
@@ -610,7 +626,7 @@ const getDashboardStats = async (req, res) => {
 
             // Recent activity (last 20 check-ins in period)
             let recentActivityQuery = {
-                date: { $gte: startDate, $lt: endDate }
+                date: { $gte: startDate, $lt: rangeEndExclusive }
             };
 
             // For head_unit, temporarily show all activity (like directorate)
@@ -630,6 +646,10 @@ const getDashboardStats = async (req, res) => {
             //         $in: unitMembersForActivity.map(u => u._id)
             //     };
             // }
+
+            if (userRole === 'head_unit' && userUnit) {
+                recentActivityQuery.userId = checkinQuery.userId || { $in: [] };
+            }
 
             const recentCheckins = await EmotionalCheckin.find(recentActivityQuery)
                 .sort({ submittedAt: -1 })
