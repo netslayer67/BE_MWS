@@ -27,7 +27,7 @@ const TIER_ORDER = {
     tier3: 3
 };
 const TYPE_ALIAS_MAP = {
-    english: ['english', 'ela', 'literacy', 'reading', 'ela/reading'],
+    english: ['english', 'bahasa inggris', 'ela', 'literacy', 'reading', 'ela/reading'],
     math: ['math', 'mathematics', 'numeracy'],
     sel: ['sel', 'social emotional', 'social emotional learning', 'behavior'],
     behavior: ['behavior', 'behavioral', 'sel'],
@@ -245,6 +245,16 @@ const studentMatchesClassScope = (classAssignment = {}, student = {}, options = 
 const studentMatchesClassAssignment = (classAssignment = {}, student = {}, options = {}) =>
     studentMatchesGradeScope(classAssignment, student) && studentMatchesClassScope(classAssignment, student, options);
 
+const resolveActorId = (value) =>
+    value?._id?.toString?.() ||
+    value?.id?.toString?.() ||
+    value?.toString?.() ||
+    '';
+
+const HOMEROOM_PROGRESS_KEYS = new Set(['attendance', 'behavior', 'sel']);
+const PAK_ABU_EMAILS = new Set(['abu@millennia21.id']);
+const PAK_ABU_USERNAMES = new Set(['abu']);
+
 const canViewerEditPlanForAssignment = ({ viewer = {}, assignment = {}, students = [] }) => {
     if (!students.length) return false;
     const classAssignments = Array.isArray(viewer.classes) ? viewer.classes : [];
@@ -274,6 +284,79 @@ const canViewerEditPlanForAssignment = ({ viewer = {}, assignment = {}, students
             return classSubjectKeys.some((subjectKey) => assignmentSubjectKeys.includes(subjectKey));
         });
     });
+};
+
+const resolveStudentDivision = (student = {}) => {
+    const normalized = normalizeComparableText(
+        normalizeGradeLabel(student.currentGrade || student.grade || student.className || '')
+    );
+    if (!normalized) return null;
+    if (normalized.startsWith('grade 7') || normalized.startsWith('grade 8') || normalized.startsWith('grade 9')) {
+        return 'junior_high';
+    }
+    if (/^grade\s*[1-6]\b/i.test(normalized)) {
+        return 'elementary';
+    }
+    if (normalized.startsWith('kindergarten')) {
+        return 'kindergarten';
+    }
+    return null;
+};
+
+const isPakAbuViewer = (viewer = {}) => {
+    const email = normalizeComparableText(viewer?.email || '');
+    const username = normalizeComparableText(viewer?.username || '');
+    const name = normalizeComparableText(viewer?.name || '');
+    if (PAK_ABU_EMAILS.has(email)) return true;
+    if (PAK_ABU_USERNAMES.has(username)) return true;
+    return name.includes('abu bakar ali');
+};
+
+const canHomeroomSubmitProgressForAssignment = ({ viewer = {}, assignment = {}, students = [] }) => {
+    if (!students.length) return false;
+
+    const classAssignments = Array.isArray(viewer.classes) ? viewer.classes : [];
+    if (!classAssignments.length) return false;
+
+    const subjectKeys = extractAssignmentSubjectKeys(assignment);
+    if (!subjectKeys.length || subjectKeys.includes('universal')) return false;
+
+    const divisions = students
+        .map((student) => resolveStudentDivision(student))
+        .filter(Boolean);
+
+    if (!divisions.length) return false;
+
+    const allowedSubjectKeys = new Set(HOMEROOM_PROGRESS_KEYS);
+    const isElementaryOnly = divisions.every((division) => division === 'elementary');
+    const isJuniorHighOnly = divisions.every((division) => division === 'junior_high');
+
+    if (isElementaryOnly || (isJuniorHighOnly && isPakAbuViewer(viewer))) {
+        allowedSubjectKeys.add('indonesian');
+    }
+
+    if (!subjectKeys.every((subjectKey) => allowedSubjectKeys.has(subjectKey))) {
+        return false;
+    }
+
+    return students.every((student) =>
+        classAssignments.some((classAssignment) => {
+            const role = classAssignment.role || viewer.jobPosition || '';
+            if (!isHomeroomRole(role)) return false;
+            if (!classAssignment?.grade && !classAssignment?.className) return false;
+            return studentMatchesClassAssignment(classAssignment, student, { allowGenericLabel: true });
+        })
+    );
+};
+
+const canViewerSubmitProgressForAssignment = ({ viewer = {}, assignment = {}, students = [] }) => {
+    if (isMTSSAdminRole(viewer?.role)) return true;
+    const viewerId = resolveActorId(viewer?.id || viewer?._id || viewer);
+    const progressOwnerId = resolveActorId(assignment?.createdBy) || resolveActorId(assignment?.mentorId);
+    if (viewerId && progressOwnerId && progressOwnerId === viewerId) {
+        return true;
+    }
+    return canHomeroomSubmitProgressForAssignment({ viewer, assignment, students });
 };
 
 const parseListQueryValue = (value) => {
@@ -636,10 +719,27 @@ const buildWeeklyFocusOverview = (checkIns = []) => {
     };
 };
 
-const enrichAssignmentForTeacherTools = (assignment = {}) => ({
-    ...assignment,
-    weeklyFocusOverview: buildWeeklyFocusOverview(assignment.checkIns || [])
-});
+const enrichAssignmentForTeacherTools = (assignment = {}, viewer = {}) => {
+    const hydratedStudents = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+    const viewerPermissions = {
+        canEditPlan: isMTSSAdminRole(viewer?.role)
+            ? true
+            : canViewerEditPlanForAssignment({
+                viewer,
+                assignment,
+                students: hydratedStudents
+            }),
+        canSubmitProgress: canViewerSubmitProgressForAssignment({ viewer, assignment, students: hydratedStudents })
+    };
+
+    return {
+        ...assignment,
+        weeklyFocusOverview: buildWeeklyFocusOverview(assignment.checkIns || []),
+        viewerPermissions,
+        viewerCanEditPlan: viewerPermissions.canEditPlan,
+        viewerCanSubmitProgress: viewerPermissions.canSubmitProgress
+    };
+};
 
 const getTierMetadata = async (req, res) => {
     try {
@@ -1364,7 +1464,7 @@ const getMentorAssignments = async (req, res) => {
                 });
             });
 
-        const assignments = scopedAssignments.map(enrichAssignmentForTeacherTools);
+        const assignments = scopedAssignments.map((assignment) => enrichAssignmentForTeacherTools(assignment, req.user));
 
         sendSuccess(res, 'Mentor assignments retrieved', { assignments });
     } catch (error) {
@@ -1385,7 +1485,7 @@ const getMentorAssignmentById = async (req, res) => {
         }
 
         const [assignmentHydrated] = await hydrateAssignmentStudents([assignmentRaw]);
-        const assignment = enrichAssignmentForTeacherTools(assignmentHydrated);
+        const assignment = enrichAssignmentForTeacherTools(assignmentHydrated, req.user);
 
         sendSuccess(res, 'Mentor assignment retrieved', { assignment });
     } catch (error) {
@@ -1432,11 +1532,16 @@ const updateMentorAssignment = async (req, res) => {
         const includesPlanEdits = hasPlanEditPayload(req.body);
         const hasCheckInUpdates = Boolean(Array.isArray(checkIns) && checkIns.length);
 
-        if (includesPlanEdits) {
+        let assignmentStudents = [];
+
+        if (includesPlanEdits || hasCheckInUpdates) {
             const [hydratedScope] = await hydrateAssignmentStudents([{
                 studentIds: assignment.studentIds || []
             }]);
-            const assignmentStudents = Array.isArray(hydratedScope?.studentIds) ? hydratedScope.studentIds : [];
+            assignmentStudents = Array.isArray(hydratedScope?.studentIds) ? hydratedScope.studentIds : [];
+        }
+
+        if (includesPlanEdits) {
             const canEditPlan = canViewerEditPlanForAssignment({
                 viewer: req.user,
                 assignment,
@@ -1452,7 +1557,14 @@ const updateMentorAssignment = async (req, res) => {
         }
 
         if (hasCheckInUpdates && !isAdmin && !isProgressOwner) {
-            return sendError(res, 'Only the original intervention creator can submit progress updates for this subject', 403);
+            const canSubmitProgress = canViewerSubmitProgressForAssignment({
+                viewer: req.user,
+                assignment,
+                students: assignmentStudents
+            });
+            if (!canSubmitProgress) {
+                return sendError(res, 'Only the original intervention creator or an authorized homeroom teacher can submit progress updates for this subject', 403);
+            }
         }
 
         const hasFocusAreasUpdate = Array.isArray(focusAreas);

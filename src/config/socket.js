@@ -75,6 +75,18 @@ const initSocket = (server) => {
             winston.info(`Mentor ${mentorId} left MTSS mentor room`);
         });
 
+        socket.on('join-mtss-live', (scope = 'all') => {
+            const normalizedScope = String(scope || 'all').trim() || 'all';
+            socket.join(`mtss-live-${normalizedScope}`);
+            winston.info(`Socket ${socket.id} joined mtss-live-${normalizedScope} room`);
+        });
+
+        socket.on('leave-mtss-live', (scope = 'all') => {
+            const normalizedScope = String(scope || 'all').trim() || 'all';
+            socket.leave(`mtss-live-${normalizedScope}`);
+            winston.info(`Socket ${socket.id} left mtss-live-${normalizedScope} room`);
+        });
+
         socket.on('join-dev-topology', () => {
             socket.join(devTopologyTelemetryService.getRoomName());
             try {

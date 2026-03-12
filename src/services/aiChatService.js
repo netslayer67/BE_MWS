@@ -5361,7 +5361,7 @@ Critical language requirement:
         if (!raw) return null;
 
         const aliasMap = {
-            ENGLISH: ['ENGLISH', 'ELA', 'READING', 'LITERACY'],
+            ENGLISH: ['ENGLISH', 'BAHASA INGGRIS', 'ELA', 'READING', 'LITERACY'],
             MATH: ['MATH', 'MATHEMATICS', 'NUMERACY'],
             SEL: ['SEL', 'SOCIAL EMOTIONAL', 'SOCIAL EMOTIONAL LEARNING'],
             BEHAVIOR: ['BEHAVIOR', 'BEHAVIOUR', 'BEHAVIORAL'],

@@ -15,6 +15,52 @@ const uniqueIds = (items = []) => {
     return Array.from(set);
 };
 
+const normalizeComparableText = (value = '') =>
+    value
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+
+const resolveStudentRealtimeScope = (student = {}) => {
+    const normalized = normalizeComparableText(
+        student.currentGrade || student.grade || student.className || ''
+    );
+
+    if (!normalized) return null;
+    if (normalized.startsWith('grade 7') || normalized.startsWith('grade 8') || normalized.startsWith('grade 9')) {
+        return 'junior-high';
+    }
+    if (/^grade\s*[1-6]\b/i.test(normalized)) {
+        return 'elementary';
+    }
+    if (normalized.startsWith('kindergarten')) {
+        return 'kindergarten';
+    }
+    if (normalized.startsWith('pelangi')) {
+        return 'pelangi';
+    }
+
+    return null;
+};
+
+const emitMtssRefresh = (io, students = [], reason = 'students_changed') => {
+    const rooms = new Set(['mtss-live-all']);
+    students
+        .map((student) => resolveStudentRealtimeScope(student))
+        .filter(Boolean)
+        .forEach((scope) => rooms.add(`mtss-live-${scope}`));
+
+    const payload = {
+        reason,
+        changedAt: new Date().toISOString()
+    };
+
+    rooms.forEach((roomName) => {
+        io.to(roomName).emit('mtss:refresh', payload);
+    });
+};
+
 const emitStudentsChanged = async (studentIds = []) => {
     try {
         const ids = uniqueIds(studentIds);
@@ -52,6 +98,7 @@ const emitStudentsChanged = async (studentIds = []) => {
         mentorIds.forEach((mentorId) => {
             io.to(`mtss-mentor-${mentorId}`).emit('mtss:students:changed', { students: payload });
         });
+        emitMtssRefresh(io, students, 'students_changed');
     } catch (error) {
         console.error('Failed to emit MTSS student changes:', error.message);
     }

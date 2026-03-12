@@ -60,7 +60,8 @@ const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
     { key: 'BEHAVIOR', pattern: /behavior|behaviour|conduct|discipline/i },
     { key: 'MATH', pattern: /math|mathematics|numeracy|algebra|geometry/i },
-    { key: 'ENGLISH', pattern: /english|ela|literacy|reading|writing|fluency/i },
+    { key: 'ENGLISH', pattern: /english|bahasa inggris|ela|literacy|reading|writing|fluency/i },
+    { key: 'INDONESIAN', pattern: /indonesian|bahasa indonesia|\bbahasa\b|\bbi\b/i },
     { key: 'SEL', pattern: /sel|social|emotional|wellbeing|well-being/i }
 ];
 const KINDERGARTEN_MOOD_META = [
@@ -815,6 +816,40 @@ const listStudents = async (req, res) => {
             const fallback = buildFallbackSummary(mentorList);
             return formatRosterStudent(student, fallback);
         });
+
+        // Overlay real tier data from MentorAssignments onto interventions
+        // (student.interventions comes from MTSSStudent model which may have stale tier defaults)
+        const TIER_PRIO = { tier3: 3, tier2: 2, tier1: 1 };
+        const studentTierMap = new Map();
+        assignments.forEach((assignment) => {
+            const focusArea = normalizeFocusArea(
+                assignment.focusAreas?.[0] || assignment.strategyName || assignment.monitoringMethod || ''
+            );
+            const typeKey = resolveInterventionTypeKey(focusArea);
+            const tier = assignment.tier || 'tier1';
+            (assignment.studentIds || []).forEach((sid) => {
+                const key = sid?.toString?.() || sid;
+                if (!key) return;
+                if (!studentTierMap.has(key)) studentTierMap.set(key, new Map());
+                const existing = studentTierMap.get(key).get(typeKey);
+                if (!existing || (TIER_PRIO[tier] || 0) > (TIER_PRIO[existing] || 0)) {
+                    studentTierMap.get(key).set(typeKey, tier);
+                }
+            });
+        });
+        payload.forEach((student) => {
+            const tierMap = studentTierMap.get(student.id?.toString());
+            if (!tierMap || !Array.isArray(student.interventions)) return;
+            student.interventions.forEach((iv) => {
+                const realTier = tierMap.get(iv.type);
+                if (realTier) {
+                    iv.tierCode = realTier;
+                    iv.tier = realTier === 'tier3' ? 'Tier 3' : realTier === 'tier2' ? 'Tier 2' : 'Tier 1';
+                    if (!iv.hasData) iv.hasData = true;
+                }
+            });
+        });
+
         const summary = buildStudentSummary(payload);
 
         sendSuccess(res, 'Students retrieved', {

@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
     },
     department: {
         type: String,
-        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi', 'CARE'],
         trim: true
     },
     employeeId: {
@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema({
     },
     unit: {
         type: String,
-        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi', 'CARE'],
         trim: true
     },
     jobPosition: {
