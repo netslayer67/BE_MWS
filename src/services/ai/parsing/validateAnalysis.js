@@ -152,6 +152,31 @@ function validateAnalysis(analysis, checkinData = {}) {
         }
     }
 
+    // Sanity-check needsSupport against actual check-in data.
+    // AI sometimes hallucinates needsSupport=true even when all indicators are positive.
+    // Override when the hard data clearly contradicts the flag.
+    const presence = checkinData?.presenceLevel ?? 0;
+    const capacity = checkinData?.capacityLevel ?? 0;
+    const clearlyPositive =
+        presence >= 7 &&
+        capacity >= 7 &&
+        (analysis.emotionalState === 'positive' || analysis.emotionalState === 'balanced') &&
+        analysis.presenceState === 'high' &&
+        analysis.capacityState === 'high';
+
+    if (analysis.needsSupport && clearlyPositive) {
+        analysis.needsSupport = false;
+    }
+
+    // Conversely, flag when data shows distress but AI missed it
+    const clearlyDistressed =
+        (presence <= 3 || capacity <= 3) &&
+        (analysis.emotionalState === 'challenging' || analysis.emotionalState === 'depleted');
+
+    if (!analysis.needsSupport && clearlyDistressed) {
+        analysis.needsSupport = true;
+    }
+
     // Ensure confidence is a number
     analysis.confidence = typeof analysis.confidence === 'number'
         ? Math.min(100, Math.max(0, analysis.confidence))
