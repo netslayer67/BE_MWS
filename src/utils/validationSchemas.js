@@ -217,9 +217,10 @@ const emotionalCheckinSchema = Joi.object({
 // Query parameter validation
 const paginationSchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(100).default(10),
+    limit: Joi.number().integer().min(1).max(200).default(10),
     sortBy: Joi.string().valid('date', 'createdAt', 'presenceLevel').default('date'),
-    sortOrder: Joi.string().valid('asc', 'desc').default('desc')
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    userId: Joi.string().optional()
 });
 
 const dateRangeSchema = Joi.object({
