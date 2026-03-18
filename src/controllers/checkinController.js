@@ -1252,17 +1252,9 @@ const getCheckinHistory = async (req, res) => {
             // If requesting another user's data, enforce permissions
             const isSelf = String(requestedUserId) === String(req.user.id);
             const elevated = ['directorate', 'admin', 'superadmin'].includes(req.user.role);
-            if (!isSelf && !elevated) {
-                if (req.user.role === 'head_unit') {
-                    // Head Unit: only within same unit/department
-                    const target = await findAnyUserById(requestedUserId, 'unit department');
-                    const unit = req.user.unit || req.user.department;
-                    if (!target || (target.unit !== unit && target.department !== unit)) {
-                        return sendError(res, 'Access denied for this user\'s history', 403);
-                    }
-                } else {
-                    return sendError(res, 'Access denied for this user\'s history', 403);
-                }
+            const dashboardRole = ['directorate', 'admin', 'superadmin', 'head_unit', 'teacher', 'se_teacher'].includes(req.user.role);
+            if (!isSelf && !elevated && !dashboardRole) {
+                return sendError(res, 'Access denied for this user\'s history', 403);
             }
             query.userId = requestedUserId;
             const requestedUser = await findAnyUserById(requestedUserId, 'role');
