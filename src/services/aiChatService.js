@@ -195,6 +195,11 @@ class AIChatService {
         return ['head_unit', 'principal'].includes(normalizedRole);
     }
 
+    isDirectorateRole(role = '') {
+        const normalizedRole = this.normalizeRole(role);
+        return ['directorate', 'admin', 'superadmin'].includes(normalizedRole);
+    }
+
     isKindergartenContext(context = {}) {
         const unit = String(context?.actor?.unit || context?.actor?.department || '').toLowerCase();
         if (unit.includes('kindergarten')) return true;
@@ -1013,6 +1018,79 @@ class AIChatService {
         summary.uniqueMentors = mentorSet.size;
         summary.uniqueStudents = studentSet.size;
         return summary;
+    }
+
+    /**
+     * Cross-unit breakdown for Directorate view.
+     * Groups assignments by mentor's unit and produces per-unit health metrics.
+     * Requires assignments to be populated with mentorId.unit (via .populate('mentorId', 'unit department name')).
+     */
+    buildCrossUnitSnapshot(assignments = []) {
+        const rows = Array.isArray(assignments) ? assignments : [];
+        const unitMap = {};
+        const overdueThresholdDays = 10;
+
+        rows.forEach((assignment = {}) => {
+            const mentorUnit = String(
+                assignment?.mentorId?.unit ||
+                assignment?.mentorId?.department ||
+                'Unassigned'
+            ).trim();
+
+            if (!unitMap[mentorUnit]) {
+                unitMap[mentorUnit] = {
+                    unit: mentorUnit,
+                    totalAssignments: 0,
+                    activeAssignments: 0,
+                    tier3Assignments: 0,
+                    overdueAssignments: 0,
+                    mentorSet: new Set(),
+                    studentSet: new Set()
+                };
+            }
+
+            const snap = unitMap[mentorUnit];
+            snap.totalAssignments += 1;
+
+            const status = String(assignment.status || 'active').toLowerCase();
+            if (status === 'active') snap.activeAssignments += 1;
+
+            const tierCode = this.normalizeTierCode(assignment.tier || 'tier2');
+            if (tierCode === 'tier3') snap.tier3Assignments += 1;
+
+            const mentorId = String(assignment?.mentorId?._id || assignment?.mentorId || '').trim();
+            if (mentorId) snap.mentorSet.add(mentorId);
+
+            const studentIds = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+            studentIds.forEach((entry) => {
+                const key = String(entry?._id || entry || '').trim();
+                if (key) snap.studentSet.add(key);
+            });
+
+            const checkIns = Array.isArray(assignment.checkIns) ? assignment.checkIns : [];
+            const latestCheckInDate = checkIns.length > 0
+                ? checkIns[checkIns.length - 1]?.date
+                : assignment.lastPlanUpdatedAt || assignment.updatedAt || assignment.createdAt;
+            const daysSince = this.getDaysSince(latestCheckInDate);
+            if (
+                (status === 'active' || status === 'paused') &&
+                (daysSince === null || daysSince >= overdueThresholdDays)
+            ) {
+                snap.overdueAssignments += 1;
+            }
+        });
+
+        return Object.values(unitMap)
+            .map((snap) => ({
+                unit: snap.unit,
+                totalAssignments: snap.totalAssignments,
+                activeAssignments: snap.activeAssignments,
+                tier3Assignments: snap.tier3Assignments,
+                overdueAssignments: snap.overdueAssignments,
+                uniqueMentors: snap.mentorSet.size,
+                uniqueStudents: snap.studentSet.size
+            }))
+            .sort((a, b) => b.activeAssignments - a.activeAssignments);
     }
 
     toShortDate(dateValue, locale = 'en-GB') {
@@ -4064,6 +4142,9 @@ ${teacherLines}`;
 
             const isMentorRole = this.isMtssCapableWorkforceRole(normalizedRole);
             const isLeadershipRole = this.isLeadershipRole(normalizedRole);
+            const isDirectorate = this.isDirectorateRole(normalizedRole);
+            const isPrincipalLike = this.isPrincipalLikeRole(normalizedRole);
+
             const mentorAssignmentsPromise = isMentorRole
                 ? MentorAssignment.find({
                     mentorId: userId,
@@ -4074,15 +4155,40 @@ ${teacherLines}`;
                     .populate('studentIds', 'name nickname currentGrade className tags')
                     .lean()
                 : Promise.resolve([]);
-            const leadershipAssignmentsPromise = isLeadershipRole
-                ? MentorAssignment.find({
-                    status: { $in: ['active', 'paused', 'completed', 'closed'] }
-                })
-                    .sort({ updatedAt: -1 })
-                    .limit(220)
-                    .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
-                    .lean()
-                : Promise.resolve([]);
+
+            // Leadership assignment scope:
+            // - head_unit / principal → only their unit's mentors (true unit-scope)
+            // - directorate / admin / superadmin → all org assignments with mentor.unit populated
+            //   so we can produce a cross-unit breakdown table
+            let leadershipAssignmentsPromise = Promise.resolve([]);
+            if (isLeadershipRole) {
+                if (isPrincipalLike && user.unit) {
+                    // First resolve which users belong to this unit, then query their assignments
+                    const unitUserDocs = await User.find({ unit: user.unit, isActive: { $ne: false } })
+                        .select('_id').lean();
+                    const unitMentorIds = unitUserDocs.map((u) => u._id);
+                    leadershipAssignmentsPromise = unitMentorIds.length > 0
+                        ? MentorAssignment.find({
+                            mentorId: { $in: unitMentorIds },
+                            status: { $in: ['active', 'paused', 'completed', 'closed'] }
+                        })
+                            .sort({ updatedAt: -1 })
+                            .limit(150)
+                            .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
+                            .lean()
+                        : Promise.resolve([]);
+                } else {
+                    // Directorate: all assignments — populate mentorId.unit for cross-unit grouping
+                    leadershipAssignmentsPromise = MentorAssignment.find({
+                        status: { $in: ['active', 'paused', 'completed', 'closed'] }
+                    })
+                        .sort({ updatedAt: -1 })
+                        .limit(400)
+                        .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
+                        .populate('mentorId', 'unit department name')
+                        .lean();
+                }
+            }
 
             const [recentCheckIns, mentorAssignments, leadershipAssignments] = await Promise.all([
                 recentCheckInsPromise,
@@ -4120,6 +4226,10 @@ ${teacherLines}`;
                 : [];
             const leadershipSnapshot = isLeadershipRole
                 ? this.buildLeadershipSnapshot(leadershipAssignments)
+                : null;
+            // Cross-unit breakdown only for directorate — groups by each mentor's unit
+            const crossUnitSnapshot = isDirectorate
+                ? this.buildCrossUnitSnapshot(leadershipAssignments)
                 : null;
 
             const context = {
@@ -4177,7 +4287,8 @@ ${teacherLines}`;
                     flaggedSelfCheckins,
                     assignmentsByTier,
                     enrichedAssignments,
-                    leadershipSnapshot
+                    leadershipSnapshot,
+                    crossUnitSnapshot
                 },
                 assistant: this.buildDefaultAssistantRuntime(userId),
                 emotional: {
@@ -4818,9 +4929,49 @@ ${kindergartenCapabilities}${standardCapabilities}`;
         const role = this.normalizeRole(context?.actor?.role || '');
         const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(role);
         const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
+        const crossUnitSnapshot = Array.isArray(context?.workforce?.crossUnitSnapshot) ? context.workforce.crossUnitSnapshot : [];
         const isKindergarten = this.isKindergartenContext(context);
+        const isDirectorateScope = this.isDirectorateRole(role);
 
         if (this.isLeadershipRole(role)) {
+            // Directorate gets a dedicated cross-unit strategic playbook
+            if (isDirectorateScope) {
+                const topUnit = crossUnitSnapshot[0];
+                const mostOverdueUnit = crossUnitSnapshot.reduce((a, b) => (b.overdueAssignments > (a?.overdueAssignments || 0) ? b : a), null);
+                const mostTier3Unit = crossUnitSnapshot.reduce((a, b) => (b.tier3Assignments > (a?.tier3Assignments || 0) ? b : a), null);
+                return `
+## Directorate Strategic Playbook (${roleLabel})
+
+You are the AI strategic partner for school-wide decision making. You have access to cross-unit MTSS data across ALL units — Elementary, Junior High, Kindergarten, and Operational/support units.
+
+### Org-Wide MTSS Intelligence:
+- Total active assignments org-wide: ${Number(leadershipSnapshot.activeAssignments || 0)}
+- Total overdue check-ins org-wide: ${Number(leadershipSnapshot.overdueAssignments || 0)}
+- Total tier-3 cases org-wide: ${Number(leadershipSnapshot.tier3Assignments || 0)}
+- Active mentors across org: ${Number(leadershipSnapshot.uniqueMentors || 0)}
+- Students in MTSS coverage: ${Number(leadershipSnapshot.uniqueStudents || 0)}
+${topUnit ? `- Highest-load unit: ${topUnit.unit} (${topUnit.activeAssignments} active)` : ''}
+${mostOverdueUnit && mostOverdueUnit.overdueAssignments > 0 ? `- Most overdue check-ins: ${mostOverdueUnit.unit} (${mostOverdueUnit.overdueAssignments} overdue)` : ''}
+${mostTier3Unit && mostTier3Unit.tier3Assignments > 0 ? `- Most tier-3 cases: ${mostTier3Unit.unit} (${mostTier3Unit.tier3Assignments} cases)` : ''}
+
+### Directorate AI Capabilities:
+1. **Cross-Unit Health Comparison** — Compare all units side by side: active caseload, tier-3 concentration, overdue check-in rates, mentor-to-student ratio.
+2. **At-Risk Unit Early Warning** — Identify which unit has the most concerning combination of overdue + tier-3 metrics and recommend a Head Unit intervention.
+3. **Resource Rebalancing** — "Does any unit lack enough mentors?" — calculate mentor-to-student ratio per unit and surface gaps.
+4. **Org-Wide Tier Movement Report** — Summarize overall tier distribution, progression rate, and identify units where tier-3 is growing.
+5. **Head Unit Accountability Review** — Which units have the highest check-in compliance? Surface patterns without naming individual teachers.
+6. **Strategic Weekly Brief** — Generate a 5-point school-wide MTSS brief for board/leadership meeting: wins, risks, 24-hour actions, weekly goals.
+7. **Policy Compliance View** — Which units have assignments with no check-in in 14+ days? Prioritized escalation list for Head Units.
+
+### Directorate Response Format:
+- For comparison requests: use unit-by-unit breakdown with clear ranking.
+- For risk alerts: Unit name → Key metric → Recommended action for Head Unit.
+- For strategic briefs: 5 bullets maximum — wins first, then risks, then actions.
+- Always tie recommendations to specific unit data from the cross-unit snapshot.
+- Escalation path: Directorate → Head Unit → Teacher/Mentor.
+- End with one school-wide action the Directorate can take today.`;
+            }
+
             if (isKindergarten) {
                 return `
 ## Kindergarten Principal / Head Unit Playbook (${roleLabel})
@@ -4951,11 +5102,36 @@ You are a practical operations assistant.
         const twinSummary = assistantOrchestrator.summarizeTwinForPrompt(context?.twin || null);
         const teacherMtssSection = this.buildTeacherMtssPromptSection(context);
         const rolePlaybookSection = this.buildWorkforceRolePlaybookSection(context);
-        const leadershipLines = this.isLeadershipRole(actor?.role || '')
-            ? `- Unit-level active assignments: ${Number(leadershipSnapshot.activeAssignments || 0)}
+        const isDirectorate = this.isDirectorateRole(actor?.role || '');
+        const crossUnitSnapshot = Array.isArray(workforce?.crossUnitSnapshot) ? workforce.crossUnitSnapshot : [];
+
+        let leadershipLines = '- Leadership metrics are not applicable for this role.';
+        if (this.isLeadershipRole(actor?.role || '')) {
+            if (isDirectorate && crossUnitSnapshot.length > 0) {
+                // Directorate gets org-wide totals + per-unit breakdown
+                const crossUnitTable = crossUnitSnapshot
+                    .map((u) => `  ${u.unit.padEnd(14)} | active: ${String(u.activeAssignments).padStart(3)} | tier-3: ${String(u.tier3Assignments).padStart(2)} | overdue: ${String(u.overdueAssignments).padStart(2)} | mentors: ${u.uniqueMentors} | students: ${u.uniqueStudents}`)
+                    .join('\n');
+                leadershipLines = `- Org-wide active assignments: ${Number(leadershipSnapshot.activeAssignments || 0)}
+- Org-wide overdue check-ins: ${Number(leadershipSnapshot.overdueAssignments || 0)}
+- Org-wide tier-3 cases: ${Number(leadershipSnapshot.tier3Assignments || 0)}
+- Total active mentors across org: ${Number(leadershipSnapshot.uniqueMentors || 0)}
+- Total students covered org-wide: ${Number(leadershipSnapshot.uniqueStudents || 0)}
+
+Cross-unit MTSS breakdown (sorted by activity):
+  Unit           | active |tier-3|overdue|mentors|students
+${crossUnitTable}
+
+Use this cross-unit data to identify which unit has the highest load, most overdue check-ins, or most tier-3 cases. You can compare units, surface at-risk units, and recommend rebalancing strategies.`;
+            } else {
+                // Head unit / principal: scoped to their own unit only
+                leadershipLines = `- Unit-level active assignments (${actor?.unit || 'your unit'}): ${Number(leadershipSnapshot.activeAssignments || 0)}
 - Unit-level overdue check-ins: ${Number(leadershipSnapshot.overdueAssignments || 0)}
-- Unit-level tier-3 cases: ${Number(leadershipSnapshot.tier3Assignments || 0)}`
-            : '- Unit-level leadership metrics are not required for this role.';
+- Unit-level tier-3 cases: ${Number(leadershipSnapshot.tier3Assignments || 0)}
+- Active mentors in unit: ${Number(leadershipSnapshot.uniqueMentors || 0)}
+- Students covered in unit: ${Number(leadershipSnapshot.uniqueStudents || 0)}`;
+            }
+        }
 
         const prompt = `You are ${assistantName}, the dedicated personal AI assistant for ${preferredName}.
 You support this user as a professional daily copilot inside MWS IntegraLearn workforce workspace.
