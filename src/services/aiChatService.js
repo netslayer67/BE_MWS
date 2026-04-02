@@ -60,7 +60,11 @@ class AIChatService {
     async runWithSessionLock(lockKey, task) {
         const previous = this.sessionLocks.get(lockKey) || Promise.resolve();
         const next = previous
-            .catch(() => undefined)
+            .catch((prevErr) => {
+                // Log the previous task failure but allow the queue to continue.
+                // Swallowing is intentional: one failed message must not block the session.
+                console.warn(`[SessionLock] Previous task for key "${lockKey}" failed:`, prevErr?.message || prevErr);
+            })
             .then(() => task());
 
         this.sessionLocks.set(lockKey, next);
@@ -3949,13 +3953,15 @@ ${teacherLines}`;
                         intervention => intervention.status === 'active' || intervention.status === 'monitoring'
                     );
 
-                    // Get mentor assignments
+                    // Get mentor assignments — populate both mentorId and studentIds so
+                    // buildMtssRichStudentContext can access student names, grades, class
                     mentorAssignments = await MentorAssignment.find({
                         studentIds: mtssProfile._id,
                         status: { $in: ['active', 'paused'] }
                     })
-                        .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId')
+                        .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId studentIds')
                         .populate('mentorId', 'name username nickname gender email role')
+                        .populate('studentIds', 'name nickname currentGrade className tags')
                         .lean();
 
                     assignmentSnapshot = this.buildAssignmentSnapshot(mentorAssignments);
@@ -4436,13 +4442,16 @@ ${teacherLines}`;
         // Determine trend (improving, declining, stable)
         let trend = 'stable';
         if (presenceLevels.length >= 2) {
-            const firstHalf = presenceLevels.slice(0, Math.ceil(presenceLevels.length / 2));
-            const secondHalf = presenceLevels.slice(Math.ceil(presenceLevels.length / 2));
-            const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
-            const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
-
-            if (avgSecond > avgFirst + 1) trend = 'improving';
-            else if (avgSecond < avgFirst - 1) trend = 'declining';
+            const splitIdx = Math.ceil(presenceLevels.length / 2);
+            const firstHalf = presenceLevels.slice(0, splitIdx);
+            const secondHalf = presenceLevels.slice(splitIdx);
+            // Defensive: secondHalf.length should always be >= 1 given length >= 2, but guard anyway
+            if (firstHalf.length > 0 && secondHalf.length > 0) {
+                const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+                const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+                if (avgSecond > avgFirst + 1) trend = 'improving';
+                else if (avgSecond < avgFirst - 1) trend = 'declining';
+            }
         }
 
         // Count mood frequencies
@@ -4509,24 +4518,31 @@ ${teacherLines}`;
             return { percentage: 0, trend: 'new' };
         }
 
-        const recentCheckIns = assignment.checkIns.slice(-3);
+        const recentCheckIns = Array.isArray(assignment.checkIns) ? assignment.checkIns.slice(-3) : [];
         if (recentCheckIns.length < 2) {
             return { percentage: 10, trend: 'starting' };
         }
 
         // Calculate trend based on values
-        const values = recentCheckIns.map(c => c.value).filter(v => typeof v === 'number');
+        const values = recentCheckIns.map(c => c.value).filter(v => typeof v === 'number' && Number.isFinite(v));
         if (values.length >= 2) {
             const firstVal = values[0];
             const lastVal = values[values.length - 1];
-            const baseline = assignment.baselineScore?.value || firstVal;
-            const target = assignment.targetScore?.value || (baseline * 1.2);
-
-            const progress = ((lastVal - baseline) / (target - baseline)) * 100;
-            const percentage = Math.max(0, Math.min(100, Math.round(progress)));
-
+            // Use != null so baseline/target of 0 are preserved (not treated as falsy)
+            const baseline = assignment.baselineScore?.value != null ? Number(assignment.baselineScore.value) : firstVal;
+            const rawTarget = assignment.targetScore?.value != null ? Number(assignment.targetScore.value) : null;
+            // Fallback: +20% OR +5 points (handles baseline === 0 edge case)
+            const target = rawTarget != null ? rawTarget : baseline + Math.max(baseline * 0.2, 5);
+            const denom = target - baseline;
             const trend = lastVal > firstVal ? 'improving' : lastVal < firstVal ? 'declining' : 'stable';
 
+            if (denom === 0) {
+                // Cannot calculate ratio — baseline equals target; treat as stable 50%
+                return { percentage: 50, trend };
+            }
+
+            const progress = ((lastVal - baseline) / denom) * 100;
+            const percentage = Math.max(0, Math.min(100, Math.round(progress)));
             return { percentage, trend };
         }
 
@@ -5786,7 +5802,12 @@ Critical language requirement:
         });
 
         const evidenceFromPayload = this.sanitizeEvidenceList(payload.evidence || []);
-        const evidenceFromUpload = await this.uploadEvidenceCandidates(payload);
+        let evidenceFromUpload = [];
+        try {
+            evidenceFromUpload = await this.uploadEvidenceCandidates(payload);
+        } catch (uploadErr) {
+            console.warn('[AI Automation] Tier review evidence upload failed — proceeding without uploaded files:', uploadErr?.message);
+        }
         const mergedEvidence = this.sanitizeEvidenceList([...evidenceFromPayload, ...evidenceFromUpload]).slice(0, this.maxAutomationEvidenceFiles);
 
         const currentTier = this.normalizeTierCode(payload.currentTier || assignment.tier || 'tier2');
@@ -6223,7 +6244,12 @@ Critical language requirement:
             throw new Error('summary is required for progress check-in.');
         }
 
-        const uploadedEvidence = await this.uploadEvidenceCandidates(payload);
+        let uploadedEvidence = [];
+        try {
+            uploadedEvidence = await this.uploadEvidenceCandidates(payload);
+        } catch (uploadErr) {
+            console.warn('[AI Automation] Evidence upload failed — proceeding without uploaded files:', uploadErr?.message);
+        }
         const mergedEvidence = this.sanitizeEvidenceList([
             ...(payload.evidence || []),
             ...uploadedEvidence
@@ -6655,6 +6681,7 @@ Critical language requirement:
 
         const summary = String(payload.summary || '').trim();
         if (summary) {
+            if (!Array.isArray(assignment.checkIns)) assignment.checkIns = [];
             assignment.checkIns.push(this.sanitizeCheckInForOperation({
                 summary,
                 nextSteps: payload.nextSteps,
@@ -6841,7 +6868,12 @@ Critical language requirement:
             });
         }
 
-        const evidence = await this.uploadEvidenceCandidates(payload);
+        let evidence = [];
+        try {
+            evidence = await this.uploadEvidenceCandidates(payload);
+        } catch (uploadErr) {
+            throw new Error(`Evidence upload failed: ${uploadErr?.message || 'Unknown upload error'}`);
+        }
         if (!Array.isArray(evidence) || evidence.length === 0) {
             throw new Error('At least one evidence file/url is required.');
         }
