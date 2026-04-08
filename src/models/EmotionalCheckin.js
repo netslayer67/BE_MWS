@@ -6,6 +6,48 @@ const emotionalCheckinSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    legacyResolvedUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    legacyResolutionSource: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
+    legacyResolutionConfidence: {
+        type: String,
+        enum: ['low', 'medium', 'high']
+    },
+    legacyResolvedAt: {
+        type: Date
+    },
+    userNameSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 160
+    },
+    userEmailSnapshot: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        maxlength: 160
+    },
+    userRoleSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 60
+    },
+    userDepartmentSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
+    userUnitSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
     date: {
         type: Date,
         default: Date.now,
@@ -210,6 +252,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
 
 // Indexes for performance
 emotionalCheckinSchema.index({ userId: 1, date: -1 });
+emotionalCheckinSchema.index({ legacyResolvedUserId: 1, date: -1 });
 emotionalCheckinSchema.index({ date: -1 });
 emotionalCheckinSchema.index({ 'aiAnalysis.needsSupport': 1 });
 

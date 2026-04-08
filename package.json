@@ -18,6 +18,8 @@
     "seed": "node src/scripts/seedUsersFromData.js",
     "sync:users:latest": "node src/scripts/syncLatestUserRoster.js --apply",
     "sync:users:latest:dry": "node src/scripts/syncLatestUserRoster.js",
+    "sync:legacy-checkins": "node src/scripts/syncLegacyCheckinUsers.js --apply",
+    "sync:legacy-checkins:dry": "node src/scripts/syncLegacyCheckinUsers.js",
     "cleanup:mtss:orphan-assignments": "node src/scripts/cleanupOrphanMentorAssignments.js --apply",
     "cleanup:mtss:orphan-assignments:dry": "node src/scripts/cleanupOrphanMentorAssignments.js",
     "seed:mtss": "node src/scripts/seedMtssData.js",

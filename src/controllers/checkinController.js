@@ -3,6 +3,7 @@ const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const EmotionalCheckin = require('../models/EmotionalCheckin');
 const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+const { buildCheckinUserSnapshot } = require('../utils/checkinIdentity');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const STUDENT_DAILY_LIMIT_PER_TYPE = 2;
@@ -845,6 +846,7 @@ const submitCheckin = async (req, res) => {
 
         const checkinData = {
             userId: req.user.id,
+            ...buildCheckinUserSnapshot(req.user),
             weatherType: req.body.weatherType,
             selectedMoods: req.body.selectedMoods,
             details: req.body.details,
@@ -1833,6 +1835,7 @@ const submitAICheckin = async (req, res) => {
 
         const checkinData = {
             userId: req.user.id,
+            ...buildCheckinUserSnapshot(req.user),
             weatherType: parsedBody.weatherType || 'partly-cloudy', // AI-detected weather - allow any value
             selectedMoods: parsedBody.selectedMoods || [], // AI-detected moods - allow any values
             details: parsedBody.details || '',

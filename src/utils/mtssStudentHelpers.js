@@ -30,6 +30,7 @@ const defaultProfile = {
     tier: 'Tier 1',
     progress: 'Not Assigned',
     nextUpdate: 'Not scheduled',
+    lastUpdate: null,
     assignmentCount: 0,
     activeAssignmentCount: 0,
     lastAssignmentAt: null,
@@ -142,6 +143,42 @@ const deriveFocusArea = (assignment = {}) => {
     }
     if (assignment.tier === 'tier3') return 'Intensive Support';
     return 'Literacy & SEL';
+};
+
+const toIsoDate = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+};
+
+const pickLatestUpdateMeta = (current, candidate) => {
+    const candidateAt = toIsoDate(candidate?.at);
+    if (!candidateAt) return current || null;
+
+    if (!current?.at) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || null
+        };
+    }
+
+    const currentAt = toIsoDate(current.at);
+    if (!currentAt) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || null
+        };
+    }
+
+    if (new Date(candidateAt) >= new Date(currentAt)) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || current.subject || null
+        };
+    }
+
+    return current;
 };
 
 const inferProgressUnit = (assignment = {}) => {
@@ -306,7 +343,8 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
             const currentStats = statsMap.get(key) || {
                 assignmentCount: 0,
                 activeAssignmentCount: 0,
-                lastAssignmentAt: null
+                lastAssignmentAt: null,
+                lastUpdate: null
             };
             currentStats.assignmentCount += 1;
             if (assignment.status === 'active') {
@@ -316,6 +354,10 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
                 currentStats.lastAssignmentAt,
                 assignment.updatedAt || assignment.endDate || assignment.startDate
             );
+            currentStats.lastUpdate = pickLatestUpdateMeta(currentStats.lastUpdate, {
+                at: assignment.updatedAt || assignment.startDate || assignment.createdAt || null,
+                subject: deriveFocusArea(assignment) || assignment.strategyName || assignment.monitoringMethod || null
+            });
             statsMap.set(key, currentStats);
 
             const tierLabel = mapTierLabel(assignment.tier);
@@ -354,6 +396,7 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
         summary.assignmentCount = stats.assignmentCount;
         summary.activeAssignmentCount = stats.activeAssignmentCount;
         summary.lastAssignmentAt = stats.lastAssignmentAt;
+        summary.lastUpdate = stats.lastUpdate || null;
     });
 
     return summaryMap;
@@ -479,6 +522,8 @@ const formatRosterStudent = (studentDoc, summary) => {
         progress: support.progress,
 
         nextUpdate: support.nextUpdate,
+
+        lastUpdate: support.lastUpdate || null,
 
         assignmentCount: support.assignmentCount ?? 0,
 
