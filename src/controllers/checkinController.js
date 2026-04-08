@@ -121,6 +121,13 @@ const normalizeTextValue = (value) => (typeof value === 'string' ? value.trim().
 
 const normalizeSpaces = (value = '') => value.replace(/\s+/g, ' ').trim();
 
+const normalizeReflectionPayload = (payload = {}) => {
+    if (!payload || typeof payload !== 'object') return '';
+    const explicitReflection = typeof payload.userReflection === 'string' ? normalizeSpaces(payload.userReflection) : '';
+    if (explicitReflection) return explicitReflection;
+    return typeof payload.details === 'string' ? normalizeSpaces(payload.details) : '';
+};
+
 const normalizeGradeValue = (value) => {
     const normalized = normalizeSpaces(normalizeTextValue(value));
     if (!normalized) return '';
@@ -1832,13 +1839,15 @@ const submitAICheckin = async (req, res) => {
         }
 
         console.log('📋 Final parsed body for AI check-in:', parsedBody);
+        const submittedReflection = normalizeReflectionPayload(parsedBody);
 
         const checkinData = {
             userId: req.user.id,
             ...buildCheckinUserSnapshot(req.user),
             weatherType: parsedBody.weatherType || 'partly-cloudy', // AI-detected weather - allow any value
             selectedMoods: parsedBody.selectedMoods || [], // AI-detected moods - allow any values
-            details: parsedBody.details || '',
+            details: submittedReflection,
+            userReflection: submittedReflection,
             presenceLevel: parsedBody.presenceLevel || 7,
             capacityLevel: parsedBody.capacityLevel || 7,
             supportContactUserId,
@@ -1870,6 +1879,7 @@ const submitAICheckin = async (req, res) => {
         console.log('✅ Final checkinData for AI scan:', {
             weatherType: checkinData.weatherType,
             selectedMoods: checkinData.selectedMoods,
+            userReflection: checkinData.userReflection,
             presenceLevel: checkinData.presenceLevel,
             capacityLevel: checkinData.capacityLevel,
             supportContactUserId: checkinData.supportContactUserId

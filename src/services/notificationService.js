@@ -501,7 +501,7 @@ class NotificationService {
             if (dmResult.ok) {
                 console.log(`✅ Slack notification sent successfully to ${supportContactName} (${supportContactEmail})`);
                 console.log(`📨 Message timestamp: ${dmResult.ts}`);
-                return { success: true, messageId: dmResult.ts };
+                return { success: true, messageId: dmResult.ts, deliveredTo: supportContactEmail };
             } else {
                 console.error(`❌ Slack API returned error:`, dmResult.error);
                 return { success: false, error: dmResult.error };
@@ -789,7 +789,7 @@ class NotificationService {
             );
 
             console.log(`✅ Enhanced email notification sent to ${supportContactName} (${supportContactEmail})`);
-            return { success: true };
+            return { success: true, deliveredTo: supportContactEmail };
 
         } catch (error) {
             console.error('❌ Email notification error:', error);
@@ -816,10 +816,13 @@ class NotificationService {
 
         try {
             // Send Slack notification if contact email is available
+            let slackSent = false;
+
             if (contactEmail) {
                 const slackUser = await this.slack.findUserByEmail(contactEmail);
                 if (slackUser) {
                     await this.slack.sendDirectMessage(slackUser.id, message, blocks);
+                    slackSent = true;
                     console.log(`Slack notification sent to ${contactName} (${contactEmail})`);
                 } else {
                     console.log(`Slack user not found for ${contactEmail}, skipping Slack notification`);
@@ -835,7 +838,7 @@ class NotificationService {
             );
             console.log(`Email notification sent to ${contactName} (${contactEmail})`);
 
-            return { success: true, slackSent: !!slackUser, emailSent: true };
+            return { success: true, slackSent, emailSent: true, deliveredTo: contactEmail };
 
         } catch (error) {
             console.error('Notification send error:', error);
