@@ -128,6 +128,124 @@ const normalizeReflectionPayload = (payload = {}) => {
     return typeof payload.details === 'string' ? normalizeSpaces(payload.details) : '';
 };
 
+const normalizeStateValue = (value, allowedValues = []) => {
+    const normalized = normalizeTextValue(value);
+    return allowedValues.includes(normalized) ? normalized : null;
+};
+
+const normalizePreparedAiAnalysis = (payload = {}) => {
+    const prepared = payload?.preparedAiAnalysis;
+    if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
+        return null;
+    }
+
+    const emotionalState = normalizeStateValue(prepared.emotionalState, ['positive', 'challenging', 'balanced', 'depleted']);
+    const presenceState = normalizeStateValue(prepared.presenceState, ['high', 'moderate', 'low']);
+    const capacityState = normalizeStateValue(prepared.capacityState, ['high', 'moderate', 'low']);
+
+    if (!emotionalState || !presenceState || !capacityState) {
+        return null;
+    }
+
+    const recommendations = Array.isArray(prepared.recommendations)
+        ? prepared.recommendations
+            .filter((rec) => rec && typeof rec === 'object')
+            .slice(0, 10)
+            .map((rec) => ({
+                title: normalizeSpaces(String(rec.title || 'Supportive next step')).slice(0, 120),
+                description: normalizeSpaces(String(rec.description || '')).slice(0, 1000),
+                priority: normalizeStateValue(rec.priority, ['high', 'medium', 'low']) || 'medium',
+                category: normalizeSpaces(String(rec.category || 'support')).slice(0, 80)
+            }))
+            .filter((rec) => rec.title)
+        : [];
+
+    const confidence = Number(prepared.confidence);
+    const processingTime = Number(prepared.processingTime);
+
+    return {
+        emotionalState,
+        presenceState,
+        capacityState,
+        recommendations,
+        psychologicalInsights: normalizeSpaces(String(prepared.psychologicalInsights || '')).slice(0, 4000),
+        motivationalMessage: normalizeSpaces(String(prepared.motivationalMessage || '')).slice(0, 4000),
+        needsSupport: Boolean(prepared.needsSupport),
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, confidence)) : 75,
+        processingTime: Number.isFinite(processingTime) ? Math.max(0, processingTime) : 0
+    };
+};
+
+const queueSupportNotifications = ({
+    notificationService,
+    checkin,
+    user,
+    supportContact,
+    includeSupportRequestNotification = false,
+    logLabel = 'check-in'
+}) => {
+    if (!notificationService || !checkin?.supportContactUserId || !user || !supportContact) {
+        return;
+    }
+
+    const notificationPayload = {
+        userName: user.name,
+        userRole: user.role,
+        userDepartment: user.department,
+        supportContactName: supportContact.name,
+        supportContactEmail: supportContact.email,
+        weatherType: checkin.weatherType,
+        presenceLevel: checkin.presenceLevel,
+        capacityLevel: checkin.capacityLevel,
+        selectedMoods: checkin.selectedMoods,
+        details: checkin.details,
+        aiAnalysis: checkin.aiAnalysis,
+        checkinId: checkin._id.toString()
+    };
+
+    setImmediate(async () => {
+        try {
+            console.log(`🔔 Background support notifications started for ${logLabel}:`, checkin.userId);
+
+            if (includeSupportRequestNotification) {
+                try {
+                    await notificationService.createSupportRequestNotification(checkin.userId, {
+                        supportContactName: supportContact.name,
+                        supportContactEmail: supportContact.email,
+                        weatherType: checkin.weatherType,
+                        presenceLevel: checkin.presenceLevel,
+                        capacityLevel: checkin.capacityLevel,
+                        checkinId: checkin._id.toString()
+                    });
+                } catch (notificationError) {
+                    console.error('❌ Failed to create support request notification:', notificationError);
+                }
+            }
+
+            const [slackResult, emailResult] = await Promise.allSettled([
+                notificationService.sendSlackNotification(notificationPayload),
+                notificationService.sendEmailNotification(notificationPayload)
+            ]);
+
+            if (slackResult.status === 'rejected') {
+                console.error('❌ Slack notification failed:', slackResult.reason?.message || slackResult.reason);
+            } else if (slackResult.value?.success === false) {
+                console.error('❌ Slack notification failed:', slackResult.value.error);
+            }
+
+            if (emailResult.status === 'rejected') {
+                console.error('❌ Email notification failed:', emailResult.reason?.message || emailResult.reason);
+            } else if (emailResult.value?.success === false) {
+                console.error('❌ Email notification failed:', emailResult.value.error);
+            }
+
+            console.log(`✅ Background support notifications finished for ${logLabel}`);
+        } catch (error) {
+            console.error(`❌ Background support notifications crashed for ${logLabel}:`, error);
+        }
+    });
+};
+
 const normalizeGradeValue = (value) => {
     const normalized = normalizeSpaces(normalizeTextValue(value));
     if (!normalized) return '';
@@ -929,13 +1047,10 @@ const submitCheckin = async (req, res) => {
         });
 
         await checkin.save();
-
-        // Populate support contact details if exists
-        let populatedCheckin = checkin;
-        if (checkin.supportContactUserId) {
-            populatedCheckin = await CheckinModel.findById(checkin._id)
-                .populate('supportContactUserId', 'name role department');
-        }
+        const responseUser = await findAnyUserById(checkin.userId, 'name role department');
+        const supportContact = checkin.supportContactUserId
+            ? await User.findById(checkin.supportContactUserId).select('name email role department')
+            : null;
 
         // Emit real-time update for dashboard and invalidate cache
         const io = require('../config/socket').getIO();
@@ -944,14 +1059,11 @@ const submitCheckin = async (req, res) => {
         cacheService.invalidateDashboardCache();
 
         if (io) {
-            // Get user name for notification
-            const user = await findAnyUserById(checkin.userId, 'name');
-
             // Emit to all dashboard clients
             io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
-                userName: user?.name || 'Unknown User',
+                userName: responseUser?.name || 'Unknown User',
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
@@ -972,117 +1084,22 @@ const submitCheckin = async (req, res) => {
             });
         }
 
-        // Send notifications if user has selected a support contact (regardless of AI analysis)
-        if (checkin.supportContactUserId) {
-            try {
-                console.log('🔔 Sending support notifications for user:', checkin.userId);
-                console.log('📧 Support contact ID:', checkin.supportContactUserId);
-                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
-
-                // Get user details
-                const user = await findAnyUserById(checkin.userId, 'name role department');
-                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
-
-                console.log('👤 User details:', { name: user?.name, role: user?.role, department: user?.department });
-                console.log('🎯 Support contact details:', { name: supportContact?.name, email: supportContact?.email, role: supportContact?.role });
-
-                if (user && supportContact) {
-                    console.log('✅ Both user and support contact found, proceeding with notifications');
-
-                    // Create notification for support request
-                    try {
-                        await notificationService.createSupportRequestNotification(checkin.userId, {
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Support request notification created');
-                    } catch (notificationError) {
-                        console.error('❌ Failed to create support request notification:', notificationError);
-                        // Don't fail the check-in if notification creation fails
-                    }
-
-                    // Send Slack notification
-                    try {
-                        console.log('📱 Attempting to send Slack notification...');
-                        await notificationService.sendSlackNotification({
-                            userName: user.name,
-                            userRole: user.role,
-                            userDepartment: user.department,
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            selectedMoods: checkin.selectedMoods,
-                            details: checkin.details,
-                            aiAnalysis: checkin.aiAnalysis,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Slack notification sent successfully');
-                    } catch (slackError) {
-                        console.error('❌ Slack notification failed:', slackError.message);
-                    }
-
-                    // Send email notification
-                    try {
-                        console.log('📧 Attempting to send email notification...');
-                        await notificationService.sendEmailNotification({
-                            userName: user.name,
-                            userRole: user.role,
-                            userDepartment: user.department,
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            selectedMoods: checkin.selectedMoods,
-                            details: checkin.details,
-                            aiAnalysis: checkin.aiAnalysis,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Email notification sent successfully');
-                    } catch (emailError) {
-                        console.error('❌ Email notification failed:', emailError.message);
-                    }
-
-                    console.log('✅ Support notifications process completed');
-                } else {
-                    console.log('❌ Missing user or support contact data:', {
-                        hasUser: !!user,
-                        hasSupportContact: !!supportContact
-                    });
-                }
-            } catch (notificationError) {
-                console.error('❌ Failed to send support notifications:', notificationError);
-                // Don't fail the check-in if notifications fail
-            }
-        } else {
-            console.log('ℹ️ Skipping notifications - no support contact selected');
-        }
-
         // Prepare support contact details for response
         let supportContactDetails = null;
-        if (populatedCheckin.supportContactUserId) {
+        if (supportContact) {
             supportContactDetails = {
-                id: populatedCheckin.supportContactUserId._id,
-                name: populatedCheckin.supportContactUserId.name,
-                role: populatedCheckin.supportContactUserId.role,
-                department: populatedCheckin.supportContactUserId.department
+                id: supportContact._id,
+                name: supportContact.name,
+                role: supportContact.role,
+                department: supportContact.department
             };
         }
-
-        // Get user name for the response
-        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'Emotional check-in submitted successfully', {
             checkin: {
                 id: checkin._id.toString(),
                 _id: checkin._id.toString(),
-                name: user?.name || 'Staff Member',
+                name: responseUser?.name || 'Staff Member',
                 date: checkin.date,
                 weatherType: checkin.weatherType,
                 selectedMoods: checkin.selectedMoods,
@@ -1094,6 +1111,19 @@ const submitCheckin = async (req, res) => {
                 submittedAt: checkin.submittedAt
             }
         }, 201);
+
+        if (checkin.supportContactUserId && responseUser && supportContact) {
+            queueSupportNotifications({
+                notificationService,
+                checkin,
+                user: responseUser,
+                supportContact,
+                includeSupportRequestNotification: true,
+                logLabel: 'manual check-in'
+            });
+        } else if (!checkin.supportContactUserId) {
+            console.log('ℹ️ Skipping notifications - no support contact selected');
+        }
 
     } catch (error) {
         console.error('Submit check-in error:', error);
@@ -1582,12 +1612,15 @@ const analyzeEmotion = async (req, res) => {
 
         console.log('??? Received image for emotion analysis, size:', req.file.size);
 
-        if (!req.file.path) {
-            return res.status(400).json({ success: false, message: 'No image file path provided' });
+        const imageBuffer = Buffer.isBuffer(req.file.buffer)
+            ? req.file.buffer
+            : (req.file.path ? fs.readFileSync(req.file.path) : null);
+
+        if (!imageBuffer) {
+            return res.status(400).json({ success: false, message: 'No image data provided' });
         }
 
-        const fsData = fs.readFileSync(req.file.path);
-        const base64Image = fsData.toString('base64');
+        const base64Image = imageBuffer.toString('base64');
 
         const analysisPrompt = `Analyze this facial image and return ONLY a valid JSON object with emotion analysis:
 
@@ -1621,7 +1654,9 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             usedFallback = true;
             fallbackMessage = 'AI vision service hit a quota wall. Providing supportive insights instead—Manual Check-in remains available.';
             emotionResult = buildVisionFallbackResult();
-            try { fs.unlinkSync(req.file.path); } catch (_) {}
+            if (req.file.path) {
+                try { fs.unlinkSync(req.file.path); } catch (_) {}
+            }
             return sendSuccess(res, 'Emotion analysis fallback used', {
                 emotionResult,
                 fallback: true,
@@ -1676,10 +1711,12 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             }
         }
 
-        try {
-            fs.unlinkSync(req.file.path);
-        } catch (cleanupErr) {
-            console.warn('Could not clean up temp file:', cleanupErr.message);
+        if (req.file.path) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (cleanupErr) {
+                console.warn('Could not clean up temp file:', cleanupErr.message);
+            }
         }
 
         const payload = { emotionResult };
@@ -1840,6 +1877,7 @@ const submitAICheckin = async (req, res) => {
 
         console.log('📋 Final parsed body for AI check-in:', parsedBody);
         const submittedReflection = normalizeReflectionPayload(parsedBody);
+        const preparedAiAnalysis = normalizePreparedAiAnalysis(parsedBody);
 
         const checkinData = {
             userId: req.user.id,
@@ -1885,25 +1923,27 @@ const submitAICheckin = async (req, res) => {
             supportContactUserId: checkinData.supportContactUserId
         });
 
-        // Use existing AI analysis service for consistency (100% AI-generated, no fallbacks)
-        console.log('🤖 Starting AI analysis for AI check-in...');
-        let aiAnalysis;
-        try {
-            // Add user role to checkinData for context-aware AI analysis
-            const enhancedCheckinData = {
-                ...checkinData,
-                userRole: req.user.role
-            };
-            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
-            console.log('✅ AI analysis completed for AI check-in');
-        } catch (aiError) {
-            console.error('❌ AI analysis failed for AI check-in:', aiError.message);
-            throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
-        }
+        let aiAnalysis = preparedAiAnalysis;
+        if (aiAnalysis) {
+            console.log('⚡ Using prepared AI analysis from face scan results for AI check-in');
+        } else {
+            // Use existing AI analysis service when no prepared result is available
+            console.log('🤖 Starting AI analysis for AI check-in...');
+            try {
+                const enhancedCheckinData = {
+                    ...checkinData,
+                    userRole: req.user.role
+                };
+                aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
+                console.log('✅ AI analysis completed for AI check-in');
+            } catch (aiError) {
+                console.error('❌ AI analysis failed for AI check-in:', aiError.message);
+                throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+            }
 
-        // Generate personalized greeting
-        const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
-        aiAnalysis.personalizedGreeting = personalizedGreeting;
+            const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
+            aiAnalysis.personalizedGreeting = personalizedGreeting;
+        }
 
         // Create check-in record with AI analysis
         const checkin = new CheckinModel({
@@ -1912,24 +1952,20 @@ const submitAICheckin = async (req, res) => {
         });
 
         await checkin.save();
-
-        // Populate support contact details if exists
-        let populatedCheckin = checkin;
-        if (checkin.supportContactUserId) {
-            populatedCheckin = await CheckinModel.findById(checkin._id)
-                .populate('supportContactUserId', 'name role department');
-        }
+        const responseUser = await findAnyUserById(checkin.userId, 'name role department');
+        const supportContact = checkin.supportContactUserId
+            ? await User.findById(checkin.supportContactUserId).select('name email role department')
+            : null;
 
         // Emit real-time update for dashboard
         const io = require('../config/socket').getIO();
         cacheService.invalidateDashboardCache();
 
         if (io) {
-            const user = await findAnyUserById(checkin.userId, 'name');
             io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
-                userName: user?.name || 'Unknown User',
+                userName: responseUser?.name || 'Unknown User',
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
@@ -1938,77 +1974,22 @@ const submitAICheckin = async (req, res) => {
             });
         }
 
-        // Send notifications if user has selected a support contact (regardless of AI analysis)
-        if (checkin.supportContactUserId) {
-            try {
-                console.log('🔔 Sending support notifications for AI check-in user:', checkin.userId);
-                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
-
-                // Get user details
-                const user = await findAnyUserById(checkin.userId, 'name role department');
-                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
-
-                if (user && supportContact) {
-                    // Send Slack notification
-                    await notificationService.sendSlackNotification({
-                        userName: user.name,
-                        userRole: user.role,
-                        userDepartment: user.department,
-                        supportContactName: supportContact.name,
-                        supportContactEmail: supportContact.email,
-                        weatherType: checkin.weatherType,
-                        presenceLevel: checkin.presenceLevel,
-                        capacityLevel: checkin.capacityLevel,
-                        selectedMoods: checkin.selectedMoods,
-                        details: checkin.details,
-                        aiAnalysis: checkin.aiAnalysis,
-                        checkinId: checkin._id.toString()
-                    });
-
-                    // Send email notification
-                    await notificationService.sendEmailNotification({
-                        userName: user.name,
-                        userRole: user.role,
-                        userDepartment: user.department,
-                        supportContactName: supportContact.name,
-                        supportContactEmail: supportContact.email,
-                        weatherType: checkin.weatherType,
-                        presenceLevel: checkin.presenceLevel,
-                        capacityLevel: checkin.capacityLevel,
-                        selectedMoods: checkin.selectedMoods,
-                        details: checkin.details,
-                        aiAnalysis: checkin.aiAnalysis,
-                        checkinId: checkin._id.toString()
-                    });
-
-                    console.log('✅ Support notifications sent successfully for AI check-in');
-                }
-            } catch (notificationError) {
-                console.error('❌ Failed to send support notifications for AI check-in:', notificationError);
-                // Don't fail the check-in if notifications fail
-            }
-        } else {
-            console.log('ℹ️ Skipping notifications - no support contact selected for AI check-in');
-        }
-
         // Prepare support contact details for response
         let supportContactDetails = null;
-        if (populatedCheckin.supportContactUserId) {
+        if (supportContact) {
             supportContactDetails = {
-                id: populatedCheckin.supportContactUserId._id,
-                name: populatedCheckin.supportContactUserId.name,
-                role: populatedCheckin.supportContactUserId.role,
-                department: populatedCheckin.supportContactUserId.department
+                id: supportContact._id,
+                name: supportContact.name,
+                role: supportContact.role,
+                department: supportContact.department
             };
         }
-
-        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'AI emotion check-in submitted successfully', {
             checkin: {
                 id: checkin._id.toString(),
                 _id: checkin._id.toString(),
-                name: user?.name || 'Staff Member',
+                name: responseUser?.name || 'Staff Member',
                 date: checkin.date,
                 weatherType: checkin.weatherType,
                 selectedMoods: checkin.selectedMoods,
@@ -2020,6 +2001,18 @@ const submitAICheckin = async (req, res) => {
                 submittedAt: checkin.submittedAt
             }
         }, 201);
+
+        if (checkin.supportContactUserId && responseUser && supportContact) {
+            queueSupportNotifications({
+                notificationService,
+                checkin,
+                user: responseUser,
+                supportContact,
+                logLabel: 'AI check-in'
+            });
+        } else if (!checkin.supportContactUserId) {
+            console.log('ℹ️ Skipping notifications - no support contact selected for AI check-in');
+        }
 
     } catch (error) {
         console.error('AI check-in submission error:', error);

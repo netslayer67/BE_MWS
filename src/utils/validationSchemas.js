@@ -211,6 +211,25 @@ const emotionalCheckinSchema = Joi.object({
         temporalAnalysis: Joi.object().optional(),
         emotionalAuthenticity: Joi.object().optional(),
         psychologicalDepth: Joi.object().optional()
+    }).optional(),
+
+    preparedAiAnalysis: Joi.object({
+        emotionalState: Joi.string().valid('positive', 'challenging', 'balanced', 'depleted').required(),
+        presenceState: Joi.string().valid('high', 'moderate', 'low').required(),
+        capacityState: Joi.string().valid('high', 'moderate', 'low').required(),
+        recommendations: Joi.array().items(
+            Joi.object({
+                title: Joi.string().max(120).required(),
+                description: Joi.string().max(1000).allow('').required(),
+                priority: Joi.string().valid('high', 'medium', 'low').optional(),
+                category: Joi.string().max(80).allow('').optional()
+            })
+        ).max(10).optional(),
+        psychologicalInsights: Joi.string().max(4000).allow('').optional(),
+        motivationalMessage: Joi.string().max(4000).allow('').optional(),
+        needsSupport: Joi.boolean().required(),
+        confidence: Joi.number().min(0).max(100).optional(),
+        processingTime: Joi.number().min(0).optional()
     }).optional()
 }).prefs({ abortEarly: false }); // Show all validation errors, not just the first one
 

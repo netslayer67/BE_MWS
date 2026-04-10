@@ -20,7 +20,7 @@ const devTopologyTelemetryService = require('../services/devTopologyTelemetrySer
 
 // Configure multer for image upload with destination
 const upload = multer({
-    dest: 'uploads/', // Specify destination directory
+    storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
@@ -33,8 +33,8 @@ const upload = multer({
 
 // Configure multer for AI submit (handles both form data and JSON)
 const aiUpload = multer({
-    dest: 'uploads/',
-    limits: { fileSize: 5 * 1024 * 1024 },
+    dest: 'uploads/', // Specify destination directory
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);

@@ -2,6 +2,7 @@ const axios = require('axios');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 const { getIO } = require('../config/socket');
+const { buildFrontendUrl } = require('../utils/frontendUrl');
 
 // Slack configuration
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -537,6 +538,10 @@ class NotificationService {
         }
 
         try {
+            const dashboardUrl = buildFrontendUrl('/emotional-checkin/dashboard');
+            const handledUrl = buildFrontendUrl(`/emotional-checkin/dashboard?mode=confirm&requestId=${checkinId}&response=handled`);
+            const acknowledgedUrl = buildFrontendUrl(`/emotional-checkin/dashboard?mode=confirm&requestId=${checkinId}&response=acknowledged`);
+
             // Enhanced weather emoji mapping
             const getWeatherEmoji = (weather) => {
                 const weatherMap = {
@@ -734,21 +739,21 @@ class NotificationService {
                             <!-- Action Buttons -->
                             <div style="text-align: center; margin: 40px 0;">
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard"
+                                    <a href="${dashboardUrl}"
                                        style="background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(0,123,255,0.3);">
                                         📊 View Full Dashboard
                                     </a>
                                 </div>
 
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard?action=confirm&requestId=${checkinId}&action=handled"
+                                    <a href="${handledUrl}"
                                        style="background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(40,167,69,0.3);">
                                         ✅ Mark as Handled
                                     </a>
                                 </div>
 
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard?action=confirm&requestId=${checkinId}&action=acknowledged"
+                                    <a href="${acknowledgedUrl}"
                                        style="background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(255,193,7,0.3);">
                                         👀 Acknowledge
                                     </a>
@@ -899,7 +904,7 @@ class NotificationService {
                             text: "View Details"
                         },
                         style: "primary",
-                        url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard`
+                        url: buildFrontendUrl('/emotional-checkin/dashboard')
                     },
                     {
                         type: "button",
@@ -952,7 +957,7 @@ class NotificationService {
                     </div>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard"
+                        <a href="${buildFrontendUrl('/emotional-checkin/dashboard')}"
                            style="background: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             View Dashboard
                         </a>
@@ -1095,7 +1100,7 @@ class NotificationService {
                     ` : ''}
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-wellness"
+                        <a href="${buildFrontendUrl('/emotional-wellness')}"
                            style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             View My Dashboard
                         </a>

@@ -5,6 +5,7 @@ const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
 const { sendSuccess, sendError } = require('../utils/response');
 const { getEffectiveDashboardRole } = require('../utils/accessControl');
+const { buildFrontendUrl } = require('../utils/frontendUrl');
 const {
     CHECKIN_USER_SELECT,
     buildResolvedUserScopeClause,
@@ -1626,7 +1627,7 @@ const confirmSupportRequest = async (req, res) => {
                                 </div>
                                 ` : ''}
                                 <div style="text-align: center; margin: 30px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-wellness"
+                                    <a href="${buildFrontendUrl('/emotional-wellness')}"
                                        style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                                         View My Dashboard
                                     </a>
