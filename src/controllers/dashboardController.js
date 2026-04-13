@@ -14,6 +14,41 @@ const {
 } = require('../utils/checkinIdentity');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const padDatePart = (value) => String(value).padStart(2, '0');
+
+const formatCalendarDateKey = (value) => {
+    const parsed = value instanceof Date ? new Date(value) : new Date(value);
+    if (!isValidDate(parsed)) return null;
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}-${padDatePart(parsed.getDate())}`;
+};
+
+const formatCalendarMonthKey = (value) => {
+    const parsed = value instanceof Date ? new Date(value) : new Date(value);
+    if (!isValidDate(parsed)) return null;
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}`;
+};
+
+const parseCalendarDateInput = (value, fallback = new Date()) => {
+    if (!value) return fallback;
+    if (value instanceof Date) {
+        return isValidDate(value) ? new Date(value) : fallback;
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const match = trimmed.match(DATE_ONLY_PATTERN);
+        if (match) {
+            const [, year, month, day] = match;
+            const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+            return isValidDate(parsed) ? parsed : fallback;
+        }
+    }
+
+    const parsed = new Date(value);
+    return isValidDate(parsed) ? parsed : fallback;
+};
 
 const startOfDay = (date) => {
     const d = new Date(date);
@@ -30,8 +65,7 @@ const endOfDay = (date) => {
 const isValidDate = (value) => value instanceof Date && !Number.isNaN(value.getTime());
 
 const resolveAnchorDate = (value, fallback = new Date()) => {
-    const parsed = value ? new Date(value) : fallback;
-    return isValidDate(parsed) ? parsed : fallback;
+    return parseCalendarDateInput(value, fallback);
 };
 
 const resolveDashboardRange = (period, anchorDate = new Date(), options = {}) => {
@@ -186,8 +220,8 @@ const getDashboardStats = async (req, res) => {
         const forceRefresh = req.query.force === 'true';
 
         const normalizedDateKey = date
-            ? anchorDate.toISOString().split('T')[0]
-            : startDate.toISOString().split('T')[0];
+            ? formatCalendarDateKey(anchorDate)
+            : formatCalendarDateKey(startDate);
         const cacheKey = `dashboard:stats:${period}:${normalizedDateKey}:${userRole}:${userUnit || 'all'}`;
         let stats = forceRefresh ? null : cacheService.getDashboardStats(cacheKey);
 
@@ -248,7 +282,7 @@ const getDashboardStats = async (req, res) => {
                 const identity = getCheckinResolvedIdentity(checkin);
                 const dayBucket = new Date(checkin.date);
                 dayBucket.setHours(0, 0, 0, 0);
-                const dayKey = dayBucket.toISOString().split('T')[0];
+                const dayKey = formatCalendarDateKey(dayBucket);
 
                 if (!timelineBuckets[dayKey]) {
                     timelineBuckets[dayKey] = {
@@ -320,7 +354,7 @@ const getDashboardStats = async (req, res) => {
             const timelineStart = startOfDay(startDate);
             const timelineEnd = startOfDay(endDate);
             for (let cursor = new Date(timelineStart); cursor <= timelineEnd; cursor.setDate(cursor.getDate() + 1)) {
-                const key = cursor.toISOString().split('T')[0];
+                const key = formatCalendarDateKey(cursor);
                 const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0, users: [] };
                 timeline.push({
                     date: key,
@@ -369,8 +403,12 @@ const getDashboardStats = async (req, res) => {
             // Basic stats
             stats = {
                 period,
+                anchorDate: anchorDate.toISOString(),
+                anchorDateKey: formatCalendarDateKey(anchorDate),
                 startDate: startDate.toISOString(),
+                startDateKey: formatCalendarDateKey(startDate),
                 endDate: endDate.toISOString(),
+                endDateKey: formatCalendarDateKey(endDate),
                 periodTimeline: timeline,
                 periodLengthDays: timeline.length,
                 totalCheckins: periodCheckins.length,
@@ -873,12 +911,12 @@ const getDashboardStats = async (req, res) => {
                         return bTime - aTime;
                     });
 
-                    const todayKey = startOfDay(new Date()).toISOString().split('T')[0];
+                    const referenceDateKey = formatCalendarDateKey(anchorDate);
                     const activeToday = staffDetails.filter(member => {
                         if (!member.lastCheckin?.date) return false;
                         const compare = new Date(member.lastCheckin.date);
                         compare.setHours(0, 0, 0, 0);
-                        return compare.toISOString().split('T')[0] === todayKey;
+                        return formatCalendarDateKey(compare) === referenceDateKey;
                     }).length;
                     const flaggedMembers = staffDetails.filter(member =>
                         member.lastCheckin?.needsSupport ||
@@ -889,6 +927,7 @@ const getDashboardStats = async (req, res) => {
                     stats.unitStaffSummary = {
                         totalMembers: staffDetails.length,
                         activeToday,
+                        referenceDateKey,
                         flaggedMembers,
                         submittedInPeriod: staffDetails.filter(member => (member.periodSummary?.submissions || 0) > 0).length
                     };
@@ -1107,7 +1146,7 @@ const getUserTrends = async (req, res) => {
         // Group by weeks for weekly analysis
         const weeklyData = {};
         trends.forEach(trend => {
-            const weekKey = new Date(trend.date).toISOString().split('T')[0].substring(0, 7); // YYYY-MM format
+            const weekKey = formatCalendarMonthKey(trend.date); // YYYY-MM format
             if (!weeklyData[weekKey]) {
                 weeklyData[weekKey] = { presence: [], capacity: [], moods: [], weather: [] };
             }
@@ -1193,7 +1232,7 @@ const getUserTrends = async (req, res) => {
 const exportDashboardData = async (req, res) => {
     try {
         const { period = 'today', date, format = 'json' } = req.query;
-        const exportDateLabel = resolveAnchorDate(date, new Date()).toISOString().split('T')[0];
+        const exportDateLabel = formatCalendarDateKey(resolveAnchorDate(date, new Date()));
 
         // Get dashboard stats
         let statsResponse = null;
