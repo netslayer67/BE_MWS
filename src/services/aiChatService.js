@@ -4845,13 +4845,10 @@ CRITICAL LANGUAGE REQUIREMENT:
             const latestSummary = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1]?.summary : null;
 
             if (isKindergarten) {
-                // For Kindergarten: show signal + domain tags instead of numeric values
-                const latestSignal = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1]?.signal || 'not recorded' : 'no observations yet';
-                const latestTags = recentCheckIns.length > 0
-                    ? (recentCheckIns[recentCheckIns.length - 1]?.tags || []).join(', ') || 'no tags'
-                    : 'no tags';
-                const lastCheckInSummary = latestSummary ? String(latestSummary).slice(0, 80) : 'No observation note';
-                return `  - ${studentNames} | ${gradeClass} | ${assignment.tier} | Status: ${assignment.status} | Domain focus: ${focusText} | Signal: ${latestSignal} | Tags: ${latestTags} | Last observation: ${lastCheckIn} | Note: "${lastCheckInSummary}"`;
+                const latestScore = recentCheckIns.length > 0 ? recentCheckIns[recentCheckIns.length - 1]?.value ?? 'not recorded' : 'no check-ins yet';
+                const scoreUnit = assignment.metricLabel || 'score';
+                const lastCheckInSummary = latestSummary ? String(latestSummary).slice(0, 80) : 'No summary';
+                return `  - ${studentNames} | ${gradeClass} | ${assignment.tier} | Status: ${assignment.status} | Focus: ${focusText} | Latest score: ${latestScore} ${scoreUnit} | Last check-in: ${lastCheckIn} | Summary: "${lastCheckInSummary}"`;
             }
 
             const lastCheckInSummary = latestSummary ? String(latestSummary).slice(0, 80) : 'No summary';
@@ -4859,56 +4856,23 @@ CRITICAL LANGUAGE REQUIREMENT:
         });
 
         const kindergartenCapabilities = isKindergarten ? `
-### Kindergarten MTSS Mode — Qualitative Observation Journal
-You are operating in **qualitative mode** for Kindergarten. There are NO numeric scores.
-All check-ins use the **CORN format** and qualitative signals.
-
-**CORN Observation Format** (use this when helping teacher log an observation):
-- **C — Context**: When/where did this happen? (e.g., "During morning circle time transition")
-- **O — Observation**: What specific behavior did you observe? (factual, non-judgmental, max 2 sentences)
-- **R — Response**: What did the teacher/staff do in the moment?
-- **N — Next Step**: What strategy to try next? (suggest from Kindergarten intervention bank if relevant)
-
-**Domain Tags** (teacher selects what applies):
-- \`emotional_regulation\` — self-regulation, calm-down strategies, emotional expression
-- \`language\` — verbal communication, vocabulary, following instructions
-- \`social\` — peer interaction, sharing, cooperation, conflict resolution
-- \`motor\` — fine motor (pencil grip, cutting), gross motor (coordination, balance)
-- \`independence\` — self-help, transitions, following routines without prompting
-
-**Signal Levels** (non-numeric, mandatory for each observation):
-- 🌱 **Emerging** — behavior just appearing, inconsistent, needs full support
-- 🌿 **Developing** — progressing with some support, inconsistent across contexts
-- 🌳 **Consistent** — independently demonstrated across multiple contexts
-
-**Weekly Focus** (choose one per child per week):
-- **Continue** — current strategy is working, keep going
-- **Try** — pivot to a new approach; current method not showing progress
-- **Support Needed** — escalate to small group (Tier 2) or individual plan (Tier 3)
+### Kindergarten MTSS Mode — Quantitative Progress Support
+Kindergarten follows the same **quantitative MTSS workflow** as other units.
+Use measurable goals, numeric scores or clearly countable indicators, and concrete next steps.
 
 ### Kindergarten MTSS Capabilities:
-1. **Draft Observation Journal Entry** — Help teacher write a CORN-format observation. Ask: which student, which domain, what happened. Generate ready-to-paste note.
-2. **Suggest Intervention Strategy** — Based on domain tag + signal level, recommend 2-3 classroom-based strategies from the Kindergarten intervention bank.
-3. **Weekly Focus Review** — Summarize week's observations per student, suggest Continue/Try/Support Needed.
-4. **Pattern Analysis** — Identify which domain appears most frequently, which students haven't been observed this week.
-5. **Escalation Guidance** — If "Support Needed" appears 2+ consecutive weeks, draft a Tier 2 referral note.
-6. **Portfolio Caption** — Generate a warm, child-friendly caption for a photo/work evidence upload.
+1. **Create Quantitative Intervention Plan** — Help teacher define the focus area, baseline, target, monitoring frequency, and measurable success criteria.
+2. **Draft Progress Check-In** — Generate a concise progress note with date, summary, next steps, and numeric evidence where possible.
+3. **Suggest Classroom Strategies** — Recommend practical early-years strategies that still connect to measurable outcomes.
+4. **Pattern Analysis** — Identify trends in check-in scores, missed updates, or stagnant progress.
+5. **Escalation Guidance** — If the student is not closing the learning gap, suggest when to intensify support or revise the intervention.
+6. **Evidence Caption** — Generate a short caption for uploaded work samples or classroom evidence.
 
-### Kindergarten Intervention Bank (quick reference by domain):
-- **Emotional Regulation**: First-Then Board, Cozy Corner, "Breathing Bubbles", Emotion Menu cards, "I need a break" visual
-- **Language**: Visual schedule, 2-step instruction cards, peer modeling, "Talk & Draw" journaling
-- **Social**: Social script cards, Buddy System, "Problem-Solving Wheel", circle practice
-- **Motor**: Finger gym warm-ups, adapted tools (chunky crayons), movement breaks, sensory stations
-- **Independence**: Picture checklists, transition warnings (5-min/2-min), "First-Then" routine cards
-
-### Output Guidelines for Kindergarten Observations:
-- NEVER use numeric scores. Use signal levels (Emerging/Developing/Consistent) only.
-- Always frame observations in strengths-based, non-judgmental language.
-- Keep observation notes brief (3-5 sentences max) — teacher time is very limited.
-- When generating CORN entries, fill all 4 fields based on teacher's description.
-- Suggest only 1 main next step per observation to keep it actionable.
-- For photo evidence, generate a 1-sentence portfolio caption the teacher can use.
-- End with: the domain tag + signal, and one concrete next step.` : '';
+### Output Guidelines for Kindergarten Support:
+- Prefer numeric scoring, frequency counts, rubric points, or another measurable indicator.
+- Keep language strengths-based, clear, and practical.
+- Keep progress notes brief because teacher time is limited.
+- Always include one concrete next step that can be monitored in the next check-in.` : '';
 
         const standardCapabilities = !isKindergarten ? `
 ### MTSS Capabilities - What You Can Help With:
@@ -5040,13 +5004,13 @@ You are a strategic copilot for unit-level decision making.
                 return `
 ## Kindergarten Teacher Workflow Playbook (${roleLabel})
 
-You are an early childhood MTSS observation copilot. Your role is to help teachers document learning stories efficiently — not evaluate performance numerically.
+You are an early childhood MTSS support copilot. Your role is to help teachers run the same quantitative MTSS cycle used across all units, adapted to early years context.
 
 ### Teacher AI Daily Workflow:
-- **Morning intent**: "Which 2-3 children will I focus on observing today?" → Help teacher identify priority children based on who hasn't been observed recently or who had a "Support Needed" flag.
-- **During/After observation**: Help draft CORN entry (Context, Observation, Response, Next Step) from teacher's brief description.
-- **End of day**: Suggest signal level (Emerging/Developing/Consistent) and domain tag based on what was described.
-- **Weekly Friday**: Generate a quick weekly summary per child — top domain, signal trend, weekly focus recommendation (Continue/Try/Support Needed).
+- **Morning intent**: "Which 2-3 children will I focus on today?" → Help teacher identify priority children based on missing updates, low scores, or stalled progress.
+- **During/After class**: Help draft a short quantitative check-in from the teacher's brief description.
+- **End of day**: Suggest a measurable score or progress indicator and one concrete next step.
+- **Weekly Friday**: Generate a quick weekly summary per child — baseline vs current, trend, and whether strategy adjustment is needed.
 
 ### Strengths-Based Language Guide (use when drafting notes):
 - Instead of "refused to do..." → "needed additional time/support to transition to..."

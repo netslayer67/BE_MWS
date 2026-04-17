@@ -14,18 +14,17 @@ const {
     getMentorAssignmentById,
     updateMentorAssignment,
     getMyAssignedStudents,
-    listMentors,
-    getKindergartenAdminAnalytics,
-    generateKindergartenAiDraft,
-    getKindergartenInterventionBank
+    listMentors
 } = require('../controllers/mtssController');
+const {
+    upsertPilotFeedbackSession,
+    listPilotFeedbackSessions
+} = require('../controllers/mtssPilotFeedbackController');
 const {
     listStudents,
     getStudent,
     createStudent,
-    updateStudent,
-    submitKindergartenMoodCheckin,
-    submitKindergartenHomeObservation
+    updateStudent
 } = require('../controllers/mtssStudentController');
 
 const multer = require('multer');
@@ -46,10 +45,7 @@ const {
     mentorAssignmentCreateSchema,
     mentorAssignmentUpdateSchema,
     mtssStudentCreateSchema,
-    mtssStudentUpdateSchema,
-    kindergartenMoodCheckinSchema,
-    kindergartenHomeObservationSchema,
-    kindergartenAiDraftSchema
+    mtssStudentUpdateSchema
 } = require('../utils/validationSchemas');
 
 router.use(authenticate);
@@ -67,13 +63,11 @@ router.get('/students', requireStaffOrTeacher, listStudents);
 router.get('/students/:id', requireStaffOrTeacher, getStudent);
 router.post('/students', requireMTSSAdmin, validate(mtssStudentCreateSchema), createStudent);
 router.put('/students/:id', requireMTSSAdmin, validate(mtssStudentUpdateSchema), updateStudent);
-router.post('/students/:id/kindergarten-mood-checkin', requireStaffOrTeacher, validate(kindergartenMoodCheckinSchema), submitKindergartenMoodCheckin);
-router.post('/students/:id/kindergarten-home-observation', requireStaffOrTeacher, validate(kindergartenHomeObservationSchema), submitKindergartenHomeObservation);
 
 router.get('/mentors', requireMTSSAdmin, listMentors);
-router.get('/admin/kindergarten-analytics', requireMTSSAdmin, getKindergartenAdminAnalytics);
-router.get('/kindergarten/intervention-bank', requireStaffOrTeacher, getKindergartenInterventionBank);
-router.post('/kindergarten/ai-draft', requireStaffOrTeacher, validate(kindergartenAiDraftSchema), generateKindergartenAiDraft);
+
+router.post('/pilot-feedback', requireStaffOrTeacher, upsertPilotFeedbackSession);
+router.get('/pilot-feedback', requireMTSSAdmin, listPilotFeedbackSessions);
 
 router.post('/upload-evidence', requireStaffOrTeacher, evidenceUpload.array('evidence', MAX_FILES), uploadEvidence);
 

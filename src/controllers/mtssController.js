@@ -1338,22 +1338,8 @@ const createMentorAssignment = async (req, res) => {
             ? focusAreas.map(area => area?.trim()).filter(Boolean)
             : [];
 
-        const normalizedMode = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
-        const allKindergartenStudents = scopedStudents.every((student) => isKindergartenStudent(student));
-        const resolvedMode = ['quantitative', 'qualitative'].includes(normalizedMode)
-            ? normalizedMode
-            : (allKindergartenStudents ? 'qualitative' : 'quantitative');
-        const filteredQualitativeFocus = normalizedFocusAreas.filter((area) => VALID_TAGS.has(area));
-        const initialCheckInTags = Array.isArray(initialCheckIn?.tags)
-            ? initialCheckIn.tags.filter((tag) => VALID_TAGS.has(tag))
-            : [];
-        const resolvedFocusAreas = resolvedMode === 'qualitative'
-            ? (
-                filteredQualitativeFocus.length
-                    ? filteredQualitativeFocus
-                    : (initialCheckInTags.length ? initialCheckInTags : ['social'])
-            )
-            : (normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports']);
+        const resolvedMode = 'quantitative';
+        const resolvedFocusAreas = normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'];
 
         const cleanedStrategyName = strategyName?.trim() || undefined;
         const requestedSubjectKeys = extractAssignmentSubjectKeys({
@@ -1368,12 +1354,8 @@ const createMentorAssignment = async (req, res) => {
             return sendError(res, buildDuplicateInterventionMessage(conflicts), 409);
         }
 
-        const sanitizedBaseline = resolvedMode === 'quantitative'
-            ? sanitizeScorePayload(baselineScore)
-            : undefined;
-        const sanitizedTarget = resolvedMode === 'quantitative'
-            ? sanitizeScorePayload(targetScore)
-            : undefined;
+        const sanitizedBaseline = sanitizeScorePayload(baselineScore);
+        const sanitizedTarget = sanitizeScorePayload(targetScore);
 
         const assignment = await MentorAssignment.create({
             mentorId,
@@ -1391,32 +1373,13 @@ const createMentorAssignment = async (req, res) => {
             goals,
             notes,
             mode: resolvedMode,
-            metricLabel: resolvedMode === 'quantitative' ? metricLabel?.trim() || undefined : undefined,
+            metricLabel: metricLabel?.trim() || undefined,
             baselineScore: sanitizedBaseline,
             targetScore: sanitizedTarget,
             createdBy: req.user?.id || null,
             lastPlanUpdatedAt: new Date(),
             lastPlanUpdatedBy: req.user?.id || null
         });
-
-        if (resolvedMode === 'qualitative' && initialCheckIn && typeof initialCheckIn === 'object') {
-            const derivedSummary = typeof initialCheckIn.summary === 'string' && initialCheckIn.summary.trim()
-                ? initialCheckIn.summary.trim()
-                : [
-                    typeof initialCheckIn.observation === 'string' ? initialCheckIn.observation.trim() : '',
-                    typeof initialCheckIn.nextStep === 'string' && initialCheckIn.nextStep.trim()
-                        ? `Next: ${initialCheckIn.nextStep.trim()}`
-                        : ''
-                ].filter(Boolean).join(' | ');
-
-            const sanitizedInitialCheckIn = sanitizeCheckIn({
-                ...initialCheckIn,
-                summary: derivedSummary || 'Initial observation',
-                performed: initialCheckIn.performed !== false
-            });
-            assignment.checkIns.push(sanitizedInitialCheckIn);
-            await assignment.save();
-        }
 
         sendSuccess(res, 'Intervention plan created', { assignment }, 201);
 
@@ -1686,9 +1649,9 @@ const updateMentorAssignment = async (req, res) => {
                 assignment.customFrequencyNote = customFrequencyNote ? customFrequencyNote.toString().trim() : undefined;
             }
         }
-        if (mode !== undefined && ['quantitative', 'qualitative'].includes(mode)) {
-            logChange('mode', 'Mode', assignment.mode, mode);
-            assignment.mode = mode;
+        if (mode !== undefined && mode === 'quantitative') {
+            logChange('mode', 'Mode', assignment.mode, 'quantitative');
+            assignment.mode = 'quantitative';
         }
         if (notes !== undefined && typeof notes === 'string') {
             logChange('notes', 'Notes', assignment.notes, notes || null);

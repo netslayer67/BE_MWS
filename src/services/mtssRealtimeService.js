@@ -1,7 +1,12 @@
 const { getIO } = require('../config/socket');
 const MentorAssignment = require('../models/MentorAssignment');
 const MTSSStudent = require('../models/MTSSStudent');
+const User = require('../models/User');
 const { summarizeAssignmentsForStudents, formatRosterStudent } = require('../utils/mtssStudentHelpers');
+
+const PILOT_FEEDBACK_ADMIN_EMAILS = ['faisal@millennia21.id'];
+let cachedPilotFeedbackAdminIds = [];
+let cachedPilotFeedbackAdminFetchedAt = 0;
 
 const uniqueIds = (items = []) => {
     const set = new Set();
@@ -132,7 +137,49 @@ const emitAssignmentEvent = async (assignmentId, action = 'updated') => {
     }
 };
 
+const getPilotFeedbackAdminIds = async () => {
+    const now = Date.now();
+    if (cachedPilotFeedbackAdminIds.length && now - cachedPilotFeedbackAdminFetchedAt < 5 * 60 * 1000) {
+        return cachedPilotFeedbackAdminIds;
+    }
+
+    const admins = await User.find({
+        email: { $in: PILOT_FEEDBACK_ADMIN_EMAILS },
+        isActive: true
+    })
+        .select('_id')
+        .lean();
+
+    cachedPilotFeedbackAdminIds = admins
+        .map((entry) => entry?._id?.toString?.())
+        .filter(Boolean);
+    cachedPilotFeedbackAdminFetchedAt = now;
+
+    return cachedPilotFeedbackAdminIds;
+};
+
+const emitPilotFeedbackSessionUpdated = async (session, action = 'upserted') => {
+    try {
+        if (!session?.sessionKey) return;
+
+        const io = getIO();
+        const adminIds = await getPilotFeedbackAdminIds();
+        const payload = {
+            action,
+            session,
+            changedAt: new Date().toISOString()
+        };
+
+        adminIds.forEach((adminId) => {
+            io.to(`dashboard-${adminId}`).emit('mtss:pilot-feedback:update', payload);
+        });
+    } catch (error) {
+        console.error('Failed to emit MTSS pilot feedback update:', error.message);
+    }
+};
+
 module.exports = {
     emitStudentsChanged,
-    emitAssignmentEvent
+    emitAssignmentEvent,
+    emitPilotFeedbackSessionUpdated
 };

@@ -908,7 +908,7 @@ const getStudent = async (req, res) => {
             const checkIns = assignment.checkIns || [];
             const lastCheckIn = checkIns[checkIns.length - 1];
             const firstCheckIn = checkIns[0];
-            const isQualitative = assignment.mode === 'qualitative';
+            const isQualitative = false;
             const reversedCheckIns = [...checkIns].reverse();
             const latestQualitativeCheckIn = reversedCheckIns.find((checkIn = {}) => (
                 Boolean(checkIn.signal) ||
@@ -935,18 +935,13 @@ const getStudent = async (req, res) => {
             const latestObservation = latestQualitativeCheckIn?.observation || null;
             const latestResponse = latestQualitativeCheckIn?.response || null;
             const latestNextStep = latestQualitativeCheckIn?.nextStep || null;
-            const qualitativeLabel = KINDERGARTEN_DOMAIN_LABELS[focusArea?.toLowerCase?.()] || focusArea;
-
-            // Build chart data from check-ins
-            const chart = isQualitative
-                ? []
-                : checkIns.map((checkIn) => ({
-                    label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
-                    date: checkIn.date,
-                    reading: checkIn.value ?? 0,
-                    goal: assignment.targetScore?.value || 100,
-                    value: checkIn.value ?? 0
-                }));
+            const chart = checkIns.map((checkIn) => ({
+                label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                date: checkIn.date,
+                reading: checkIn.value ?? 0,
+                goal: assignment.targetScore?.value || 100,
+                value: checkIn.value ?? 0
+            }));
 
             // Build history from check-ins
             const history = checkIns.slice().reverse().map(checkIn => ({
@@ -973,7 +968,7 @@ const getStudent = async (req, res) => {
             return {
                 id: assignment._id,
                 type: typeKey,
-                label: isQualitative ? (qualitativeLabel || 'Learning Story') : (meta?.label || focusArea || 'SEL'),
+                label: meta?.label || focusArea || 'SEL',
                 focusArea: focusArea || meta?.label || null,
                 tier: assignment.tier,
                 tierLabel: assignment.tier === 'tier3' ? 'Tier 3' : assignment.tier === 'tier2' ? 'Tier 2' : 'Tier 1',
@@ -994,23 +989,21 @@ const getStudent = async (req, res) => {
                 endDate: assignment.endDate,
                 createdAt: assignment.createdAt || assignment.startDate,
                 updatedAt: assignment.updatedAt || assignment.startDate,
-                baseline: isQualitative ? null : (assignment.baselineScore?.value ?? firstCheckIn?.value ?? null),
-                current: isQualitative ? null : (lastCheckIn?.value ?? null),
-                target: isQualitative ? null : (assignment.targetScore?.value ?? null),
-                progressUnit: isQualitative ? 'signal' : (assignment.metricLabel || 'score'),
-                progress: isQualitative
-                    ? null
-                    : (
-                        assignment.targetScore?.value && lastCheckIn?.value
-                            ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
-                            : 0
-                    ),
+                baseline: assignment.baselineScore?.value ?? firstCheckIn?.value ?? null,
+                current: lastCheckIn?.value ?? null,
+                target: assignment.targetScore?.value ?? null,
+                progressUnit: assignment.metricLabel || 'score',
+                progress: (
+                    assignment.targetScore?.value && lastCheckIn?.value
+                        ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
+                        : 0
+                ),
                 checkInsCount: checkIns.length,
                 chart,
                 history,
                 goals: assignment.goals || [],
                 notes: assignment.notes,
-                mode: assignment.mode || 'quantitative',
+                mode: 'quantitative',
                 planChangeLog: (assignment.planChangeLog || []).map((entry = {}) => ({
                     ...entry,
                     changedByName: entry.changedBy?.name || entry.changedBy?.username || null,
@@ -1038,11 +1031,6 @@ const getStudent = async (req, res) => {
             .filter((value) => !Number.isNaN(value.getTime()))
             .sort((a, b) => b - a)[0]?.toISOString() || null;
         payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
-
-        const hasQualitativeAssignments = assignments.some((assignment) => assignment.mode === 'qualitative');
-        if (isKindergartenStudentRecord(student) || hasQualitativeAssignments) {
-            payload.kindergartenPortal = buildKindergartenPortalPayload({ student, assignments });
-        }
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

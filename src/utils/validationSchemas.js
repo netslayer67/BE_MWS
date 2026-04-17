@@ -325,7 +325,7 @@ const mentorAssignmentCreateSchema = Joi.object({
         weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow('', null).optional()
     }).optional(),
     notes: Joi.string().optional().allow(''),
-    mode: Joi.string().valid('quantitative', 'qualitative').optional()
+    mode: Joi.string().valid('quantitative').optional()
 });
 
 const mentorAssignmentUpdateSchema = Joi.object({
@@ -346,7 +346,7 @@ const mentorAssignmentUpdateSchema = Joi.object({
     customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
     customFrequencyNote: Joi.string().trim().optional().allow('', null),
     notes: Joi.string().optional().allow(''),
-    mode: Joi.string().valid('quantitative', 'qualitative').optional(),
+    mode: Joi.string().valid('quantitative').optional(),
     metricLabel: Joi.string().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),
