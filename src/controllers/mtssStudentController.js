@@ -372,16 +372,19 @@ const buildFilter = (query = {}, skipGradeClassFilter = false) => {
 const buildStudentSummary = (students = []) => {
     const tierCounts = {};
     const interventionCounts = {};
+    const isTieredSupport = (intervention = {}) => {
+        const tierValue = String(intervention?.tierCode || intervention?.tier || '').toLowerCase();
+        return tierValue === 'tier2' || tierValue === 'tier3' || intervention?.tier === 'Tier 2' || intervention?.tier === 'Tier 3';
+    };
 
     students.forEach((student) => {
         const interventions = Array.isArray(student.interventions) ? student.interventions : [];
         const focus = pickPrimaryIntervention(interventions);
         const tier = focus?.tier || student.tier || 'Tier 1';
-        const type = focus?.label || student.type;
         tierCounts[tier] = (tierCounts[tier] || 0) + 1;
 
-        if (type) {
-            interventionCounts[type] = (interventionCounts[type] || 0) + 1;
+        if (focus?.label && isTieredSupport(focus)) {
+            interventionCounts[focus.label] = (interventionCounts[focus.label] || 0) + 1;
         }
     });
 
