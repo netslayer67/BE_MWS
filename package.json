@@ -24,6 +24,7 @@
     "cleanup:mtss:orphan-assignments:dry": "node src/scripts/cleanupOrphanMentorAssignments.js",
     "seed:mtss": "node src/scripts/seedMtssData.js",
     "seed:mtss-helix": "node src/scripts/seedMtssGrade7HelixComplete.js",
+    "seed:mtss-pilot-units": "node src/scripts/seedMtssPilotUnitClasses.js",
     "import:legacy-checkins": "node src/scripts/importLegacyCheckins.js"
   },
   "keywords": [
