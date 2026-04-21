@@ -174,6 +174,76 @@ const testerSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const liveContextSchema = new mongoose.Schema(
+    {
+        currentStepId: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        currentStepTitle: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        currentModal: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        currentAction: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        currentRoute: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        lastActionAt: {
+            type: Date,
+            default: null
+        }
+    },
+    { _id: false }
+);
+
+const activityTrailEntrySchema = new mongoose.Schema(
+    {
+        type: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        label: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        stepId: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        stepTitle: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        route: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        at: {
+            type: Date,
+            default: null
+        }
+    },
+    { _id: false }
+);
+
 const mtssPilotFeedbackSessionSchema = new mongoose.Schema(
     {
         sessionKey: {
@@ -191,6 +261,14 @@ const mtssPilotFeedbackSessionSchema = new mongoose.Schema(
         tester: {
             type: testerSchema,
             default: () => ({})
+        },
+        liveContext: {
+            type: liveContextSchema,
+            default: () => ({})
+        },
+        activityTrail: {
+            type: [activityTrailEntrySchema],
+            default: []
         },
         completedSteps: {
             type: Object,

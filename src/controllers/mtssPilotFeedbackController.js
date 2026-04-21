@@ -6,6 +6,7 @@ const PILOT_FEEDBACK_ADMIN_EMAILS = new Set(['faisal@millennia21.id']);
 const COMPLETION_STATUSES = new Set(['yes', 'partial', 'no']);
 const BUG_SEVERITIES = new Set(['low', 'medium', 'high']);
 const READINESS_VALUES = new Set(['yes', 'almost', 'not-yet']);
+const MAX_ACTIVITY_TRAIL = 20;
 
 const clampNumber = (value, fallback, min, max) => {
     const parsed = Number(value);
@@ -53,6 +54,34 @@ const parseDateOrNull = (value) => {
     if (!value) return null;
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeLiveContext = (value = {}) => {
+    const source = value && typeof value === 'object' ? value : {};
+    return {
+        currentStepId: normalizeText(source.currentStepId, 80),
+        currentStepTitle: normalizeText(source.currentStepTitle, 200),
+        currentModal: normalizeText(source.currentModal, 80),
+        currentAction: normalizeText(source.currentAction, 200),
+        currentRoute: normalizeRoute(source.currentRoute),
+        lastActionAt: parseDateOrNull(source.lastActionAt)
+    };
+};
+
+const normalizeActivityTrail = (items = []) => {
+    if (!Array.isArray(items)) return [];
+
+    return items
+        .slice(0, MAX_ACTIVITY_TRAIL)
+        .map((entry) => ({
+            type: normalizeText(entry?.type, 80),
+            label: normalizeText(entry?.label, 200),
+            stepId: normalizeText(entry?.stepId, 80),
+            stepTitle: normalizeText(entry?.stepTitle, 200),
+            route: normalizeRoute(entry?.route),
+            at: parseDateOrNull(entry?.at)
+        }))
+        .filter((entry) => entry.type || entry.label || entry.stepId || entry.route);
 };
 
 const normalizeStepEntry = (entry = {}, completedSteps = {}) => {
@@ -123,6 +152,8 @@ const serializeSession = (session = {}) => {
         sessionKey: plain.sessionKey || '',
         scenarioKey: plain.scenarioKey || 'mtss-principal-pilot',
         tester: plain.tester || {},
+        liveContext: plain.liveContext || {},
+        activityTrail: Array.isArray(plain.activityTrail) ? plain.activityTrail : [],
         completedSteps: plain.completedSteps || {},
         stepFeedback,
         finalFeedback: plain.finalFeedback || {},
@@ -210,6 +241,8 @@ const upsertPilotFeedbackSession = async (req, res) => {
         const finalFeedbackSavedAt = parseDateOrNull(req.body?.finalFeedbackSavedAt);
         const clientUpdatedAt = parseDateOrNull(req.body?.lastUpdatedAt) || new Date();
         const lastViewedRoute = normalizeRoute(req.body?.lastViewedRoute);
+        const liveContext = normalizeLiveContext(req.body?.liveContext);
+        const activityTrail = normalizeActivityTrail(req.body?.activityTrail);
         const userAgent = normalizeText(req.body?.source?.userAgent || req.headers['user-agent'], 400);
 
         const metrics = buildDerivedMetrics({
@@ -244,6 +277,8 @@ const upsertPilotFeedbackSession = async (req, res) => {
                 role: req.user?.role || '',
                 unit: req.user?.unit || req.user?.department || ''
             },
+            liveContext,
+            activityTrail,
             completedSteps,
             stepFeedback,
             finalFeedback,
