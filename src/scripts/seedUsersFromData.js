@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const { CLASS_ASSIGNMENTS, parseAssignmentLabel } = require('./data/classAssignments');
+const { parseRosterFile, buildUserUpdate } = require('./syncLatestUserRoster');
 require('dotenv').config();
 
 // Sample user data based on provided CSV (used as fallback if JSON seed file is missing)
@@ -1639,7 +1640,48 @@ const DEFAULT_USER_DATA = [
 
 ];
 
+const DEFAULT_USER_ROSTER_FILE = path.resolve(__dirname, './data/latestUserRoster.psv');
 const DEFAULT_USER_SEED_FILE = process.env.SEED_USERS_FILE || path.resolve(__dirname, '../../../test.users.json');
+const DEFAULT_PASSWORD = process.env.USER_DEFAULT_PASSWORD || 'password123';
+const REPORTING_STRUCTURE_BY_MANAGER_EMAIL = {
+    'faisal@millennia21.id': [
+        'ananta@millennia21.id',
+        'sayed.jilliyan@millennia21.id',
+        'ari.wibowo@millennia21.id'
+    ]
+};
+
+const normalizeComparable = (value = '') =>
+    value
+        .toString()
+        .replace(/\r/g, ' ')
+        .replace(/^"+|"+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const stripNameSuffixes = (value = '') => {
+    let next = value.toString().split(',')[0].trim();
+    const suffixPattern = /\b(s\.?\s?pd\.?|s\.?\s?sos\.?\s?i?|s\.?\s?tp\.?|s\.?\s?ikom\.?|s\.?\s?ip\.?|s\.?\s?si\.?|s\.?\s?k\.?\s?pm\.?|s\.?\s?psi\.?|se\.?|mm\.?|ma\.?)$/i;
+
+    while (suffixPattern.test(next)) {
+        next = next.replace(suffixPattern, '').trim();
+    }
+
+    return next;
+};
+
+const normalizeNameKey = (value = '') => normalizeComparable(stripNameSuffixes(value));
+const normalizeEmailKey = (value = '') => normalizeComparable(value);
+const normalizeEmployeeId = (value = '') =>
+    value
+        .toString()
+        .replace(/^"+|"+$/g, '')
+        .replace(/\s+/g, '')
+        .trim();
 
 const convertExtendedJsonValue = (input) => {
     if (Array.isArray(input)) {
@@ -1701,10 +1743,113 @@ const loadUsersFromSeedFile = () => {
     }
 };
 
+const buildRecordLookups = (records = []) => {
+    const byEmployeeId = new Map();
+    const byEmail = new Map();
+    const byName = new Map();
+    const byUsername = new Map();
+
+    records.forEach((record) => {
+        const employeeId = normalizeEmployeeId(record.employeeId || '');
+        const email = normalizeEmailKey(record.email || '');
+        const name = normalizeNameKey(record.name || record.fullName || '');
+        const username = normalizeComparable(record.username || record.nick || '');
+
+        if (employeeId) byEmployeeId.set(employeeId, record);
+        if (email) byEmail.set(email, record);
+        if (name) byName.set(name, record);
+        if (username) byUsername.set(username, record);
+    });
+
+    return {
+        byEmployeeId,
+        byEmail,
+        byName,
+        byUsername
+    };
+};
+
+const findMatchingRecord = (candidate = {}, lookups = {}) => {
+    const employeeId = normalizeEmployeeId(candidate.employeeId || '');
+    if (employeeId && lookups.byEmployeeId?.has(employeeId)) {
+        return lookups.byEmployeeId.get(employeeId);
+    }
+
+    const email = normalizeEmailKey(candidate.email || '');
+    if (email && lookups.byEmail?.has(email)) {
+        return lookups.byEmail.get(email);
+    }
+
+    const name = normalizeNameKey(candidate.name || candidate.fullName || '');
+    if (name && lookups.byName?.has(name)) {
+        return lookups.byName.get(name);
+    }
+
+    const username = normalizeComparable(candidate.username || candidate.nick || '');
+    if (username && lookups.byUsername?.has(username)) {
+        return lookups.byUsername.get(username);
+    }
+
+    return null;
+};
+
+const loadUsersFromRoster = (seedLookups = {}) => {
+    if (!fs.existsSync(DEFAULT_USER_ROSTER_FILE)) {
+        console.warn(`Warning: Roster seed file not found at ${DEFAULT_USER_ROSTER_FILE}.`);
+        return [];
+    }
+
+    try {
+        const rosterRecords = parseRosterFile();
+        const now = new Date();
+
+        return rosterRecords.map((record) => {
+            const seedOverride = findMatchingRecord(record, seedLookups) || {};
+            const seededUser = buildUserUpdate(record, seedOverride, now);
+
+            return {
+                ...seedOverride,
+                ...seededUser,
+                _id: seedOverride._id,
+                password: seedOverride.password || DEFAULT_PASSWORD,
+                employmentStatus: seedOverride.employmentStatus || 'Permanent',
+                endDate: seedOverride.endDate,
+                googleId: seedOverride.googleId,
+                googleProfile: seedOverride.googleProfile,
+                lastLogin: seedOverride.lastLogin,
+                createdAt: seedOverride.createdAt,
+                updatedAt: seedOverride.updatedAt,
+                reportsTo: seedOverride.reportsTo,
+                subordinates: seedOverride.subordinates,
+                emailVerified: typeof seedOverride.emailVerified === 'boolean'
+                    ? seedOverride.emailVerified
+                    : seededUser.emailVerified,
+                isActive: typeof seedOverride.isActive === 'boolean'
+                    ? seedOverride.isActive
+                    : seededUser.isActive
+            };
+        });
+    } catch (error) {
+        console.warn(`Warning: Unable to parse roster seed file ${DEFAULT_USER_ROSTER_FILE}. Falling back to other seed sources.`, error.message);
+        return [];
+    }
+};
+
 const loadedFileUsers = loadUsersFromSeedFile();
-const USING_EXTERNAL_SEED_DATA = loadedFileUsers.length > 0;
-const userData = USING_EXTERNAL_SEED_DATA ? loadedFileUsers : DEFAULT_USER_DATA;
-const SEED_SOURCE_LABEL = USING_EXTERNAL_SEED_DATA ? DEFAULT_USER_SEED_FILE : 'inline fallback dataset';
+const seedOverrideLookups = buildRecordLookups([...DEFAULT_USER_DATA, ...loadedFileUsers]);
+const loadedRosterUsers = loadUsersFromRoster(seedOverrideLookups);
+const USING_ROSTER_SEED_DATA = loadedRosterUsers.length > 0;
+const USING_EXTERNAL_SEED_DATA = !USING_ROSTER_SEED_DATA && loadedFileUsers.length > 0;
+const userData = USING_ROSTER_SEED_DATA
+    ? loadedRosterUsers
+    : USING_EXTERNAL_SEED_DATA
+        ? loadedFileUsers
+        : DEFAULT_USER_DATA;
+const SEED_SOURCE_LABEL = USING_ROSTER_SEED_DATA
+    ? DEFAULT_USER_ROSTER_FILE
+    : USING_EXTERNAL_SEED_DATA
+        ? DEFAULT_USER_SEED_FILE
+        : 'inline fallback dataset';
 
 // Fallback grade mapping to auto-attach classes to teachers/principals based on provided roster info.
 const TEACHER_GRADE_MAP = {
@@ -1783,6 +1928,14 @@ const TEACHER_GRADE_MAP = {
     'latifah nur restiningtyas, s.pd': ['Kindergarten Pre-K', 'Kindergarten K1', 'Kindergarten K2'],
 };
 
+const NORMALIZED_CLASS_ASSIGNMENTS = new Map(
+    Object.entries(CLASS_ASSIGNMENTS).map(([name, assignments]) => [normalizeNameKey(name), assignments])
+);
+
+const NORMALIZED_TEACHER_GRADE_MAP = new Map(
+    Object.entries(TEACHER_GRADE_MAP).map(([name, grades]) => [normalizeNameKey(name), grades])
+);
+
 const deriveClassRole = (roleLabel = '', fallbackLabel = '') => {
     const source = (roleLabel || fallbackLabel || '').toLowerCase();
 
@@ -1795,8 +1948,8 @@ const deriveClassRole = (roleLabel = '', fallbackLabel = '') => {
 
 const buildClasses = (user) => {
     if (!['teacher', 'se_teacher', 'head_unit'].includes(user.role)) return undefined;
-    const key = (user.name || user.username || '').toLowerCase();
-    const grades = TEACHER_GRADE_MAP[key];
+    const key = normalizeNameKey(user.name || user.username || '');
+    const grades = NORMALIZED_TEACHER_GRADE_MAP.get(key);
     if (!grades || !grades.length) return undefined;
     const classRole = deriveClassRole(user.jobPosition, user.jobLevel);
     return grades.map((grade) => ({ grade, role: classRole }));
@@ -1860,6 +2013,70 @@ const toObjectId = (value) => {
     return value;
 };
 
+const selectSeedPassword = (candidatePassword, existingPassword) => {
+    if (candidatePassword && candidatePassword !== DEFAULT_PASSWORD) {
+        return candidatePassword;
+    }
+
+    if (existingPassword) {
+        return existingPassword;
+    }
+
+    return candidatePassword || DEFAULT_PASSWORD;
+};
+
+const mergeWithExistingUser = (candidate = {}, existingUser = null) => {
+    if (!existingUser) return candidate;
+
+    return {
+        ...candidate,
+        _id: candidate._id || existingUser._id,
+        employeeId: candidate.employeeId || existingUser.employeeId,
+        password: selectSeedPassword(candidate.password, existingUser.password),
+        googleId: candidate.googleId || existingUser.googleId,
+        googleProfile: candidate.googleProfile || existingUser.googleProfile,
+        emailVerified: typeof candidate.emailVerified === 'boolean'
+            ? candidate.emailVerified
+            : existingUser.emailVerified,
+        isActive: typeof candidate.isActive === 'boolean'
+            ? candidate.isActive
+            : existingUser.isActive,
+        lastLogin: candidate.lastLogin || existingUser.lastLogin,
+        createdAt: candidate.createdAt || existingUser.createdAt,
+        updatedAt: candidate.updatedAt || existingUser.updatedAt,
+        reportsTo: candidate.reportsTo || existingUser.reportsTo,
+        subordinates: Array.isArray(candidate.subordinates) && candidate.subordinates.length
+            ? candidate.subordinates
+            : existingUser.subordinates
+    };
+};
+
+const applyReportingStructure = (records = []) => {
+    if (!Array.isArray(records) || !records.length) return;
+
+    const byEmail = new Map(
+        records
+            .filter((record) => record?.email)
+            .map((record) => [String(record.email).trim().toLowerCase(), record])
+    );
+
+    Object.entries(REPORTING_STRUCTURE_BY_MANAGER_EMAIL).forEach(([managerEmail, memberEmails]) => {
+        const manager = byEmail.get(String(managerEmail).trim().toLowerCase());
+        if (!manager) return;
+
+        const subordinateIds = [];
+
+        memberEmails.forEach((memberEmail) => {
+            const member = byEmail.get(String(memberEmail).trim().toLowerCase());
+            if (!member) return;
+            member.reportsTo = manager._id;
+            subordinateIds.push(member._id);
+        });
+
+        manager.subordinates = subordinateIds;
+    });
+};
+
 const prepareUserDocument = async (userDataItem) => {
     const sanitized = { ...userDataItem };
 
@@ -1914,7 +2131,16 @@ const prepareUserDocument = async (userDataItem) => {
 
 // Attach class info from CLASS_ASSIGNMENTS; fallback to TEACHER_GRADE_MAP when needed
 userData.forEach((entry) => {
-    const assignments = CLASS_ASSIGNMENTS[entry.name];
+    const assignments = [
+        entry.name,
+        entry.username,
+        entry.email ? entry.email.split('@')[0] : ''
+    ]
+        .map((value) => normalizeNameKey(value))
+        .filter(Boolean)
+        .map((value) => NORMALIZED_CLASS_ASSIGNMENTS.get(value))
+        .find((value) => Array.isArray(value) && value.length);
+
     if (assignments && assignments.length) {
         const parsed = assignments
             .map((label) => parseAssignmentLabel(label, entry.jobPosition))
@@ -1937,16 +2163,27 @@ const seedUsersFromData = async () => {
         console.log('Seeding users from provided data...');
         console.log('Seed source: ' + SEED_SOURCE_LABEL);
 
-        await User.deleteMany({});
-        console.log('Cleared existing users');
+        const existingUsers = await User.find({}).lean();
+        const existingUserLookups = buildRecordLookups(existingUsers);
 
         const usersToInsert = [];
+        let reusedIdCount = 0;
 
         for (const userDataItem of userData) {
-            const preparedUser = await prepareUserDocument(userDataItem);
+            const existingUser = findMatchingRecord(userDataItem, existingUserLookups);
+            const mergedUser = mergeWithExistingUser(userDataItem, existingUser);
+            const preparedUser = await prepareUserDocument(mergedUser);
             usersToInsert.push(preparedUser);
+            if (existingUser?._id && preparedUser._id?.toString() === existingUser._id.toString()) {
+                reusedIdCount += 1;
+            }
             console.log('Prepared user: ' + preparedUser.email + ' (' + preparedUser.role + ')');
         }
+
+        applyReportingStructure(usersToInsert);
+
+        await User.deleteMany({});
+        console.log('Cleared existing users');
 
         if (usersToInsert.length) {
             await User.insertMany(usersToInsert, { ordered: true });
@@ -1954,6 +2191,7 @@ const seedUsersFromData = async () => {
 
         console.log('User seeding completed successfully!');
         console.log('Total users created: ' + usersToInsert.length);
+        console.log('Reused existing user IDs: ' + reusedIdCount);
 
         const directorateUsers = await User.find({ role: 'directorate' });
         console.log('Directorate members:', directorateUsers.map((u) => u.name));
@@ -1971,5 +2209,3 @@ if (require.main === module) {
 }
 
 module.exports = seedUsersFromData;
-
-

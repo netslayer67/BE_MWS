@@ -152,6 +152,64 @@ const intersectScopedUserIds = (currentIds, nextIds) => {
     return currentIds.filter((id) => nextSet.has(id?.toString()));
 };
 
+const dedupeUsersById = (users = []) => {
+    const seen = new Set();
+    return users.filter((user) => {
+        const key = user?._id?.toString();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+const countUsersByRole = (users = []) => users.reduce((acc, user) => {
+    const role = user?.role || 'unknown';
+    acc[role] = (acc[role] || 0) + 1;
+    return acc;
+}, {});
+
+const resolveHeadUnitScopedUsers = async (viewer = {}) => {
+    const viewerRole = getEffectiveDashboardRole(viewer);
+    const viewerUnit = viewer?.unit || viewer?.department || '';
+    const viewerId = viewer?.id || viewer?._id || null;
+    const subordinateIds = Array.isArray(viewer?.subordinates)
+        ? viewer.subordinates.filter(Boolean)
+        : [];
+
+    if (viewerRole !== 'head_unit') {
+        return [];
+    }
+
+    const scopeClauses = [];
+
+    if (viewerUnit) {
+        scopeClauses.push(
+            { unit: viewerUnit },
+            { department: viewerUnit }
+        );
+    }
+
+    if (viewerId) {
+        scopeClauses.push({ reportsTo: viewerId });
+    }
+
+    if (subordinateIds.length) {
+        scopeClauses.push({ _id: { $in: subordinateIds } });
+    }
+
+    if (!scopeClauses.length) {
+        return [];
+    }
+
+    const scopedUsers = await User.find({
+        isActive: true,
+        $or: scopeClauses
+    }).select('_id name email role department unit reportsTo subordinates');
+
+    const viewerIdString = viewerId?.toString?.() || String(viewerId || '');
+    return dedupeUsersById(scopedUsers).filter((user) => user._id?.toString() !== viewerIdString);
+};
+
 const resolveEarliestCheckinDate = async (scopeQuery = {}) => {
     const earliestCheckin = await EmotionalCheckin.findOne(scopeQuery, 'date').sort({ date: 1 });
     return earliestCheckin?.date || null;
@@ -193,20 +251,14 @@ const getDashboardStats = async (req, res) => {
         let scopedUnitUsers = [];
         let scopedUserIds = [];
 
-        if (userRole === 'head_unit' && userUnit) {
-            scopedUnitUsers = await User.find({
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
-            }).select('_id name email role department unit');
+        if (userRole === 'head_unit') {
+            scopedUnitUsers = await resolveHeadUnitScopedUsers(req.user);
             scopedUserIds = scopedUnitUsers.map((user) => user._id);
         }
 
         const now = new Date();
         const scopedRangeQuery = {};
-        if (userRole === 'head_unit' && userUnit) {
+        if (userRole === 'head_unit') {
             applyResolvedUserScope(scopedRangeQuery, scopedUserIds);
         }
         const { anchorDate, startDate, endDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
@@ -222,7 +274,10 @@ const getDashboardStats = async (req, res) => {
         const normalizedDateKey = date
             ? formatCalendarDateKey(anchorDate)
             : formatCalendarDateKey(startDate);
-        const cacheKey = `dashboard:stats:${period}:${normalizedDateKey}:${userRole}:${userUnit || 'all'}`;
+        const cacheScopeKey = userRole === 'head_unit'
+            ? (req.user.id?.toString?.() || userUnit || 'head_unit')
+            : (userUnit || 'all');
+        const cacheKey = `dashboard:stats:${period}:${normalizedDateKey}:${userRole}:${cacheScopeKey}`;
         let stats = forceRefresh ? null : cacheService.getDashboardStats(cacheKey);
 
         if (!stats) {
@@ -235,10 +290,16 @@ const getDashboardStats = async (req, res) => {
             console.log('🔍 Dashboard data access scope:', {
                 userRole: userRole,
                 userUnit: userUnit,
-                scope: userRole === 'directorate' ? 'ALL_EMPLOYEES' : 'UNIT_ONLY',
+                scope: userRole === 'directorate'
+                    ? 'ALL_EMPLOYEES'
+                    : userRole === 'head_unit'
+                        ? 'UNIT_AND_DIRECT_REPORTS'
+                        : 'UNIT_ONLY',
                 expectedData: userRole === 'directorate'
                     ? 'Comprehensive data for all employees across organization'
-                    : `Unit-specific data for ${userUnit} employees only`
+                    : userRole === 'head_unit'
+                        ? `Team-specific data for ${userUnit || 'assigned'} members and direct reports`
+                        : `Unit-specific data for ${userUnit} employees only`
             });
 
             // For head_unit, temporarily allow access to all data (like directorate)
@@ -266,7 +327,7 @@ const getDashboardStats = async (req, res) => {
             // }
 
             // Apply head_unit scoping to checkins if applicable
-            if (userRole === 'head_unit' && userUnit) {
+            if (userRole === 'head_unit') {
                 applyResolvedUserScope(checkinQuery, scopedUserIds);
             }
 
@@ -369,7 +430,7 @@ const getDashboardStats = async (req, res) => {
 
             // Get all users for role-based statistics (filtered for head_unit)
             let userQuery = {};
-            if (userRole === 'head_unit' && userUnit) {
+            if (userRole === 'head_unit') {
                 userQuery = { _id: { $in: scopedUserIds } };
             }
             // For head_unit, temporarily allow access to all users (like directorate)
@@ -387,18 +448,10 @@ const getDashboardStats = async (req, res) => {
             //     console.log('👥 Unit users for statistics:', unitUsers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
             // }
 
-            const allUsers = userRole === 'head_unit' && userUnit
+            const allUsers = userRole === 'head_unit'
                 ? scopedUnitUsers
                 : await User.find(userQuery, 'name email role department unit');
-            const totalUsersByRole = {
-                student: allUsers.filter(u => u.role === 'student').length,
-                staff: allUsers.filter(u => u.role === 'staff').length,
-                teacher: allUsers.filter(u => u.role === 'teacher').length,
-                admin: allUsers.filter(u => u.role === 'admin').length,
-                directorate: allUsers.filter(u => u.role === 'directorate').length,
-                superadmin: allUsers.filter(u => u.role === 'superadmin').length,
-                head_unit: allUsers.filter(u => u.role === 'head_unit').length
-            };
+            const totalUsersByRole = countUsersByRole(allUsers);
 
             // Basic stats
             stats = {
@@ -775,7 +828,7 @@ const getDashboardStats = async (req, res) => {
             //     };
             // }
 
-            if (userRole === 'head_unit' && userUnit) {
+            if (userRole === 'head_unit') {
                 applyResolvedUserScope(recentActivityQuery, scopedUserIds);
             }
 
@@ -954,14 +1007,8 @@ const getMoodDistribution = async (req, res) => {
         const userUnit = req.user.unit || req.user.department;
         const now = new Date();
         const query = {};
-        if (userRole === 'head_unit' && userUnit) {
-            const unitMembers = await User.find({
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
-            }).select('_id');
+        if (userRole === 'head_unit') {
+            const unitMembers = await resolveHeadUnitScopedUsers(req.user);
             applyResolvedUserScope(query, unitMembers.map((user) => user._id));
         }
         const { startDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
@@ -1020,14 +1067,8 @@ const getRecentCheckins = async (req, res) => {
         }
 
         // Head Unit scoping
-        if (userRole === 'head_unit' && userUnit) {
-            const unitMembers = await User.find({
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
-            }).select('_id');
+        if (userRole === 'head_unit') {
+            const unitMembers = await resolveHeadUnitScopedUsers(req.user);
             scopedIds = intersectScopedUserIds(scopedIds, unitMembers.map((user) => user._id));
         }
 
@@ -1719,15 +1760,12 @@ const getUnitMembers = async (req, res) => {
         let userQuery = { isActive: true };
 
         // For head_unit, only show members from their unit/department
-        if (userRole === 'head_unit' && userUnit) {
+        if (userRole === 'head_unit') {
+            const scopedUsers = await resolveHeadUnitScopedUsers(req.user);
             userQuery = {
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
+                _id: { $in: scopedUsers.map((user) => user._id) }
             };
-            console.log('🔒 Applied unit filtering for head_unit:', userUnit);
+            console.log('🔒 Applied unit/direct-report filtering for head_unit:', userUnit);
         }
         // For directorate and superadmin, show all users
         // No additional filtering needed

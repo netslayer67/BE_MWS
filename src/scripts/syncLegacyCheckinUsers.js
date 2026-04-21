@@ -31,6 +31,7 @@ const normalizeName = (value = '') => value
     .trim();
 
 const firstNameOf = (value = '') => normalizeName(value).split(/\s+/).filter(Boolean)[0] || '';
+const normalizeEmail = (value = '') => String(value || '').trim().toLowerCase();
 
 const normalizeRole = (value = '') => {
     const normalized = String(value || '').trim().toLowerCase();
@@ -46,8 +47,16 @@ const normalizeUnit = (value = '') => String(value || '').trim().toLowerCase();
 const buildUserIndexes = (users = []) => {
     const byNormalizedName = new Map();
     const byFirstName = new Map();
+    const byEmail = new Map();
 
     for (const user of users) {
+        const normalizedEmail = normalizeEmail(user.email || '');
+        if (normalizedEmail) {
+            const emailMatches = byEmail.get(normalizedEmail) || [];
+            emailMatches.push(user);
+            byEmail.set(normalizedEmail, emailMatches);
+        }
+
         const normalizedName = normalizeName(user.name || '');
         if (normalizedName) {
             const nameMatches = byNormalizedName.get(normalizedName) || [];
@@ -63,7 +72,43 @@ const buildUserIndexes = (users = []) => {
         }
     }
 
-    return { byNormalizedName, byFirstName };
+    return { byNormalizedName, byFirstName, byEmail };
+};
+
+const resolveSnapshotMapping = (snapshot = {}, indexes = {}) => {
+    const email = normalizeEmail(snapshot.userEmailSnapshot || '');
+    if (email) {
+        const emailCandidates = indexes.byEmail?.get(email) || [];
+        if (emailCandidates.length === 1) {
+            return {
+                user: emailCandidates[0],
+                source: 'checkin-email-snapshot',
+                confidence: 'high',
+                evidence: {
+                    email,
+                    name: snapshot.userNameSnapshot || null
+                }
+            };
+        }
+    }
+
+    const normalizedName = normalizeName(snapshot.userNameSnapshot || '');
+    if (normalizedName) {
+        const exactCandidates = indexes.byNormalizedName?.get(normalizedName) || [];
+        if (exactCandidates.length === 1) {
+            return {
+                user: exactCandidates[0],
+                source: 'checkin-name-snapshot',
+                confidence: 'high',
+                evidence: {
+                    email,
+                    name: snapshot.userNameSnapshot || null
+                }
+            };
+        }
+    }
+
+    return null;
 };
 
 const extractEvidenceFromConversation = (conversation) => {
@@ -171,6 +216,33 @@ async function main() {
         ]);
 
         const orphanUserIds = orphanBuckets.map((bucket) => bucket._id);
+        const snapshotRows = await EmotionalCheckin.aggregate([
+            {
+                $match: {
+                    userId: { $in: orphanUserIds },
+                    legacyResolvedUserId: { $exists: false },
+                    $or: [
+                        { userNameSnapshot: { $exists: true, $ne: null } },
+                        { userEmailSnapshot: { $exists: true, $ne: null } }
+                    ]
+                }
+            },
+            { $sort: { submittedAt: -1, date: -1 } },
+            {
+                $group: {
+                    _id: '$userId',
+                    userNameSnapshot: { $first: '$userNameSnapshot' },
+                    userEmailSnapshot: { $first: '$userEmailSnapshot' },
+                    userRoleSnapshot: { $first: '$userRoleSnapshot' },
+                    userUnitSnapshot: { $first: '$userUnitSnapshot' },
+                    userDepartmentSnapshot: { $first: '$userDepartmentSnapshot' }
+                }
+            }
+        ]);
+        const snapshotsByUserId = new Map(
+            snapshotRows.map((row) => [row._id.toString(), row])
+        );
+
         const conversations = await mongoose.connection.db.collection('aiconversations')
             .find({ userId: { $in: orphanUserIds } }, { projection: { userId: 1, messages: 1, title: 1 } })
             .toArray();
@@ -180,14 +252,17 @@ async function main() {
 
         const resolutionRows = orphanBuckets.map((bucket) => {
             const oldUserId = bucket._id.toString();
+            const snapshot = snapshotsByUserId.get(oldUserId);
             const conversation = conversationsByUserId.get(oldUserId);
-            const resolution = conversation ? resolveConversationMapping(conversation, indexes) : null;
+            const resolution = resolveSnapshotMapping(snapshot, indexes)
+                || (conversation ? resolveConversationMapping(conversation, indexes) : null);
 
             return {
                 oldUserId,
                 count: bucket.count,
                 firstDate: bucket.firstDate,
                 lastDate: bucket.lastDate,
+                snapshot,
                 resolution
             };
         });
@@ -203,8 +278,8 @@ async function main() {
             console.log('\nHigh-confidence mapping candidates:');
             highConfidenceRows.forEach((row) => {
                 const user = row.resolution.user;
-                const evidence = row.resolution.evidence;
-                const evidenceLabel = evidence.exactName || evidence.firstName || 'unknown';
+                const evidence = row.resolution.evidence || {};
+                const evidenceLabel = evidence.exactName || evidence.firstName || evidence.email || evidence.name || 'unknown';
                 console.log(`- ${row.oldUserId} -> ${user.name} <${user.email}> [${user.role} / ${user.unit || user.department || 'Unknown'}] via ${row.resolution.source} (${evidenceLabel}) | ${row.count} check-ins`);
             });
         }

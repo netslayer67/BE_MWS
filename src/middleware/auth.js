@@ -23,6 +23,8 @@ const buildRequestUser = (user) => {
         className: user.className,
         nickname: user.nickname,
         joinAcademicYear: user.joinAcademicYear,
+        reportsTo: user.reportsTo,
+        subordinates: user.subordinates || [],
         dashboardRole: dashboardAccess.effectiveRole,
         dashboardAccess
     };
