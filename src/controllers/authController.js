@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const { sendSuccess, sendError } = require('../utils/response');
+const { buildRequestUser } = require('../middleware/auth');
 
 // Generate JWT token with 24 hour expiry for testing
 const generateToken = (userId) => {
@@ -56,21 +57,7 @@ const login = async (req, res) => {
         });
 
         // Return user data and token
-        const userData = {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            username: user.username,
-            nickname: user.nickname,
-            gender: user.gender,
-            department: user.department,
-            unit: user.unit,
-            jobLevel: user.jobLevel,
-            jobPosition: user.jobPosition,
-            employeeId: user.employeeId,
-            lastLogin: user.lastLogin
-        };
+        const userData = buildRequestUser(user);
 
         sendSuccess(res, 'Login successful', { user: userData, token });
     } catch (error) {
@@ -87,7 +74,7 @@ const getMe = async (req, res) => {
             return sendError(res, 'User not found', 404);
         }
 
-        sendSuccess(res, 'User profile retrieved', { user });
+        sendSuccess(res, 'User profile retrieved', { user: buildRequestUser(user) });
     } catch (error) {
         console.error('Get profile error:', error);
         sendError(res, 'Failed to get user profile', 500);

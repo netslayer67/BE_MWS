@@ -107,6 +107,28 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['male', 'female', 'other'],
         trim: true
+    },
+    mtssAccess: {
+        enabled: {
+            type: Boolean,
+            default: undefined
+        },
+        accessLevel: {
+            type: String,
+            enum: ['observer', 'teacher', 'leader', 'admin'],
+            default: null
+        },
+        note: {
+            type: String,
+            trim: true
+        },
+        grantedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        grantedAt: {
+            type: Date
+        }
     }
 }, {
     timestamps: true

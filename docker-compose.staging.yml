@@ -1,59 +1,55 @@
+version: "3.9"
+
 services:
   backend:
-    image: ghcr.io/netslayer67/mws-app-be:staging-latest
+    image: ghcr.io/netslayer67/mws-app-be:latest
     container_name: mws-backend-staging
     restart: unless-stopped
+    env_file:
+      - .env.staging
     expose:
       - "3003"
     environment:
-      - NODE_ENV=production
-      - PORT=3003
-      - FRONTEND_URL=https://app-stg.mws.web.id
-      - CORS_ORIGINS=https://app-stg.mws.web.id,https://proof.mws.web.id,http://localhost:5173
-      - MONGODB_URI=${MONGODB_URI}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRES_IN=7d
-      - SESSION_SECRET=${JWT_SECRET}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URL=https://app-stg.mws.web.id/auth/google/callback
-      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
-      - GOOGLE_AI_MODEL=gemini-flash-latest
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-      - OPENROUTER_MODEL=arcee-ai/trinity-large-preview:free
-      - OPENROUTER_FALLBACK_MODELS=
-      - OPENROUTER_MAX_TOKENS=1024
-      - OPENROUTER_TEMPERATURE=0.4
-      - OPENROUTER_MIN_DELAY_MS=600
-      - OPENROUTER_HTTP_REFERER=https://app-stg.mws.web.id
-      - OPENROUTER_APP_NAME=IntegraLearn AI Chat Staging
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
-      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
-      - SMTP_HOST=smtp.gmail.com
-      - SMTP_PORT=587
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASS=${SMTP_PASS}
-      - SMTP_FROM=${SMTP_FROM}
-      - RATE_LIMIT_WINDOW=15
-      - RATE_LIMIT_MAX_REQUESTS=600
-      - CACHE_TTL=3600
-      - LOG_LEVEL=info
-      - CLOUDINARY_CLOUD_NAME=deldcwiji
-      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
-      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      NODE_ENV: production
+      PORT: 3003
+      FRONTEND_URL: https://app-stg.mws.web.id
+      OPENROUTER_APP_NAME: IntegraLearn AI Chat Staging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - mws-network
 
   frontend:
-    image: ghcr.io/netslayer67/mws-app-fe:staging-latest
+    image: ghcr.io/netslayer67/mws-app-fe:latest
     container_name: mws-frontend-staging
     restart: unless-stopped
+    env_file:
+      - .env.staging
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "4177:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - mws-network
 

@@ -5,7 +5,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const { sendSuccess, sendError } = require('../utils/response');
-const { buildDashboardAccessProfile, hasDashboardAccess } = require('../utils/accessControl');
+const { hasDashboardAccess, hasMtssAccess } = require('../utils/accessControl');
+const { buildRequestUser } = require('../middleware/auth');
 
 // Initialize session for OAuth
 router.use(require('express-session')({
@@ -71,45 +72,25 @@ router.get('/google/callback',
                 { expiresIn: '7d' }
             );
 
-            const dashboardAccess = buildDashboardAccessProfile(dbUser);
-
             // Send database-validated user data to frontend
             const userDataForFrontend = {
-                id: dbUser._id,
-                name: dbUser.name,
-                email: dbUser.email,
-                role: dbUser.role, // This is the authoritative role from database
-                username: dbUser.username,
-                gender: dbUser.gender,
-                department: dbUser.department,
-                jobLevel: dbUser.jobLevel,
-                unit: dbUser.unit,
-                jobPosition: dbUser.jobPosition,
-                employeeId: dbUser.employeeId,
-                currentGrade: dbUser.currentGrade,
-                className: dbUser.className,
-                nickname: dbUser.nickname,
-                joinAcademicYear: dbUser.joinAcademicYear,
+                ...buildRequestUser(dbUser),
                 lastLogin: dbUser.lastLogin,
                 isActive: dbUser.isActive,
                 emailVerified: dbUser.emailVerified,
                 // Add validation metadata
                 validatedAt: new Date().toISOString(),
-                authMethod: 'google_oauth',
-                dashboardAccess,
-                dashboardRole: dashboardAccess.effectiveRole
+                authMethod: 'google_oauth'
             };
 
             // Redirect to frontend with validated user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            const redirectTarget = dbUser.role === 'student' ? '/emotional-checkin' : '/support-hub';
+            const redirectTarget = dbUser.role === 'student'
+                ? '/emotional-checkin'
+                : (userDataForFrontend.mtssAccess?.hasAccess ? '/support-hub' : '/select-role');
             const redirectUrl = `${frontendUrl}/auth/callback#token=${encodeURIComponent(token)}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
 
-            const oauthUserForLogging = {
-                ...dbUser.toObject(),
-                dashboardAccess
-            };
-            const canViewDashboard = hasDashboardAccess(oauthUserForLogging);
+            const canViewDashboard = hasDashboardAccess(userDataForFrontend);
 
             // Debug log for FRONTEND_URL configuration
             console.log('🌐 OAuth redirect config:', {
@@ -122,9 +103,11 @@ router.get('/google/callback',
             console.log('🔄 Redirecting to frontend with database-validated user data');
             console.log('📋 User role for dashboard access:', {
                 role: dbUser.role,
-                dashboardRole: dashboardAccess.effectiveRole,
-                delegatedFrom: dashboardAccess.delegatedFromEmail || null,
-                hasDashboardAccess: canViewDashboard
+                dashboardRole: userDataForFrontend.dashboardRole,
+                delegatedFrom: userDataForFrontend.dashboardAccess?.delegatedFromEmail || null,
+                hasDashboardAccess: canViewDashboard,
+                hasMtssAccess: hasMtssAccess(userDataForFrontend),
+                mtssRole: userDataForFrontend.mtssRole || null
             });
 
             res.redirect(redirectUrl);
@@ -175,29 +158,9 @@ router.post('/login', require('../middleware/validation').validate(require('../u
             { expiresIn: '7d' }
         );
 
-        const dashboardAccess = buildDashboardAccessProfile(user);
-
         // Return user data and token
         const userData = {
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                username: user.username,
-                department: user.department,
-                unit: user.unit,
-                jobLevel: user.jobLevel,
-                jobPosition: user.jobPosition,
-                classes: Array.isArray(user.classes) ? user.classes : [],
-                currentGrade: user.currentGrade,
-                className: user.className,
-                nickname: user.nickname,
-                gender: user.gender,
-                joinAcademicYear: user.joinAcademicYear,
-                dashboardAccess,
-                dashboardRole: dashboardAccess.effectiveRole
-            },
+            user: buildRequestUser({ ...user.toObject(), lastLogin: new Date() }),
             token
         };
 
@@ -238,10 +201,7 @@ router.get('/me', require('../middleware/auth').authenticate, async (req, res) =
             return sendError(res, 'Account is deactivated', 403);
         }
 
-        const dashboardAccess = buildDashboardAccessProfile(user);
-        const responseUser = user.toObject ? user.toObject() : { ...user };
-        responseUser.dashboardAccess = dashboardAccess;
-        responseUser.dashboardRole = dashboardAccess.effectiveRole;
+        const responseUser = buildRequestUser(user);
 
         // Log role access for security monitoring
         const canViewDashboard = hasDashboardAccess(responseUser);
@@ -249,9 +209,11 @@ router.get('/me', require('../middleware/auth').authenticate, async (req, res) =
             userId: user._id,
             email: user.email,
             role: responseUser.role,
-            dashboardRole: dashboardAccess.effectiveRole,
-            delegatedFrom: dashboardAccess.delegatedFromEmail || null,
+            dashboardRole: responseUser.dashboardRole,
+            delegatedFrom: responseUser.dashboardAccess?.delegatedFromEmail || null,
             hasDashboardAccess: canViewDashboard,
+            hasMtssAccess: hasMtssAccess(responseUser),
+            mtssRole: responseUser.mtssRole || null,
             department: responseUser.department,
             unit: responseUser.unit
         });

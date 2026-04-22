@@ -2,10 +2,17 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const { sendError } = require('../utils/response');
-const { buildDashboardAccessProfile } = require('../utils/accessControl');
+const {
+    buildDashboardAccessProfile,
+    buildMtssAccessProfile,
+    hasMtssAccess,
+    hasMtssAdminAccess,
+    hasMtssWriteAccess
+} = require('../utils/accessControl');
 
 const buildRequestUser = (user) => {
     const dashboardAccess = buildDashboardAccessProfile(user);
+    const mtssAccess = buildMtssAccessProfile(user);
 
     return {
         id: user._id,
@@ -26,7 +33,9 @@ const buildRequestUser = (user) => {
         reportsTo: user.reportsTo,
         subordinates: user.subordinates || [],
         dashboardRole: dashboardAccess.effectiveRole,
-        dashboardAccess
+        dashboardAccess,
+        mtssRole: mtssAccess.effectiveRole,
+        mtssAccess
     };
 };
 
@@ -106,6 +115,35 @@ const authorize = (...roles) => {
 // Admin and above roles
 const requireAdmin = authorize('admin', 'superadmin', 'directorate');
 const requireMTSSAdmin = authorize('admin', 'superadmin', 'directorate', 'head_unit');
+const requireMTSSAccess = (req, res, next) => {
+    if (!req.user) {
+        return sendError(res, 'Authentication required', 401);
+    }
+    if (!hasMtssAccess(req.user)) {
+        return sendError(res, 'You do not have access to MTSS.', 403);
+    }
+    next();
+};
+
+const requireMTSSWriteAccess = (req, res, next) => {
+    if (!req.user) {
+        return sendError(res, 'Authentication required', 401);
+    }
+    if (!hasMtssWriteAccess(req.user)) {
+        return sendError(res, 'You do not have write access to MTSS.', 403);
+    }
+    next();
+};
+
+const requireScopedMTSSAdmin = (req, res, next) => {
+    if (!req.user) {
+        return sendError(res, 'Authentication required', 401);
+    }
+    if (!hasMtssAdminAccess(req.user)) {
+        return sendError(res, 'You do not have admin access to MTSS.', 403);
+    }
+    next();
+};
 
 // Super admin and directorate only
 const requireSuperAdmin = authorize('superadmin', 'directorate');
@@ -127,8 +165,12 @@ module.exports = {
     authorize,
     requireAdmin,
     requireMTSSAdmin,
+    requireMTSSAccess,
+    requireMTSSWriteAccess,
+    requireScopedMTSSAdmin,
     requireSuperAdmin,
     requireStaffOrTeacher,
     requireTeacherAccess,
-    requireAuthenticated
+    requireAuthenticated,
+    buildRequestUser
 };

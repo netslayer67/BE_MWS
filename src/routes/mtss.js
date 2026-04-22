@@ -37,7 +37,12 @@ const evidenceUpload = multer({
     fileFilter: (_req, file, cb) => cb(null, ALLOWED_TYPES.has(file.mimetype))
 });
 
-const { authenticate, requireMTSSAdmin, requireStaffOrTeacher } = require('../middleware/auth');
+const {
+    authenticate,
+    requireMTSSAccess,
+    requireMTSSWriteAccess,
+    requireScopedMTSSAdmin
+} = require('../middleware/auth');
 const { validate } = require('../middleware/validation');
 const {
     mtssStrategyCreateSchema,
@@ -50,32 +55,32 @@ const {
 
 router.use(authenticate);
 
-router.get('/tiers', getTierMetadata);
-router.post('/tiers', requireMTSSAdmin, upsertTier);
+router.get('/tiers', requireMTSSAccess, getTierMetadata);
+router.post('/tiers', requireScopedMTSSAdmin, upsertTier);
 
-router.get('/strategies', getStrategies);
-router.get('/strategies/:id', getStrategyById);
-router.post('/strategies', requireMTSSAdmin, validate(mtssStrategyCreateSchema), createStrategy);
-router.put('/strategies/:id', requireMTSSAdmin, validate(mtssStrategyUpdateSchema), updateStrategy);
-router.delete('/strategies/:id', requireMTSSAdmin, deleteStrategy);
+router.get('/strategies', requireMTSSAccess, getStrategies);
+router.get('/strategies/:id', requireMTSSAccess, getStrategyById);
+router.post('/strategies', requireScopedMTSSAdmin, validate(mtssStrategyCreateSchema), createStrategy);
+router.put('/strategies/:id', requireScopedMTSSAdmin, validate(mtssStrategyUpdateSchema), updateStrategy);
+router.delete('/strategies/:id', requireScopedMTSSAdmin, deleteStrategy);
 
-router.get('/students', requireStaffOrTeacher, listStudents);
-router.get('/students/:id', requireStaffOrTeacher, getStudent);
-router.post('/students', requireMTSSAdmin, validate(mtssStudentCreateSchema), createStudent);
-router.put('/students/:id', requireMTSSAdmin, validate(mtssStudentUpdateSchema), updateStudent);
+router.get('/students', requireMTSSAccess, listStudents);
+router.get('/students/:id', requireMTSSAccess, getStudent);
+router.post('/students', requireScopedMTSSAdmin, validate(mtssStudentCreateSchema), createStudent);
+router.put('/students/:id', requireScopedMTSSAdmin, validate(mtssStudentUpdateSchema), updateStudent);
 
-router.get('/mentors', requireMTSSAdmin, listMentors);
+router.get('/mentors', requireScopedMTSSAdmin, listMentors);
 
-router.post('/pilot-feedback', requireStaffOrTeacher, upsertPilotFeedbackSession);
-router.get('/pilot-feedback', requireMTSSAdmin, listPilotFeedbackSessions);
+router.post('/pilot-feedback', requireMTSSAccess, upsertPilotFeedbackSession);
+router.get('/pilot-feedback', requireScopedMTSSAdmin, listPilotFeedbackSessions);
 
-router.post('/upload-evidence', requireStaffOrTeacher, evidenceUpload.array('evidence', MAX_FILES), uploadEvidence);
+router.post('/upload-evidence', requireMTSSWriteAccess, evidenceUpload.array('evidence', MAX_FILES), uploadEvidence);
 
-router.get('/mentor-assignments', requireStaffOrTeacher, getMentorAssignments);
-router.get('/mentor-assignments/:id', requireStaffOrTeacher, getMentorAssignmentById);
+router.get('/mentor-assignments', requireMTSSAccess, getMentorAssignments);
+router.get('/mentor-assignments/:id', requireMTSSAccess, getMentorAssignmentById);
 // Allow teachers to create intervention plans for students (they must assign themselves as mentor)
-router.post('/mentor-assignments', requireStaffOrTeacher, validate(mentorAssignmentCreateSchema), createMentorAssignment);
-router.put('/mentor-assignments/:id', requireStaffOrTeacher, validate(mentorAssignmentUpdateSchema), updateMentorAssignment);
-router.get('/mentor-assignments/my/students', requireStaffOrTeacher, getMyAssignedStudents);
+router.post('/mentor-assignments', requireMTSSWriteAccess, validate(mentorAssignmentCreateSchema), createMentorAssignment);
+router.put('/mentor-assignments/:id', requireMTSSWriteAccess, validate(mentorAssignmentUpdateSchema), updateMentorAssignment);
+router.get('/mentor-assignments/my/students', requireMTSSAccess, getMyAssignedStudents);
 
 module.exports = router;
