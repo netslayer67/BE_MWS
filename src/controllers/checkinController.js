@@ -203,7 +203,7 @@ const queueSupportNotifications = ({
         checkinId: checkin._id.toString()
     };
 
-    setImmediate(async () => {
+    const dispatchNotifications = async () => {
         try {
             console.log(`🔔 Background support notifications started for ${logLabel}:`, checkin.userId);
 
@@ -243,7 +243,18 @@ const queueSupportNotifications = ({
         } catch (error) {
             console.error(`❌ Background support notifications crashed for ${logLabel}:`, error);
         }
+    };
+
+    const shouldRunInline = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID);
+    if (shouldRunInline) {
+        return dispatchNotifications();
+    }
+
+    setImmediate(() => {
+        void dispatchNotifications();
     });
+
+    return null;
 };
 
 const normalizeGradeValue = (value) => {
@@ -1113,7 +1124,7 @@ const submitCheckin = async (req, res) => {
         }, 201);
 
         if (checkin.supportContactUserId && responseUser && supportContact) {
-            queueSupportNotifications({
+            await queueSupportNotifications({
                 notificationService,
                 checkin,
                 user: responseUser,
@@ -2003,7 +2014,7 @@ const submitAICheckin = async (req, res) => {
         }, 201);
 
         if (checkin.supportContactUserId && responseUser && supportContact) {
-            queueSupportNotifications({
+            await queueSupportNotifications({
                 notificationService,
                 checkin,
                 user: responseUser,
