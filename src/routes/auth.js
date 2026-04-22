@@ -18,8 +18,17 @@ router.use(require('express-session')({
 router.use(passport.initialize());
 router.use(passport.session());
 
+const ensureGoogleOAuthConfigured = (req, res, next) => {
+    if (passport.googleOAuthConfigured) {
+        return next();
+    }
+
+    return sendError(res, 'Google OAuth is not configured', 503);
+};
+
 // Google OAuth routes
 router.get('/google',
+    ensureGoogleOAuthConfigured,
     passport.authenticate('google', {
         scope: ['profile', 'email'],
         hd: 'millennia21.id' // Restrict to millennia21.id domain
@@ -27,6 +36,7 @@ router.get('/google',
 );
 
 router.get('/google/callback',
+    ensureGoogleOAuthConfigured,
     passport.authenticate('google', { failureRedirect: '/?error=oauth_failed' }),
     async (req, res) => {
         try {

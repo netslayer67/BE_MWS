@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const mongoose = require('mongoose');
 const winston = require('winston');
 
 // Import configurations
@@ -20,6 +21,30 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 
 // Create Express app
 const app = express();
+const initializationState = {
+    phase: 'pending',
+    startedAt: null,
+    completedAt: null,
+    lastError: null
+};
+
+const setInitializationState = (phase, error = null) => {
+    initializationState.phase = phase;
+    initializationState.lastError = error
+        ? {
+            name: error.name || 'Error',
+            message: error.message
+        }
+        : null;
+
+    if (phase === 'initializing') {
+        initializationState.startedAt = initializationState.startedAt || new Date().toISOString();
+    }
+
+    if (phase === 'ready') {
+        initializationState.completedAt = new Date().toISOString();
+    }
+};
 
 // Trust proxy for rate limiting behind reverse proxy
 app.set('trust proxy', 1);
@@ -54,6 +79,31 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        service: 'integra-learn-backend',
+        phase: initializationState.phase,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/ready', (req, res) => {
+    const dbReady = mongoose.connection.readyState === 1;
+    const appReady = initializationState.phase === 'ready';
+    const isReady = dbReady && appReady;
+
+    res.status(isReady ? 200 : 503).json({
+        status: isReady ? 'ready' : 'not ready',
+        checks: {
+            app: appReady ? 'ready' : initializationState.phase,
+            database: dbReady ? 'ready' : 'not ready'
+        },
+        lastError: initializationState.lastError,
+        timestamp: new Date().toISOString()
+    });
+});
+
 // OAuth routes (direct, without /api prefix for Google OAuth)
 const authRoutes = require('./routes/auth');
 app.use('/auth', authRoutes);
@@ -67,6 +117,8 @@ app.use(errorHandler);
 // Initialize database and AI connections
 const initializeApp = async () => {
     try {
+        setInitializationState('initializing');
+
         const corsConfig = validateCorsConfiguration();
         if (!corsConfig.valid) {
             throw new Error(corsConfig.message);
@@ -94,12 +146,8 @@ const initializeApp = async () => {
                 winston.warn('Application will continue running with reduced functionality');
                 winston.warn('To restore AI features, wait for quota reset or upgrade your Google AI plan');
                 winston.warn('🚀 APPLICATION STARTING WITH REDUCED AI FUNCTIONALITY 🚀');
-                // Don't exit - continue with fallback mode
-                winston.info('✅ Application initialized successfully with fallback AI mode');
-                return;
             } else {
-                winston.error('Google AI connection failed - application cannot start without AI');
-                process.exit(1);
+                winston.warn(`Google AI connection failed - continuing with reduced functionality: ${error.message}`);
             }
         }
 
@@ -130,10 +178,13 @@ const initializeApp = async () => {
         }
 
         winston.info('Application initialized successfully');
+        setInitializationState('ready');
+        return true;
     } catch (error) {
         winston.error('Application initialization failed:', error);
-        process.exit(1);
+        setInitializationState('failed', error);
+        return false;
     }
 };
 
-module.exports = { app, initializeApp };
+module.exports = { app, initializeApp, initializationState };
