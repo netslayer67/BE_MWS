@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const mongoose = require('mongoose');
 const winston = require('winston');
 
 // Import configurations
@@ -57,6 +58,26 @@ app.use((req, res, next) => {
 // OAuth routes (direct, without /api prefix for Google OAuth)
 const authRoutes = require('./routes/auth');
 app.use('/auth', authRoutes);
+
+// Lightweight liveness probe for load balancers and container health checks.
+app.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// Readiness probe that verifies the app can serve requests backed by MongoDB.
+app.get('/ready', async (_req, res) => {
+    try {
+        if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+            return res.status(500).json({ status: 'not ready' });
+        }
+
+        await mongoose.connection.db.admin().ping();
+        return res.status(200).json({ status: 'ready' });
+    } catch (error) {
+        winston.warn('Readiness probe failed', { error: error.message });
+        return res.status(500).json({ status: 'not ready' });
+    }
+});
 
 // API routes
 app.use('/api', routes);
