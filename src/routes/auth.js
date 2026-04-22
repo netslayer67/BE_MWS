@@ -8,15 +8,18 @@ const { sendSuccess, sendError } = require('../utils/response');
 const { hasDashboardAccess, hasMtssAccess } = require('../utils/accessControl');
 const { buildRequestUser } = require('../middleware/auth');
 
-// Initialize session for OAuth
-router.use(require('express-session')({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false
-}));
-
-router.use(passport.initialize());
-router.use(passport.session());
+// Session middleware is only needed for Google OAuth flow.
+// Email/password login and JWT-based routes do NOT require sessions.
+const buildOAuthMiddleware = () => {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) return [];
+    return [
+        require('express-session')({ secret, resave: false, saveUninitialized: false }),
+        passport.initialize(),
+        passport.session()
+    ];
+};
+const oauthMiddleware = buildOAuthMiddleware();
 
 const ensureGoogleOAuthConfigured = (req, res, next) => {
     if (passport.googleOAuthConfigured) {
@@ -28,6 +31,7 @@ const ensureGoogleOAuthConfigured = (req, res, next) => {
 
 // Google OAuth routes
 router.get('/google',
+    ...oauthMiddleware,
     ensureGoogleOAuthConfigured,
     passport.authenticate('google', {
         scope: ['profile', 'email'],
@@ -36,6 +40,7 @@ router.get('/google',
 );
 
 router.get('/google/callback',
+    ...oauthMiddleware,
     ensureGoogleOAuthConfigured,
     passport.authenticate('google', { failureRedirect: '/?error=oauth_failed' }),
     async (req, res) => {
@@ -182,15 +187,15 @@ router.post('/login', require('../middleware/validation').validate(require('../u
     }
 });
 
-// Logout
+// Logout — JWT auth is stateless; client drops the token.
+// Passport session logout only applies when OAuth session is active.
 router.post('/logout', (req, res) => {
-    req.logout((err) => {
-        if (err) {
-            console.error('Logout error:', err);
-            return sendError(res, 'Logout failed', 500);
-        }
-        sendSuccess(res, 'Logged out successfully');
-    });
+    if (typeof req.logout === 'function') {
+        req.logout((err) => {
+            if (err) console.error('Passport logout error:', err);
+        });
+    }
+    sendSuccess(res, 'Logged out successfully');
 });
 
 // Get current user info
