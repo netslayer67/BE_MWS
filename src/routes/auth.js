@@ -11,7 +11,7 @@ const { buildRequestUser } = require('../middleware/auth');
 // Session middleware is only needed for Google OAuth flow.
 // Email/password login and JWT-based routes do NOT require sessions.
 const buildOAuthMiddleware = () => {
-    const secret = process.env.SESSION_SECRET;
+    const secret = process.env.SESSION_SECRET || process.env.JWT_SECRET;
     if (!secret) return [];
     return [
         require('express-session')({ secret, resave: false, saveUninitialized: false }),
@@ -26,7 +26,18 @@ const ensureGoogleOAuthConfigured = (req, res, next) => {
         return next();
     }
 
-    return sendError(res, 'Google OAuth is not configured', 503);
+    const missingVariables = passport.googleOAuthStatus?.missingVariables || [];
+    const callbackURL = passport.googleOAuthStatus?.callbackURL || null;
+
+    return sendError(
+        res,
+        `Google OAuth is not configured${missingVariables.length ? `: missing ${missingVariables.join(', ')}` : ''}`,
+        503,
+        {
+            missingVariables,
+            callbackURL
+        }
+    );
 };
 
 // Google OAuth routes

@@ -3,23 +3,30 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const MTSSStudent = require('../models/MTSSStudent');
+const { buildFrontendUrl } = require('../utils/frontendUrl');
 const {
     buildStudentUserPayload,
     deriveUnitFromGrade,
     normalizeEmail
 } = require('../utils/studentUserHelpers');
 
+const resolvedGoogleRedirectUrl = process.env.GOOGLE_REDIRECT_URL || buildFrontendUrl('/auth/google/callback');
+const missingGoogleOAuthEnv = [
+    !process.env.GOOGLE_CLIENT_ID ? 'GOOGLE_CLIENT_ID' : null,
+    !process.env.GOOGLE_CLIENT_SECRET ? 'GOOGLE_CLIENT_SECRET' : null
+].filter(Boolean);
+
 const googleOAuthConfigured = Boolean(
     process.env.GOOGLE_CLIENT_ID &&
     process.env.GOOGLE_CLIENT_SECRET &&
-    process.env.GOOGLE_REDIRECT_URL
+    resolvedGoogleRedirectUrl
 );
 
 if (googleOAuthConfigured) {
     passport.use(new GoogleStrategy({
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: process.env.GOOGLE_REDIRECT_URL
+        callbackURL: resolvedGoogleRedirectUrl
     },
         async (accessToken, refreshToken, profile, done) => {
             try {
@@ -157,7 +164,10 @@ if (googleOAuthConfigured) {
         }
     ));
 } else {
-    console.warn('⚠️ Google OAuth is not configured. OAuth routes will stay unavailable until credentials are provided.');
+    console.warn(
+        `⚠️ Google OAuth is not configured. Missing: ${missingGoogleOAuthEnv.join(', ') || 'unknown'}. `
+        + `Resolved callback URL: ${resolvedGoogleRedirectUrl || 'NOT SET'}. OAuth routes will stay unavailable until credentials are provided.`
+    );
 }
 
 passport.serializeUser((user, done) => {
@@ -179,5 +189,10 @@ passport.deserializeUser(async (id, done) => {
 });
 
 passport.googleOAuthConfigured = googleOAuthConfigured;
+passport.googleOAuthStatus = {
+    configured: googleOAuthConfigured,
+    callbackURL: resolvedGoogleRedirectUrl,
+    missingVariables: missingGoogleOAuthEnv
+};
 
 module.exports = passport;

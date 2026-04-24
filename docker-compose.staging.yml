@@ -12,6 +12,8 @@ services:
       PORT: 3003
       FRONTEND_URL: https://app-stg.mws.web.id
       CORS_ORIGINS: https://app-stg.mws.web.id
+      SESSION_SECRET: ${JWT_SECRET}
+      GOOGLE_REDIRECT_URL: https://app-stg.mws.web.id/auth/google/callback
       OPENROUTER_APP_NAME: IntegraLearn AI Chat Staging
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health >/dev/null 2>&1 || exit 1"]
