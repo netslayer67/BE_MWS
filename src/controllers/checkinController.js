@@ -1619,7 +1619,7 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             console.error('? Vision AI request failed:', apiError.message);
             usedFallback = true;
             fallbackMessage = 'AI vision service hit a quota wall. Providing supportive insights instead—Manual Check-in remains available.';
-            emotionResult = buildVisionFallbackResult();
+            emotionResult = normalizeEmotionResult(buildVisionFallbackResult());
             try { fs.unlinkSync(req.file.path); } catch (_) {}
             return sendSuccess(res, 'Emotion analysis fallback used', {
                 emotionResult,
@@ -1681,6 +1681,8 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             console.warn('Could not clean up temp file:', cleanupErr.message);
         }
 
+        emotionResult = normalizeEmotionResult(emotionResult);
+
         const payload = { emotionResult };
         if (usedFallback) {
             payload.fallback = true;
@@ -1696,6 +1698,56 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
         console.error('? Emotion analysis error:', error);
         sendError(res, 'Failed to analyze emotion', 500);
     }
+};
+
+const ALLOWED_PRIMARY_EMOTIONS = new Set([
+    'happy', 'sad', 'angry', 'surprised', 'fearful',
+    'disgusted', 'neutral', 'anxious', 'calm'
+]);
+
+const clampNumber = (value, min, max, fallback) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.min(max, Math.max(min, num));
+};
+
+const normalizeEmotionResult = (raw) => {
+    const safe = (raw && typeof raw === 'object') ? raw : {};
+
+    const rawPrimary = String(safe.primaryEmotion || '').toLowerCase().trim();
+    const primaryEmotion = ALLOWED_PRIMARY_EMOTIONS.has(rawPrimary) ? rawPrimary : 'neutral';
+
+    const secondary = Array.isArray(safe.secondaryEmotions)
+        ? safe.secondaryEmotions
+            .map((e) => String(e || '').toLowerCase().trim())
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+
+    const explanationsSource = Array.isArray(safe.explanations)
+        ? safe.explanations
+        : (typeof safe.explanations === 'string' ? [safe.explanations] : []);
+    const explanations = explanationsSource
+        .map((e) => String(e || '').trim())
+        .filter(Boolean)
+        .slice(0, 5);
+
+    return {
+        primaryEmotion,
+        secondaryEmotions: secondary,
+        valence: clampNumber(safe.valence, -1, 1, 0),
+        arousal: clampNumber(safe.arousal, -1, 1, 0),
+        intensity: clampNumber(safe.intensity, 0, 100, 50),
+        confidence: clampNumber(safe.confidence, 0, 100, 60),
+        explanations: explanations.length
+            ? explanations
+            : ['AI vision analysis completed with limited detail.'],
+        narrative: typeof safe.narrative === 'string' ? safe.narrative : (explanations[0] || ''),
+        grounding: typeof safe.grounding === 'string' ? safe.grounding : undefined,
+        microAction: typeof safe.microAction === 'string' ? safe.microAction : undefined,
+        temporalAnalysis: safe.temporalAnalysis || undefined,
+        fallback: Boolean(safe.fallback)
+    };
 };
 
 const buildVisionFallbackResult = (seed = Date.now()) => {
