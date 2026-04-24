@@ -152,29 +152,51 @@ function validateAnalysis(analysis, checkinData = {}) {
         }
     }
 
-    // Sanity-check needsSupport against actual check-in data.
-    // AI sometimes hallucinates needsSupport=true even when all indicators are positive.
-    // Override when the hard data clearly contradicts the flag.
-    const presence = checkinData?.presenceLevel ?? 0;
-    const capacity = checkinData?.capacityLevel ?? 0;
-    const clearlyPositive =
-        presence >= 7 &&
-        capacity >= 7 &&
-        (analysis.emotionalState === 'positive' || analysis.emotionalState === 'balanced') &&
-        analysis.presenceState === 'high' &&
-        analysis.capacityState === 'high';
+    // Numeric-first sanity check for needsSupport.
+    //
+    // Hard data (presenceLevel + capacityLevel + the user's own words) is more
+    // trustworthy than the AI's secondary mood labels, which can contradict the
+    // numbers (e.g. AI emits emotionalState: "neutral" while the user rated 9/9
+    // on both axes). The previous override required ALL five conditions to align
+    // before it would correct a false-positive flag, so a single off-label was
+    // enough to let needsSupport=true leak through. The rules below replace that
+    // with deterministic, numeric-first thresholds plus an explicit-distress
+    // text safety net for the mid-range.
+    const presence = Number(checkinData?.presenceLevel);
+    const capacity = Number(checkinData?.capacityLevel);
+    const hasPresence = Number.isFinite(presence);
+    const hasCapacity = Number.isFinite(capacity);
 
-    if (analysis.needsSupport && clearlyPositive) {
+    // 1. Hard floor — both scores are healthy → never flag.
+    if (hasPresence && hasCapacity && presence >= 7 && capacity >= 7) {
         analysis.needsSupport = false;
     }
-
-    // Conversely, flag when data shows distress but AI missed it
-    const clearlyDistressed =
-        (presence <= 3 || capacity <= 3) &&
-        (analysis.emotionalState === 'challenging' || analysis.emotionalState === 'depleted');
-
-    if (!analysis.needsSupport && clearlyDistressed) {
+    // 2. Hard ceiling — either score is in the warning band → always flag.
+    else if ((hasPresence && presence <= 4) || (hasCapacity && capacity <= 4)) {
         analysis.needsSupport = true;
+    }
+    // 3. Mid range (5-6 on both) — defer to the AI flag, but never miss
+    //    an explicit cry for help in the user's own words.
+    else {
+        const detailsText = [
+            checkinData?.details,
+            checkinData?.aiSummary,
+            ...(Array.isArray(checkinData?.selectedMoods) ? checkinData.selectedMoods : [])
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+
+        const explicitDistressKeywords =
+            /\b(crisis|burn(?:ed|ing)?\s*out|exhaust(?:ed|ion)?|overwhelm(?:ed|ing)?|panic|hopeless|suicid|self[-\s]?harm|can(?:'t|not)\s+cope|breaking\s*down|need\s+help|harm(?:ing|ed)?\s+myself)\b/;
+
+        if (explicitDistressKeywords.test(detailsText)) {
+            analysis.needsSupport = true;
+        } else {
+            // Coerce whatever the AI returned to a clean boolean so downstream
+            // consumers never see truthy strings or null.
+            analysis.needsSupport = Boolean(analysis.needsSupport);
+        }
     }
 
     // Ensure confidence is a number

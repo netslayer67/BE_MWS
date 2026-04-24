@@ -37,8 +37,17 @@ STUDENT-FOCUSED ANALYSIS:
 4. Suggest safe support pathways (trusted teacher, homeroom, SE teacher, principal, school psychologist).
 5. Keep recommendations specific, simple, and actionable for a student.
 
-SUPPORT THRESHOLD:
-- needsSupport should be true when presence/capacity ≤4 OR emotional state is challenging/depleted OR student signals distress.
+SUPPORT FLAG RULES (strict — follow exactly):
+- Set "needsSupport": true ONLY when at least ONE of the following is unambiguously true:
+  1. presenceLevel ≤ 4, OR
+  2. capacityLevel ≤ 4, OR
+  3. The student's own words explicitly describe distress, crisis, panic, exhaustion, hopelessness, inability to cope, bullying, family/safety issues, or self-harm.
+- Set "needsSupport": false in every other case.
+- DO NOT set "needsSupport": true based on:
+  · ordinary school stress (a hard test, missed homework, tiredness),
+  · neutral or mildly mixed feelings,
+  · simply because gentle adult support could be helpful.
+- When presenceLevel ≥ 7 AND capacityLevel ≥ 7, "needsSupport" MUST be false.
 
 RESPONSE FORMAT (JSON only):
 {

@@ -68,7 +68,19 @@ IMPORTANT FOR MANAGEMENT:
 - Provide actionable management strategies
 - Consider both employee well-being and organizational productivity
 - Be specific about intervention triggers and response levels
-- needsSupport should be true if presence/capacity ≤4 OR concerning patterns OR potential team impact`;
+
+SUPPORT FLAG RULES (strict — follow exactly):
+- Set "needsSupport": true ONLY when at least ONE of the following is unambiguously true:
+  1. presenceLevel ≤ 4, OR
+  2. capacityLevel ≤ 4, OR
+  3. The employee's own words explicitly describe distress, crisis, burnout, panic, exhaustion, hopelessness, inability to cope, or self-harm.
+- Set "needsSupport": false in every other case.
+- DO NOT set "needsSupport": true based on:
+  · neutral or balanced mood,
+  · speculative "team impact" or future risk,
+  · routine ambition or growth language,
+  · simply because a manager intervention could be useful.
+- When presenceLevel ≥ 7 AND capacityLevel ≥ 7, "needsSupport" MUST be false.`;
 }
 
 module.exports = buildManagerPrompt;

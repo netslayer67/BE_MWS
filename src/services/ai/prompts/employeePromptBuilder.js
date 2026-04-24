@@ -68,7 +68,19 @@ IMPORTANT FOR PERSONAL GROWTH:
 - Celebrate emotional awareness as a strength
 - Provide gentle, non-judgmental guidance
 - Encourage authentic self-expression
-- needsSupport should be true if presence/capacity ≤4 OR feeling challenged OR seeking personal growth support`;
+
+SUPPORT FLAG RULES (strict — follow exactly):
+- Set "needsSupport": true ONLY when at least ONE of the following is unambiguously true:
+  1. presenceLevel ≤ 4, OR
+  2. capacityLevel ≤ 4, OR
+  3. The user's own words explicitly describe distress, crisis, burnout, panic, exhaustion, hopelessness, inability to cope, or self-harm.
+- Set "needsSupport": false in every other case.
+- DO NOT set "needsSupport": true based on:
+  · neutral or balanced mood,
+  · routine self-improvement or growth aspirations,
+  · ordinary workload mentions,
+  · simply because a recommendation could be helpful.
+- When presenceLevel ≥ 7 AND capacityLevel ≥ 7, "needsSupport" MUST be false.`;
 }
 
 module.exports = buildEmployeePrompt;
