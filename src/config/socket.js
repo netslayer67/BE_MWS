@@ -1,12 +1,15 @@
 const socketIo = require('socket.io');
 const winston = require('winston');
+const { createCorsOriginChecker } = require('./cors');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 let io;
+let devTopologyBridgeInitialized = false;
 
 const initSocket = (server) => {
     io = socketIo(server, {
         cors: {
-            origin: true, // Allow all origins temporarily
+            origin: createCorsOriginChecker(),
             methods: ['GET', 'POST'],
             credentials: true
         }
@@ -39,6 +42,17 @@ const initSocket = (server) => {
             winston.info(`User ${userId} left personal room`);
         });
 
+        // Notification stream room (separate from generic personal room)
+        socket.on('join-notifications', (userId) => {
+            socket.join(`notifications-${userId}`);
+            winston.info(`User ${userId} joined notifications room`);
+        });
+
+        socket.on('leave-notifications', (userId) => {
+            socket.leave(`notifications-${userId}`);
+            winston.info(`User ${userId} left notifications room`);
+        });
+
         socket.on('join-mtss-admin', () => {
             socket.join('mtss-admin');
             winston.info(`Socket ${socket.id} joined mtss-admin room`);
@@ -61,10 +75,45 @@ const initSocket = (server) => {
             winston.info(`Mentor ${mentorId} left MTSS mentor room`);
         });
 
+        socket.on('join-dev-topology', () => {
+            socket.join(devTopologyTelemetryService.getRoomName());
+            try {
+                devTopologyTelemetryService.noteViewerSubscribed();
+                socket.emit(
+                    devTopologyTelemetryService.getSocketEventNames().snapshot,
+                    devTopologyTelemetryService.getSnapshot()
+                );
+            } catch (error) {
+                winston.warn(`Failed to emit dev topology snapshot to ${socket.id}: ${error.message}`);
+            }
+            winston.info(`Socket ${socket.id} joined dev-topology room`);
+        });
+
+        socket.on('leave-dev-topology', () => {
+            socket.leave(devTopologyTelemetryService.getRoomName());
+            devTopologyTelemetryService.noteViewerUnsubscribed();
+            winston.info(`Socket ${socket.id} left dev-topology room`);
+        });
+
         socket.on('disconnect', () => {
+            // Best-effort viewer count correction if client disconnects without explicit leave.
+            if (socket.rooms && socket.rooms.has && socket.rooms.has(devTopologyTelemetryService.getRoomName())) {
+                devTopologyTelemetryService.noteViewerUnsubscribed();
+            }
             winston.info(`User disconnected: ${socket.id}`);
         });
     });
+
+    if (!devTopologyBridgeInitialized) {
+        devTopologyBridgeInitialized = true;
+        devTopologyTelemetryService.on('update', (payload) => {
+            if (!io) return;
+            io.to(devTopologyTelemetryService.getRoomName()).emit(
+                devTopologyTelemetryService.getSocketEventNames().update,
+                payload
+            );
+        });
+    }
 
     return io;
 };

@@ -26,7 +26,7 @@ router.get('/google',
 );
 
 router.get('/google/callback',
-    passport.authenticate('google', { failureRedirect: '/login' }),
+    passport.authenticate('google', { failureRedirect: '/?error=oauth_failed' }),
     async (req, res) => {
         try {
             console.log('✅ Google OAuth successful for user:', req.user.email);
@@ -37,13 +37,13 @@ router.get('/google/callback',
 
             if (!dbUser) {
                 console.error('❌ User not found in database after OAuth:', req.user.email);
-                return res.redirect('/login?error=user_not_found');
+                return res.redirect('/?error=user_not_found');
             }
 
             // Check if user is active
             if (!dbUser.isActive) {
                 console.error('❌ Inactive user attempted OAuth login:', req.user.email);
-                return res.redirect('/login?error=account_inactive');
+                return res.redirect('/?error=account_inactive');
             }
 
             // Update last login
@@ -80,6 +80,7 @@ router.get('/google/callback',
                 email: dbUser.email,
                 role: dbUser.role, // This is the authoritative role from database
                 username: dbUser.username,
+                gender: dbUser.gender,
                 department: dbUser.department,
                 jobLevel: dbUser.jobLevel,
                 unit: dbUser.unit,
@@ -102,7 +103,7 @@ router.get('/google/callback',
             // Redirect to frontend with validated user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             const redirectTarget = dbUser.role === 'student' ? '/emotional-checkin' : '/support-hub';
-            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
+            const redirectUrl = `${frontendUrl}/auth/callback#token=${encodeURIComponent(token)}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
 
             const oauthUserForLogging = {
                 ...dbUser.toObject(),
@@ -130,7 +131,7 @@ router.get('/google/callback',
 
         } catch (error) {
             console.error('❌ OAuth callback error:', error);
-            res.redirect('/login?error=oauth_failed');
+            res.redirect('/?error=oauth_failed');
         }
     }
 );
@@ -191,6 +192,7 @@ router.post('/login', require('../middleware/validation').validate(require('../u
                 currentGrade: user.currentGrade,
                 className: user.className,
                 nickname: user.nickname,
+                gender: user.gender,
                 joinAcademicYear: user.joinAcademicYear,
                 dashboardAccess,
                 dashboardRole: dashboardAccess.effectiveRole

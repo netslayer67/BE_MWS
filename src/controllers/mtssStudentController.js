@@ -22,6 +22,8 @@ const {
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
 
 const normalizeValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const toExactRegex = (value = '') => new RegExp(`^${escapeRegex(value)}$`, 'i');
 
 const normalizeList = (value) =>
     typeof value === 'string'
@@ -51,6 +53,8 @@ const TIER_CODES = ['tier1', 'tier2', 'tier3'];
 const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
 const UNIT_LEVEL_ROLES = new Set(['head_unit']); // Principals who see all students in their unit
+const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
+const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
 const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
 const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
@@ -166,9 +170,42 @@ const sanitizeStudentPayload = (payload = {}) => {
     return sanitized;
 };
 
+const isClassScopedTeacherInUnit = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    if (!CLASS_SCOPED_UNITS.has(lowerUnit)) return false;
+
+    const lowerJobPosition = (viewer.jobPosition || '').toLowerCase();
+    if (lowerJobPosition.includes('homeroom') || lowerJobPosition.includes('special education')) {
+        return true;
+    }
+
+    return (viewer.classes || []).some((cls) => {
+        const role = (cls?.role || '').toLowerCase();
+        return role.includes('homeroom') || role.includes('special education');
+    });
+};
+
 const applyViewerScope = (filter = {}, viewer = {}) => {
     // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
+        return filter;
+    }
+
+    // Students can only access their own MTSS student record by identity fields.
+    if (viewer.role === 'student') {
+        const clauses = [];
+        if (viewer.email) clauses.push({ email: toExactRegex(viewer.email) });
+        if (viewer.username) clauses.push({ username: toExactRegex(viewer.username) });
+        if (viewer.nickname) clauses.push({ nickname: toExactRegex(viewer.nickname) });
+        if (viewer.name) clauses.push({ name: toExactRegex(viewer.name) });
+
+        filter.$and = filter.$and || [];
+        if (clauses.length) {
+            filter.$and.push({ $or: clauses });
+        } else {
+            // Explicit deny-all fallback if we cannot identify the student user.
+            filter.$and.push({ _id: null });
+        }
         return filter;
     }
 
@@ -185,104 +222,42 @@ const applyViewerScope = (filter = {}, viewer = {}) => {
         return filter;
     }
 
-    // Teachers (teacher, se_teacher, staff) only see students in their assigned classes
-    const viewerClasses = viewer.classes || [];
-    if (!viewerClasses.length) {
-        // No class assignments - fall back to unit-based access (limited)
-        const unitGrades = deriveGradesForUnit(viewer.unit || '');
-        if (unitGrades.length) {
-            const gradeClauses = buildGradeFilterClauses(unitGrades);
-            if (gradeClauses.length) {
-                filter.$and = filter.$and || [];
-                filter.$and.push({ $or: gradeClauses });
-            }
-        }
-        return filter;
-    }
+    // JH teachers remain grade-wide. Elementary/Kindergarten homeroom + SE teachers
+    // are class-scoped (grade + class) so roster visibility matches their classroom.
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
 
-    // Helper to check if a class assignment indicates a Homeroom Teacher
-    // Homeroom Teachers see ALL students in their grade (not filtered by specific class section)
-    const isHomeroomAssignment = (cls) => {
-        const className = (cls.className || '').toLowerCase();
-        const role = (cls.role || '').toLowerCase();
-        return className === 'homeroom' ||
-               role === 'homeroom teacher' ||
-               role.includes('homeroom');
-    };
+    const allowedGrades = isJhWideException
+        ? deriveGradesForUnit(viewer.unit || 'Junior High')
+        : deriveAllowedGradesForUser(viewer);
 
-    // Separate homeroom assignments (grade-only filter) from specific class assignments
-    const homeroomGrades = [];
-    const specificClasses = [];
+    const useClassScopedFilter = !isJhWideException && isClassScopedTeacherInUnit(viewer);
+    const allowedClasses = useClassScopedFilter ? deriveAllowedClassNamesForUser(viewer) : [];
 
-    viewerClasses.forEach((cls) => {
-        if (!cls.grade) return;
-        if (isHomeroomAssignment(cls)) {
-            // Homeroom teacher - they see all students in the grade
-            homeroomGrades.push(cls.grade);
-            console.log(`[MTSS] Homeroom teacher detected: ${viewer.name} for ${cls.grade} (className: ${cls.className}, role: ${cls.role})`);
-        } else if (cls.className) {
-            // Specific class assignment - they see only that class
-            specificClasses.push(cls);
-        }
-    });
-
-    // Build filter clauses
-    const allClauses = [];
-
-    // Add grade-only clauses for homeroom teachers
-    if (homeroomGrades.length) {
-        const gradeClauses = buildGradeFilterClauses(homeroomGrades);
-        allClauses.push(...gradeClauses);
-    }
-
-    // Add strict class clauses for specific class assignments
-    specificClasses.forEach((cls) => {
-        const gradeRegex = buildGradeRegex(cls.grade);
-        const classRegex = buildClassRegex(cls.className);
-        if (gradeRegex && classRegex) {
-            allClauses.push({ currentGrade: gradeRegex, className: classRegex });
-        }
-    });
-
-    if (allClauses.length) {
+    const gradeClauses = buildGradeFilterClauses(allowedGrades);
+    if (gradeClauses.length) {
         filter.$and = filter.$and || [];
-        filter.$and.push({ $or: allClauses });
-    } else {
-        // Fallback: if no valid class assignments, use grade-only filter
-        const allowedGrades = deriveAllowedGradesForUser(viewer);
-        const gradeClauses = buildGradeFilterClauses(allowedGrades);
-        if (gradeClauses.length) {
+        filter.$and.push({ $or: gradeClauses });
+    }
+
+    if (useClassScopedFilter && allowedClasses.length) {
+        const classClauses = buildClassFilterClauses(allowedClasses);
+        if (classClauses.length) {
             filter.$and = filter.$and || [];
-            filter.$and.push({ $or: gradeClauses });
+            filter.$and.push({ $or: classClauses });
         }
     }
 
     return filter;
-};
-
-// Helper to build grade regex (reused from mtssAccess)
-const buildGradeRegex = (grade = '') => {
-    if (!grade) return null;
-    const gradeMatch = grade.match(/Grade\s*(\d+)/i);
-    if (gradeMatch) {
-        const number = gradeMatch[1];
-        return new RegExp(`^Grade\\s*${number}(\\s*-.*)?$`, 'i');
-    }
-    if (/kindergarten/i.test(grade)) {
-        if (/(pre[-\s]?k)/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*Pre[-\\s]?K.*', 'i');
-        if (/k\s*1/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*1.*', 'i');
-        if (/k\s*2/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*2.*', 'i');
-        return new RegExp('^Kindergarten.*', 'i');
-    }
-    return new RegExp(`^${grade.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-};
-
-// Helper to build class regex for partial match
-const buildClassRegex = (className = '') => {
-    if (!className) return null;
-    const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
-    // Match either exact className or as suffix (e.g., "Andromeda" matches "Grade 3 - Andromeda")
-    return new RegExp(`(^${escaped}$|\\s*-\\s*${escaped}$)`, 'i');
 };
 
 const buildFilter = (query = {}, skipGradeClassFilter = false) => {
@@ -407,7 +382,7 @@ const loadMentorsByGrade = async (grades = []) => {
                     { 'classes.grade': new RegExp(`^${grade}(\\s|$)`, 'i') }
                 ]
             })
-                .select('name email username jobPosition unit classes')
+                .select('name email username gender jobPosition unit classes')
                 .lean();
 
             // Filter mentors to only those whose class assignments match the grade
@@ -448,7 +423,7 @@ const loadMentorsByGradeAndClass = async (grade = '', className = '') => {
     const mentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     // Filter mentors who have class assignments matching BOTH grade AND className
@@ -487,7 +462,7 @@ const loadMentorsByClassKeys = async (classKeys = []) => {
     const allMentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     const filteredMentors = (allMentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
@@ -551,6 +526,9 @@ const buildFallbackSummary = (mentors = []) => {
             .map((mentor) => ({
                 id: mentor?._id?.toString?.() || mentor?._id,
                 name: mentor?.name,
+                nickname: mentor?.username,
+                username: mentor?.username,
+                gender: mentor?.gender,
                 email: mentor?.email,
                 jobPosition: mentor?.jobPosition,
                 unit: mentor?.unit,
@@ -601,8 +579,8 @@ const listStudents = async (req, res) => {
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
-                  .populate('mentorId', 'name email username jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+                  .populate('mentorId', 'name email username gender jobPosition')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
                   .lean()
             : [];
 
@@ -645,9 +623,16 @@ const getStudent = async (req, res) => {
             return sendError(res, 'Student not found', 404);
         }
 
+        // Enforce viewer scope for single-student endpoint as well.
+        const scopedFilter = applyViewerScope({ _id: student._id }, req.user);
+        const canAccess = await MTSSStudent.exists(scopedFilter);
+        if (!canAccess) {
+            return sendError(res, 'Insufficient permissions to view this student', 403);
+        }
+
         const assignments = await MentorAssignment.find({ studentIds: student._id })
-            .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+            .populate('mentorId', 'name email username gender jobPosition')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration updatedAt')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -707,6 +692,9 @@ const getStudent = async (req, res) => {
                 monitoringMethod: assignment.monitoringMethod || null,
                 monitoringFrequency: assignment.monitoringFrequency || null,
                 mentor: assignment.mentorId?.name || 'MTSS Mentor',
+                mentorNickname: assignment.mentorId?.username || null,
+                mentorUsername: assignment.mentorId?.username || null,
+                mentorGender: assignment.mentorId?.gender || null,
                 mentorEmail: assignment.mentorId?.email || null,
                 startDate: assignment.startDate,
                 endDate: assignment.endDate,
@@ -727,6 +715,15 @@ const getStudent = async (req, res) => {
 
         // Add interventionDetails to payload
         payload.interventionDetails = interventionDetails;
+        payload.assignmentCount = assignments.length;
+        payload.activeAssignmentCount = assignments.filter((assignment) => assignment.status === 'active').length;
+        payload.lastAssignmentAt = assignments
+            .map((assignment) => assignment.updatedAt || assignment.endDate || assignment.startDate || null)
+            .filter(Boolean)
+            .map((value) => new Date(value))
+            .filter((value) => !Number.isNaN(value.getTime()))
+            .sort((a, b) => b - a)[0]?.toISOString() || null;
+        payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {

@@ -4,12 +4,58 @@ const UserStudent = require('../models/UserStudent');
 const { sendError } = require('../utils/response');
 const { buildDashboardAccessProfile } = require('../utils/accessControl');
 
+const buildRequestUser = (user) => {
+    const dashboardAccess = buildDashboardAccessProfile(user);
+
+    return {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        username: user.username,
+        department: user.department,
+        jobLevel: user.jobLevel,
+        unit: user.unit,
+        jobPosition: user.jobPosition,
+        googleId: user.googleId,
+        classes: user.classes || [],
+        currentGrade: user.currentGrade,
+        className: user.className,
+        nickname: user.nickname,
+        joinAcademicYear: user.joinAcademicYear,
+        dashboardRole: dashboardAccess.effectiveRole,
+        dashboardAccess
+    };
+};
+
+const resolveUserByRoleAndId = async (role, userId) => {
+    let user = null;
+    if (role === 'student') {
+        user = await UserStudent.findById(userId);
+    }
+    if (!user) {
+        user = await User.findById(userId);
+    }
+    return user;
+};
+
 // JWT Authentication Middleware
 const authenticate = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            // OAuth flow fallback: /auth/me may arrive with valid passport session but
+            // without Authorization header. Only allow fallback when session user exists.
+            if (req.user && req.user._id) {
+                const sessionUser = await resolveUserByRoleAndId(req.user.role, req.user._id);
+
+                if (sessionUser && sessionUser.isActive) {
+                    req.user = buildRequestUser(sessionUser);
+                    return next();
+                }
+            }
+
             return sendError(res, 'Access token required', 401);
         }
 
@@ -19,38 +65,13 @@ const authenticate = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         // Check if user exists and is active
-        let user = null;
-        if (decoded.role === 'student') {
-            user = await UserStudent.findById(decoded.userId);
-        }
-        if (!user) {
-            user = await User.findById(decoded.userId);
-        }
+        const user = await resolveUserByRoleAndId(decoded.role, decoded.userId);
         if (!user || !user.isActive) {
             return sendError(res, 'User not found or inactive', 401);
         }
 
         // Attach user to request object
-        const dashboardAccess = buildDashboardAccessProfile(user);
-        req.user = {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            username: user.username,
-            department: user.department,
-            jobLevel: user.jobLevel,
-            unit: user.unit,
-            jobPosition: user.jobPosition,
-            googleId: user.googleId,
-            classes: user.classes || [],
-            currentGrade: user.currentGrade,
-            className: user.className,
-            nickname: user.nickname,
-            joinAcademicYear: user.joinAcademicYear,
-            dashboardRole: dashboardAccess.effectiveRole,
-            dashboardAccess
-        };
+        req.user = buildRequestUser(user);
 
         next();
     } catch (error) {
@@ -88,7 +109,7 @@ const requireMTSSAdmin = authorize('admin', 'superadmin', 'directorate', 'head_u
 const requireSuperAdmin = authorize('superadmin', 'directorate');
 
 // Staff and teacher access (for their own data) - now includes student for Google OAuth users
-const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit');
+const requireStaffOrTeacher = authorize('staff', 'teacher', 'admin', 'superadmin', 'directorate', 'student', 'support_staff', 'se_teacher', 'head_unit', 'counselor');
 const requireTeacherAccess = authorize('teacher', 'se_teacher');
 
 // Any authenticated user

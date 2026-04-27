@@ -6,6 +6,29 @@ const {
 } = require('../constants/mtss');
 
 const objectIdSchema = Joi.string().regex(/^[0-9a-fA-F]{24}$/);
+const supportContactObjectIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const supportContactUserIdSchema = Joi.alternatives().try(
+    Joi.string().trim().custom((value, helpers) => {
+        const normalized = value.toLowerCase();
+
+        if (!normalized || normalized === 'no_need' || normalized === 'no-need' || normalized === 'no need') {
+            return 'no_need';
+        }
+
+        if (supportContactObjectIdPattern.test(value)) {
+            return value;
+        }
+
+        return helpers.error('any.invalid');
+    }, 'support contact parser'),
+    Joi.object({
+        _id: Joi.string().regex(supportContactObjectIdPattern).required(),
+        name: Joi.string().required(),
+        role: Joi.string().required(),
+        department: Joi.string().optional()
+    })
+).optional().allow(null);
 
 const interventionPayloadSchema = Joi.object({
     type: Joi.string().valid(...INTERVENTION_TYPE_KEYS).required(),
@@ -34,10 +57,81 @@ const userRegistrationSchema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
     name: Joi.string().min(2).max(100).required(),
-    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate').default('staff'),
+    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher', 'counselor').default('staff'),
     department: Joi.string().max(100).optional(),
     employeeId: Joi.string().max(50).optional()
 });
+
+// Backward-compatible aliases used by users routes
+const userCreateSchema = Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+    name: Joi.string().min(2).max(120).required(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).default('staff'),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).unknown(true);
+
+const userUpdateSchema = Joi.object({
+    name: Joi.string().min(2).max(120).optional(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).optional(),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    isActive: Joi.boolean().optional(),
+    gender: Joi.string().valid('male', 'female', 'other').allow('', null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).min(1).unknown(true);
 
 // Enhanced emotional check-in validation schemas with smart validation
 const emotionalCheckinSchema = Joi.object({
@@ -65,16 +159,8 @@ const emotionalCheckinSchema = Joi.object({
         .max(500)
         .optional()
         .allow('')
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('overwhelmed', 'scattered', 'anxious', 'sad', 'lonely')).min(1),
-            then: Joi.string().min(10).messages({
-                'string.min': 'When feeling overwhelmed, anxious, or low, sharing more details (at least 10 characters) can help us provide better support'
-            }),
-            otherwise: Joi.optional()
-        })
         .messages({
-            'string.max': 'Please keep your details under 500 characters to maintain focus',
-            'string.min': 'When experiencing challenging emotions, a bit more detail helps us understand and support you better'
+            'string.max': 'Please keep your details under 500 characters to maintain focus'
         }),
 
     presenceLevel: Joi.number()
@@ -82,13 +168,6 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'scattered')).min(1),
-            then: Joi.number().max(7).messages({
-                'number.max': 'When feeling tired or overwhelmed, presence levels above 7 may need additional context'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Presence level must be between 1 and 10',
             'number.max': 'Presence level must be between 1 and 10',
@@ -100,28 +179,13 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'anxious')).min(1),
-            then: Joi.number().max(6).messages({
-                'number.max': 'When feeling tired or anxious, capacity levels above 6 may indicate you need additional support'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Capacity level must be between 1 and 10',
             'number.max': 'Capacity level must be between 1 and 10',
             'any.required': 'Capacity level helps us understand your current energy and focus levels'
         }),
 
-    supportContactUserId: Joi.alternatives().try(
-        Joi.string().regex(/^[0-9a-fA-F]{24}$/), // ObjectId string
-        Joi.object({
-            _id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
-            name: Joi.string().required(),
-            role: Joi.string().required(),
-            department: Joi.string().optional()
-        })
-    ).optional().allow(null),
+    supportContactUserId: supportContactUserIdSchema,
 
     // Smart defaults for optional fields
     userReflection: Joi.string()
@@ -285,6 +349,8 @@ const mtssStudentUpdateSchema = Joi.object({
 module.exports = {
     userLoginSchema,
     userRegistrationSchema,
+    userCreateSchema,
+    userUpdateSchema,
     emotionalCheckinSchema,
     paginationSchema,
     dateRangeSchema,

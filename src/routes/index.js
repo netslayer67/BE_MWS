@@ -10,6 +10,9 @@ const supportRoutes = require('./support');
 const userRoutes = require('./users');
 const notificationRoutes = require('./notifications');
 const mtssRoutes = require('./mtss');
+const aiChatRoutes = require('./aiChat');
+const aiInsightRoutes = require('./aiInsights');
+const devTopologyRoutes = require('./devTopology');
 
 // Slack interactivity handler with proper signature verification
 router.post('/slack/interactions', express.raw({ type: 'application/x-www-form-urlencoded', limit: '10mb' }), async (req, res) => {
@@ -60,11 +63,23 @@ router.post('/slack/interactions', express.raw({ type: 'application/x-www-form-u
                 setImmediate(async () => {
                     try {
                         const notificationService = require('../services/notificationService');
+                        const EmotionalCheckin = require('../models/EmotionalCheckin');
+                        const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+
+                        const checkin = await StudentEmotionalCheckin.findById(actionData.requestId)
+                            .select('supportContactUserId')
+                            || await EmotionalCheckin.findById(actionData.requestId)
+                            .select('supportContactUserId');
+                        const assignedContactId = checkin?.supportContactUserId?.toString();
+
+                        if (!assignedContactId) {
+                            throw new Error('Support request contact is missing');
+                        }
 
                         // Confirm the support request
                         const result = await notificationService.confirmSupportRequest(
                             actionData.requestId,
-                            payload.user.id, // Slack user ID
+                            assignedContactId,
                             actionData.action,
                             'Handled via Slack interaction', // Default details
                             null // No follow-up actions
@@ -153,6 +168,9 @@ router.use('/v1/support', supportRoutes);
 router.use('/v1/users', userRoutes);
 router.use('/v1/notifications', notificationRoutes);
 router.use('/v1/mtss', mtssRoutes);
+router.use('/v1/ai-chat', aiChatRoutes);
+router.use('/v1/ai-insights', aiInsightRoutes);
+router.use('/v1/dev/topology', devTopologyRoutes);
 
 // OAuth routes are now mounted directly in app.js
 // router.use('/auth', authRoutes);

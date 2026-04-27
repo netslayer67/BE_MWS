@@ -6,8 +6,11 @@ const User = require('../models/User');
 const MTSSStudent = require('../models/MTSSStudent');
 const { emitAssignmentEvent } = require('../services/mtssRealtimeService');
 const {
+    buildClassFilterClauses,
+    buildGradeFilterClauses,
     deriveAllowedGradesForUser,
-    deriveAllowedClassNamesForUser
+    deriveAllowedClassNamesForUser,
+    deriveGradesForUnit
 } = require('../utils/mtssAccess');
 
 const TIER_ORDER = {
@@ -24,6 +27,9 @@ const TYPE_ALIAS_MAP = {
     universal: ['universal', 'all', 'whole school', 'schoolwide']
 };
 const MTSS_MENTOR_ROLES = ['staff', 'teacher', 'se_teacher', 'support_staff', 'head_unit', 'admin', 'directorate'];
+const DUPLICATE_BLOCKING_STATUSES = ['active', 'paused'];
+const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
+const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
 const slugifyName = (value = '') =>
     value
         .toString()
@@ -31,6 +37,145 @@ const slugifyName = (value = '') =>
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)+/g, '');
+
+const normalizeSubjectToken = (value = '') =>
+    value
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const buildSubjectAliasIndex = () => {
+    const map = new Map();
+    Object.entries(TYPE_ALIAS_MAP).forEach(([canonical, aliases]) => {
+        [canonical, ...(aliases || [])]
+            .map((token) => normalizeSubjectToken(token))
+            .filter(Boolean)
+            .forEach((token) => map.set(token, canonical));
+    });
+    return map;
+};
+
+const SUBJECT_ALIAS_INDEX = buildSubjectAliasIndex();
+
+const canonicalizeSubjectKey = (rawValue = '') => {
+    const normalized = normalizeSubjectToken(rawValue);
+    if (!normalized) return null;
+
+    const direct = SUBJECT_ALIAS_INDEX.get(normalized);
+    if (direct) return direct;
+
+    // Match by phrase containment when the payload contains richer labels,
+    // e.g. "English Reading Fluency" -> "english".
+    for (const [token, canonical] of SUBJECT_ALIAS_INDEX.entries()) {
+        if (!token) continue;
+        if (normalized === token || normalized.includes(token) || token.includes(normalized)) {
+            return canonical;
+        }
+    }
+
+    return slugifyName(normalized);
+};
+
+const extractAssignmentSubjectKeys = (assignment = {}) => {
+    const candidates = [];
+    if (Array.isArray(assignment.focusAreas)) {
+        candidates.push(...assignment.focusAreas);
+    }
+    if (assignment.strategyName) candidates.push(assignment.strategyName);
+
+    const subjectKeys = Array.from(
+        new Set(
+            candidates
+                .map((value) => canonicalizeSubjectKey(value))
+                .filter(Boolean)
+        )
+    );
+
+    return subjectKeys.length ? subjectKeys : ['universal'];
+};
+
+const findSubjectConflicts = async ({
+    studentIds = [],
+    subjectKeys = [],
+    excludeAssignmentId = null
+}) => {
+    if (!studentIds.length || !subjectKeys.length) return [];
+
+    const query = {
+        studentIds: { $in: studentIds },
+        status: { $in: DUPLICATE_BLOCKING_STATUSES }
+    };
+    if (excludeAssignmentId) {
+        query._id = { $ne: excludeAssignmentId };
+    }
+
+    const [assignments, students] = await Promise.all([
+        MentorAssignment.find(query)
+            .populate('mentorId', 'name username email')
+            .populate('createdBy', 'name username email')
+            .select('studentIds mentorId createdBy focusAreas strategyName status tier')
+            .lean(),
+        MTSSStudent.find({ _id: { $in: studentIds } })
+            .select('name')
+            .lean()
+    ]);
+
+    const studentNameMap = new Map(students.map((student) => [student._id.toString(), student.name || 'Student']));
+    const requestedSet = new Set(subjectKeys);
+    const conflicts = [];
+
+    assignments.forEach((assignment) => {
+        const existingSubjectKeys = extractAssignmentSubjectKeys(assignment);
+        const overlappingSubjects = existingSubjectKeys.filter((key) => requestedSet.has(key));
+        if (!overlappingSubjects.length) return;
+
+        const mentorLabel =
+            assignment.mentorId?.name ||
+            assignment.createdBy?.name ||
+            assignment.mentorId?.username ||
+            'another teacher';
+
+        (assignment.studentIds || []).forEach((studentId) => {
+            const key = studentId?.toString?.();
+            if (!key) return;
+            if (!studentIds.some((requestedId) => requestedId?.toString?.() === key)) return;
+
+            conflicts.push({
+                studentId: key,
+                studentName: studentNameMap.get(key) || 'Student',
+                subjectKeys: overlappingSubjects,
+                mentorName: mentorLabel,
+                assignmentId: assignment._id?.toString?.() || null,
+                status: assignment.status || 'active'
+            });
+        });
+    });
+
+    return conflicts;
+};
+
+const buildDuplicateInterventionMessage = (conflicts = []) => {
+    if (!conflicts.length) return 'An intervention with the same subject already exists.';
+
+    const uniqueSummaries = Array.from(
+        new Set(
+            conflicts.map((conflict) => {
+                const subjectLabel = (conflict.subjectKeys || [])
+                    .map((key) => key.toUpperCase())
+                    .join(', ');
+                return `${conflict.studentName} (${subjectLabel}) by ${conflict.mentorName}`;
+            })
+        )
+    );
+
+    const preview = uniqueSummaries.slice(0, 3).join('; ');
+    const suffix = uniqueSummaries.length > 3 ? ` (+${uniqueSummaries.length - 3} more)` : '';
+
+    return `Intervention subject already exists for the selected student(s): ${preview}${suffix}. Use the existing intervention or choose a different subject.`;
+};
 
 const mapLegacyUserToStudent = (user) => ({
     _id: user._id,
@@ -264,6 +409,84 @@ const ensureStudentsValid = async (studentIds) => {
     return students;
 };
 
+const isClassScopedTeacherInUnit = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    if (!CLASS_SCOPED_UNITS.has(lowerUnit)) return false;
+
+    const lowerJobPosition = (viewer.jobPosition || '').toLowerCase();
+    if (lowerJobPosition.includes('homeroom') || lowerJobPosition.includes('special education')) {
+        return true;
+    }
+
+    return (viewer.classes || []).some((cls) => {
+        const role = (cls?.role || '').toLowerCase();
+        return role.includes('homeroom') || role.includes('special education');
+    });
+};
+
+const resolveRosterGradeScopeForViewer = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
+
+    if (isJhWideException) {
+        return deriveGradesForUnit(viewer.unit || 'Junior High');
+    }
+
+    return deriveAllowedGradesForUser(viewer);
+};
+
+const ensureStudentsWithinViewerScope = async (studentIds = [], viewer = {}) => {
+    if (!studentIds.length || isMTSSAdminRole(viewer?.role)) return;
+
+    const allowedGrades = resolveRosterGradeScopeForViewer(viewer);
+    const gradeClauses = buildGradeFilterClauses(allowedGrades);
+    if (!gradeClauses.length) {
+        throw new Error('Your account has no MTSS grade access configured.');
+    }
+
+    const uniqueStudentIds = Array.from(new Set(studentIds.map((id) => id?.toString?.() || String(id)).filter(Boolean)));
+    const scopeFilter = {
+        _id: { $in: uniqueStudentIds },
+        $and: [{ $or: gradeClauses }]
+    };
+
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
+
+    const useClassScopedFilter = !isJhWideException && isClassScopedTeacherInUnit(viewer);
+    if (useClassScopedFilter) {
+        const allowedClasses = deriveAllowedClassNamesForUser(viewer);
+        const classClauses = buildClassFilterClauses(allowedClasses);
+        if (classClauses.length) {
+            scopeFilter.$and.push({ $or: classClauses });
+        }
+    }
+
+    const accessibleCount = await MTSSStudent.countDocuments(scopeFilter);
+
+    if (accessibleCount !== uniqueStudentIds.length) {
+        throw new Error('One or more selected students are outside your grade access scope.');
+    }
+};
+
 const sanitizeScorePayload = (score = {}) => {
     if (!score) return undefined;
     const value = Number(score.value);
@@ -327,10 +550,23 @@ const createMentorAssignment = async (req, res) => {
 
         await ensureMentorEligibility(mentorId);
         await ensureStudentsValid(studentIds);
+        await ensureStudentsWithinViewerScope(studentIds, req.user);
 
         const normalizedFocusAreas = Array.isArray(focusAreas)
             ? focusAreas.map(area => area?.trim()).filter(Boolean)
             : [];
+        const cleanedStrategyName = strategyName?.trim() || undefined;
+        const requestedSubjectKeys = extractAssignmentSubjectKeys({
+            focusAreas: normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'],
+            strategyName: cleanedStrategyName
+        });
+        const conflicts = await findSubjectConflicts({
+            studentIds,
+            subjectKeys: requestedSubjectKeys
+        });
+        if (conflicts.length) {
+            return sendError(res, buildDuplicateInterventionMessage(conflicts), 409);
+        }
 
         const sanitizedBaseline = sanitizeScorePayload(baselineScore);
         const sanitizedTarget = sanitizeScorePayload(targetScore);
@@ -352,7 +588,7 @@ const createMentorAssignment = async (req, res) => {
             startDate: startDate || Date.now(),
             duration: duration || undefined,
             strategyId: strategyId || undefined,
-            strategyName: strategyName?.trim() || undefined,
+            strategyName: cleanedStrategyName,
             monitoringMethod: monitoringMethod || undefined,
             monitoringFrequency: monitoringFrequency || undefined,
             goals,
@@ -434,18 +670,33 @@ const updateMentorAssignment = async (req, res) => {
         const isAdmin = isMTSSAdminRole(req.user.role);
         const viewerId = req.user.id?.toString?.();
         const isAssignedMentor = assignment.mentorId?.toString() === viewerId;
+        const isCreator = assignment.createdBy?.toString?.() === viewerId;
+        const progressOwnerId = assignment.createdBy?.toString?.() || assignment.mentorId?.toString();
+        const isProgressOwner = progressOwnerId === viewerId;
 
-        if (!isAdmin && !isAssignedMentor) {
-            return sendError(res, 'Only the assigned mentor or MTSS admin can update this assignment', 403);
+        if (!isAdmin && !isAssignedMentor && !isCreator) {
+            return sendError(res, 'Only the intervention owner (creator) or MTSS admin can update this assignment', 403);
         }
 
-        if (Array.isArray(checkIns) && checkIns.length && !isAssignedMentor) {
-            return sendError(res, 'Only the assigned mentor can submit progress updates', 403);
+        if (Array.isArray(checkIns) && checkIns.length && !isAdmin && !isProgressOwner) {
+            return sendError(res, 'Only the original intervention creator can submit progress updates for this subject', 403);
         }
 
         if (Array.isArray(focusAreas)) {
             const cleaned = focusAreas.map(area => area?.trim()).filter(Boolean);
-            assignment.focusAreas = cleaned.length ? cleaned : ['Universal Supports'];
+            const nextFocusAreas = cleaned.length ? cleaned : ['Universal Supports'];
+            const conflicts = await findSubjectConflicts({
+                studentIds: assignment.studentIds || [],
+                subjectKeys: extractAssignmentSubjectKeys({
+                    focusAreas: nextFocusAreas,
+                    strategyName: assignment.strategyName
+                }),
+                excludeAssignmentId: assignment._id
+            });
+            if (conflicts.length) {
+                return sendError(res, buildDuplicateInterventionMessage(conflicts), 409);
+            }
+            assignment.focusAreas = nextFocusAreas;
         }
         if (status) assignment.status = status;
         if (endDate) assignment.endDate = endDate;

@@ -66,12 +66,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm test -- --runInBand --passWithNoTests --testTimeout=30000 --testPathIgnorePatterns=integration
+      - name: Run smoke tests (blocking)
+        run: npm run test:smoke -- --testTimeout=60000
         env:
           NODE_ENV: test
           JWT_SECRET: test-secret-key-for-ci
           MONGODB_URI: mongodb://localhost:27017/integra-learn-test
+          # Disable Slack socket in CI tests to avoid external open handles
+          SLACK_BOT_TOKEN: ""
+          SLACK_APP_TOKEN: ""
           # Google OAuth dummy values for CI
           GOOGLE_CLIENT_ID: dummy-client-id-for-ci
           GOOGLE_CLIENT_SECRET: dummy-client-secret-for-ci

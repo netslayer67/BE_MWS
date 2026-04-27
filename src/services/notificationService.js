@@ -1,6 +1,7 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
+const { getIO } = require('../config/socket');
 
 // Slack configuration
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -136,6 +137,30 @@ class NotificationService {
         this.email = new EmailService();
     }
 
+    emitToUserNotificationRooms(userId, eventName, payload = {}) {
+        const normalizedUserId = String(userId || '').trim();
+        if (!normalizedUserId || !eventName) return;
+
+        try {
+            const io = getIO();
+            io.to(`personal-${normalizedUserId}`).emit(eventName, payload);
+            io.to(`notifications-${normalizedUserId}`).emit(eventName, payload);
+        } catch (error) {
+            // Socket server can be unavailable in scripts/tests; keep notification persistence unaffected.
+            if (!String(error?.message || '').includes('Socket.io not initialized')) {
+                console.error('❌ Notification realtime emit error:', error.message || error);
+            }
+        }
+    }
+
+    toRealtimeNotificationPayload(notification = {}) {
+        if (!notification) return null;
+        if (typeof notification.toObject === 'function') {
+            return notification.toObject({ virtuals: true });
+        }
+        return notification;
+    }
+
     // Persistence methods for database operations
 
     // Create a new notification
@@ -153,6 +178,11 @@ class NotificationService {
 
             await notification.save();
             console.log(`✅ Notification created for user ${userId}: ${title}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:new', {
+                notification: this.toRealtimeNotificationPayload(notification)
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error creating notification:', error);
@@ -223,6 +253,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} marked as read`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:updated', {
+                notification: this.toRealtimeNotificationPayload(notification),
+                type: 'mark-read'
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error marking notification as read:', error);
@@ -233,12 +269,22 @@ class NotificationService {
     // Mark all notifications as read for a user
     async markAllAsRead(userId) {
         try {
+            const unreadNotificationIds = await Notification.find({ userId, isRead: false })
+                .select('_id')
+                .lean();
+
             const result = await Notification.updateMany(
                 { userId, isRead: false },
                 { isRead: true, readAt: new Date() }
             );
 
             console.log(`✅ Marked ${result.modifiedCount} notifications as read for user ${userId}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:bulk-read', {
+                notificationIds: unreadNotificationIds.map((entry) => String(entry._id)),
+                modifiedCount: result.modifiedCount
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error marking all notifications as read:', error);
@@ -259,6 +305,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} deleted`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:deleted', {
+                notificationId: String(notificationId || ''),
+                notification: this.toRealtimeNotificationPayload(result)
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error deleting notification:', error);
@@ -922,13 +974,62 @@ class NotificationService {
     // Handle support request confirmation with enhanced details
     async confirmSupportRequest(requestId, contactId, action, details = null, followUpActions = null) {
         try {
-            // Update the check-in record with confirmation status
             const EmotionalCheckin = require('../models/EmotionalCheckin');
+            const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+            if (!['handled', 'acknowledged'].includes(action)) {
+                return { success: false, code: 400, message: 'Invalid action' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(requestId)) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(String(contactId || ''))) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const normalizedContactId = String(contactId);
+            const models = [EmotionalCheckin, StudentEmotionalCheckin];
+            let CheckinModel = null;
+            let checkin = null;
+
+            for (const model of models) {
+                const found = await model.findById(requestId)
+                    .select('supportContactUserId supportContactResponse');
+                if (found) {
+                    checkin = found;
+                    CheckinModel = model;
+                    break;
+                }
+            }
+
+            if (!checkin) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            const assignedContactId = checkin.supportContactUserId?.toString() || null;
+            if (!assignedContactId || assignedContactId !== normalizedContactId) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const currentStatus = checkin.supportContactResponse?.status || 'pending';
+            const transitionAllowed = (
+                (currentStatus === 'pending' && (action === 'acknowledged' || action === 'handled')) ||
+                (currentStatus === 'acknowledged' && action === 'handled')
+            );
+
+            if (!transitionAllowed) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: `Cannot change support request from "${currentStatus}" to "${action}"`
+                };
+            }
 
             const updateData = {
                 'supportContactResponse.status': action,
                 'supportContactResponse.respondedAt': new Date(),
-                'supportContactResponse.contactId': contactId
+                'supportContactResponse.contactId': normalizedContactId
             };
 
             if (details) {
@@ -939,18 +1040,32 @@ class NotificationService {
                 updateData['supportContactResponse.followUpActions'] = followUpActions;
             }
 
-            await EmotionalCheckin.findByIdAndUpdate(requestId, {
-                $set: updateData
-            });
+            const updatedCheckin = await CheckinModel.findOneAndUpdate(
+                {
+                    _id: requestId,
+                    supportContactUserId: normalizedContactId,
+                    'supportContactResponse.status': currentStatus
+                },
+                { $set: updateData },
+                { new: true }
+            );
+
+            if (!updatedCheckin) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: 'Support request status changed by another process. Please refresh and try again.'
+                };
+            }
 
             console.log(`✅ Support request ${requestId} ${action} by contact ${contactId}`);
             console.log(`📝 Details: ${details || 'No details provided'}`);
             console.log(`🔄 Follow-up actions: ${followUpActions || 'None specified'}`);
 
-            return { success: true };
+            return { success: true, code: 200, message: `Support request ${action} successfully` };
         } catch (error) {
             console.error('Support request confirmation error:', error);
-            return { success: false, error: error.message };
+            return { success: false, code: 500, message: error.message };
         }
     }
 

@@ -1,4 +1,5 @@
 const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
@@ -1438,6 +1439,19 @@ const getUserCheckinHistory = async (req, res) => {
             return sendError(res, 'User ID is required', 400);
         }
 
+        const requesterRole = getEffectiveDashboardRole(req.user);
+        const target = await User.findById(userId).select('unit department');
+        if (!target) {
+            return sendError(res, 'User not found', 404);
+        }
+
+        if (requesterRole === 'head_unit') {
+            const unit = req.user.unit || req.user.department;
+            if (target.unit !== unit && target.department !== unit) {
+                return sendError(res, 'Access denied for this user', 403);
+            }
+        }
+
         const checkins = await EmotionalCheckin.find({ userId })
             .sort({ date: -1 })
             .limit(parseInt(limit))
@@ -1499,32 +1513,37 @@ const confirmSupportRequest = async (req, res) => {
 
         const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions);
 
-        if (result.success) {
-            // Emit real-time update to dashboard clients
-            const io = require('../config/socket').getIO();
-            if (io) {
-                io.emit('dashboard:support-request-updated', {
-                    requestId,
-                    action,
-                    contactId,
-                    contactName: req.user.name,
-                    contactRole: req.user.role,
-                    details,
-                    followUpActions,
-                    updatedAt: new Date()
-                });
-            }
+        if (!result.success) {
+            const statusCode = result.code || 500;
+            return sendError(res, result.message || 'Failed to confirm support request', statusCode);
+        }
 
-            // Send notification to original user about the response
-            try {
-                const checkin = await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
-                if (checkin && checkin.userId?.email) {
-                    const subject = action === 'handled'
-                        ? `Your Support Request Has Been Handled - ${req.user.name}`
-                        : `Your Support Request Has Been Acknowledged - ${req.user.name}`;
+        // Emit real-time update to dashboard clients
+        const io = require('../config/socket').getIO();
+        if (io) {
+            io.emit('dashboard:support-request-updated', {
+                requestId,
+                action,
+                contactId,
+                contactName: req.user.name,
+                contactRole: req.user.role,
+                details,
+                followUpActions,
+                updatedAt: new Date()
+            });
+        }
 
-                    const actionText = action === 'handled' ? 'handled' : 'acknowledged';
-                    const htmlContent = `
+        // Send notification to original user about the response
+        try {
+            const checkin = await StudentEmotionalCheckin.findById(requestId).populate('userId', 'name email')
+                || await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
+            if (checkin && checkin.userId?.email) {
+                const subject = action === 'handled'
+                    ? `Your Support Request Has Been Handled - ${req.user.name}`
+                    : `Your Support Request Has Been Acknowledged - ${req.user.name}`;
+
+                const actionText = action === 'handled' ? 'handled' : 'acknowledged';
+                const htmlContent = `
                         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                             <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
                                 <h1 style="margin: 0; font-size: 24px;">✅ Support Request ${actionText.charAt(0).toUpperCase() + actionText.slice(1)}</h1>
@@ -1552,25 +1571,22 @@ const confirmSupportRequest = async (req, res) => {
                         </div>
                     `;
 
-                    await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
-                    console.log(`✅ Notification email sent to ${checkin.userId.name} about ${action} request`);
-                }
-            } catch (emailError) {
-                console.error('❌ Failed to send confirmation email:', emailError);
-                // Don't fail the main request if email fails
+                await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
+                console.log(`✅ Notification email sent to ${checkin.userId.name} about ${action} request`);
             }
-
-            sendSuccess(res, `Support request ${action} successfully`, {
-                requestId,
-                action,
-                details,
-                followUpActions,
-                contactName: req.user.name,
-                contactRole: req.user.role
-            });
-        } else {
-            sendError(res, 'Failed to confirm support request', 500);
+        } catch (emailError) {
+            console.error('❌ Failed to send confirmation email:', emailError);
+            // Don't fail the main request if email fails
         }
+
+        sendSuccess(res, `Support request ${action} successfully`, {
+            requestId,
+            action,
+            details,
+            followUpActions,
+            contactName: req.user.name,
+            contactRole: req.user.role
+        });
     } catch (error) {
         console.error('Confirm support request error:', error);
         sendError(res, 'Failed to confirm support request', 500);

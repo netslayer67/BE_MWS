@@ -1,13 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const mongoose = require('mongoose');
 const winston = require('winston');
 
 // Import configurations
 const connectDB = require('./config/database');
 const googleAI = require('./config/googleAI');
+const openRouterChat = require('./config/openRouterChat');
 const { initSocket } = require('./config/socket');
 const slackSocketService = require('./services/slackSocketService');
+const { createCorsOriginChecker, validateCorsConfiguration } = require('./config/cors');
 
 // Import routes
 const routes = require('./routes');
@@ -27,12 +30,12 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS configuration - Allow all origins for now to debug
+// CORS configuration (explicit allowlist in production)
 app.use(cors({
-    origin: true, // Allow all origins temporarily
+    origin: createCorsOriginChecker(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Device-Id']
 }));
 
 // Rate limiting (per-user aware with IP fallback)
@@ -56,6 +59,26 @@ app.use((req, res, next) => {
 const authRoutes = require('./routes/auth');
 app.use('/auth', authRoutes);
 
+// Lightweight liveness probe for load balancers and container health checks.
+app.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// Readiness probe that verifies the app can serve requests backed by MongoDB.
+app.get('/ready', async (_req, res) => {
+    try {
+        if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+            return res.status(500).json({ status: 'not ready' });
+        }
+
+        await mongoose.connection.db.admin().ping();
+        return res.status(200).json({ status: 'ready' });
+    } catch (error) {
+        winston.warn('Readiness probe failed', { error: error.message });
+        return res.status(500).json({ status: 'not ready' });
+    }
+});
+
 // API routes
 app.use('/api', routes);
 
@@ -65,6 +88,11 @@ app.use(errorHandler);
 // Initialize database and AI connections
 const initializeApp = async () => {
     try {
+        const corsConfig = validateCorsConfiguration();
+        if (!corsConfig.valid) {
+            throw new Error(corsConfig.message);
+        }
+
         // Connect to MongoDB
         await connectDB();
 
@@ -94,6 +122,18 @@ const initializeApp = async () => {
                 winston.error('Google AI connection failed - application cannot start without AI');
                 process.exit(1);
             }
+        }
+
+        // Test OpenRouter chat connection for student AI chat (non-blocking)
+        try {
+            const chatConnected = await openRouterChat.testConnection();
+            if (chatConnected) {
+                winston.info('OpenRouter chat connection successful');
+            } else {
+                winston.warn('OpenRouter chat connection test returned false - student AI chat may use fallback responses');
+            }
+        } catch (chatError) {
+            winston.warn(`OpenRouter chat unavailable - student AI chat may use fallback responses: ${chatError.message}`);
         }
 
         // Initialize Slack Socket Mode (non-blocking)
