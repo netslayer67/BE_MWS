@@ -13,7 +13,9 @@ function isServiceUnavailableError(error) {
     const message = error.message.toLowerCase();
     return message.includes('503') ||
         message.includes('service unavailable') ||
-        message.includes('overloaded');
+        message.includes('overloaded') ||
+        message.includes('timed out') ||
+        message.includes('timeout');
 }
 
 module.exports = {
