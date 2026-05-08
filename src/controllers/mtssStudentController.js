@@ -954,9 +954,10 @@ const getStudent = async (req, res) => {
                 score: checkIn.value,
                 unit: checkIn.unit || assignment.targetScore?.unit || assignment.baselineScore?.unit || assignment.metricLabel || null,
                 performed: checkIn.performed !== false,
-                skipReason: checkIn.skipReason || null,
-                skipReasonNote: checkIn.skipReasonNote || null,
-                celebration: checkIn.celebration,
+	                skipReason: checkIn.skipReason || null,
+	                skipReasonNote: checkIn.skipReasonNote || null,
+                    lateReason: checkIn.lateReason || null,
+	                celebration: checkIn.celebration,
                 evidence: checkIn.evidence || [],
                 // Qualitative mode fields (Kindergarten)
                 signal: checkIn.signal || null,

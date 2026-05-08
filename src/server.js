@@ -1,6 +1,7 @@
 const http = require('http');
+const path = require('path');
 const winston = require('winston');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 // Import app and initialization
 const { app, initializeApp } = require('./app');

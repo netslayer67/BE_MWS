@@ -1258,9 +1258,10 @@ const sanitizeCheckIn = (checkIn = {}) => {
         value: Number.isFinite(parsedValue) ? parsedValue : undefined,
         unit: checkIn.unit ? checkIn.unit.toString().trim().toLowerCase() : undefined,
         performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
-        skipReason: checkIn.skipReason || undefined,
-        skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
-        celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined,
+	        skipReason: checkIn.skipReason || undefined,
+	        skipReasonNote: checkIn.skipReasonNote ? checkIn.skipReasonNote.toString().trim() : undefined,
+        lateReason: checkIn.lateReason ? checkIn.lateReason.toString().trim().slice(0, 300) : undefined,
+	        celebration: checkIn.celebration ? checkIn.celebration.toString().trim() : undefined,
         signal,
         tags: tags?.length ? tags : undefined,
         context: context || undefined,
@@ -1494,10 +1495,27 @@ const updateMentorAssignment = async (req, res) => {
         const isCreator = assignment.createdBy?.toString?.() === viewerId;
         const progressOwnerId = assignment.createdBy?.toString?.() || assignment.mentorId?.toString();
         const isProgressOwner = progressOwnerId === viewerId;
-        const includesPlanEdits = hasPlanEditPayload(req.body);
-        const hasCheckInUpdates = Boolean(Array.isArray(checkIns) && checkIns.length);
+	        const includesPlanEdits = hasPlanEditPayload(req.body);
+	        const hasCheckInUpdates = Boolean(Array.isArray(checkIns) && checkIns.length);
+        if (hasCheckInUpdates && checkIns.some((checkIn = {}) => checkIn.performed === false && !checkIn.skipReason)) {
+            return sendError(res, 'A skip reason is required when an intervention is marked as skipped.', 400);
+        }
+        if (hasCheckInUpdates) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const hasLateWithoutReason = checkIns.some((checkIn = {}) => {
+                if (!checkIn.date) return false;
+                const checkInDate = new Date(checkIn.date);
+                if (Number.isNaN(checkInDate.getTime())) return false;
+                checkInDate.setHours(0, 0, 0, 0);
+                return checkInDate < today && !checkIn.lateReason;
+            });
+            if (hasLateWithoutReason) {
+                return sendError(res, 'A late reason is required when a progress update is submitted after the support date.', 400);
+            }
+        }
 
-        let assignmentStudents = [];
+	        let assignmentStudents = [];
 
         if (includesPlanEdits || hasCheckInUpdates) {
             const [hydratedScope] = await hydrateAssignmentStudents([{

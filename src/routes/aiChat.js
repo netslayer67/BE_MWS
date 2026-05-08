@@ -63,4 +63,11 @@ router.patch('/assistant-profile', aiChatController.updateAssistantProfile);
  */
 router.post('/execute-operation', devTopologyTelemetryService.instrumentedHandler('ai_chat_execute_operation', aiChatController.executeOperation));
 
+/**
+ * @route   POST /api/v1/ai-chat/feedback
+ * @desc    Submit feedback for an assistant response
+ * @access  Private (authenticated users)
+ */
+router.post('/feedback', aiChatController.submitFeedback);
+
 module.exports = router;

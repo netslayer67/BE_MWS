@@ -4566,15 +4566,27 @@ ${teacherLines}`;
     parseModelList(value = '') {
         return String(value || '')
             .split(',')
-            .map((entry) => String(entry || '').trim())
+            .map((entry) => this.normalizeOpenRouterModelId(entry))
             .filter(Boolean);
     }
 
+    normalizeOpenRouterModelId(value = '') {
+        return String(value || '').trim().replace(/:free$/i, '');
+    }
+
     resolveRoleBasedModelConfig(context = {}) {
-        const legacyPrimary = process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview:free';
-        const studentPrimary = process.env.OPENROUTER_MODEL_STUDENT || legacyPrimary;
-        const workforcePrimary = process.env.OPENROUTER_MODEL_WORKFORCE || 'stepfun/step-3.5-flash:free';
-        const kindergartenPrimary = process.env.OPENROUTER_MODEL_KINDERGARTEN || 'z-ai/glm-4.5-air:free';
+        const legacyPrimary = this.normalizeOpenRouterModelId(
+            process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview'
+        );
+        const studentPrimary = this.normalizeOpenRouterModelId(
+            process.env.OPENROUTER_MODEL_STUDENT || legacyPrimary
+        );
+        const workforcePrimary = this.normalizeOpenRouterModelId(
+            process.env.OPENROUTER_MODEL_WORKFORCE || legacyPrimary || 'stepfun/step-3.5-flash'
+        );
+        const kindergartenPrimary = this.normalizeOpenRouterModelId(
+            process.env.OPENROUTER_MODEL_KINDERGARTEN || 'z-ai/glm-4.5-air'
+        );
         const studentFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_STUDENT || process.env.OPENROUTER_FALLBACK_MODELS || '');
         const workforceFallback = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS_WORKFORCE || '');
         const kindergartenFallback = this.parseModelList(
@@ -7814,6 +7826,9 @@ ${memory}`;
             }
 
             responseText = this.sanitizeAssistantResponseText(responseText, context, userMessage);
+            if (!String(responseText || '').trim()) {
+                responseText = this.buildGroundedGeneralReply(context, userMessage);
+            }
 
             const baseWidgets = this.buildResponseWidgets(userMessage, context);
             const workspaceResult = await assistantOrchestrator.buildWorkspaceResponse({

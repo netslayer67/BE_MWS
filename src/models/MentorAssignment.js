@@ -34,7 +34,7 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     duration: {
         type: String,
-        enum: ['4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks'],
+        enum: ['2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom'],
         trim: true
     },
     createdBy: {
@@ -141,6 +141,7 @@ const mentorAssignmentSchema = new mongoose.Schema({
             enum: ['teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other']
         },
         skipReasonNote: String,
+        lateReason: String,
         celebration: String,
         // Qualitative mode fields (Kindergarten MTSS)
         signal: {

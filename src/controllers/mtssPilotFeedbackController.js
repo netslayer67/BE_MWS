@@ -214,9 +214,7 @@ const buildDerivedMetrics = ({ stepFeedback = [], completedSteps = {}, finalFeed
     const completedStepCount = stepFeedback.filter((entry) => entry.completedInHub || completedSteps[entry.stepId]).length;
     const bugCount = stepFeedback.filter((entry) => entry.bugFound).length;
     const completionRate = stepCount ? Math.round((completedStepCount / stepCount) * 100) : 0;
-    const status = finalFeedbackSavedAt || (stepCount > 0 && completedStepCount === stepCount)
-        ? 'completed'
-        : 'in_progress';
+    const status = finalFeedbackSavedAt ? 'completed' : 'in_progress';
 
     return {
         stepCount,

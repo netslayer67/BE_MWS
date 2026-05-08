@@ -283,9 +283,9 @@ const mentorAssignmentCreateSchema = Joi.object({
     mentorId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
     studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(1).required(),
     tier: Joi.string().valid('tier1', 'tier2', 'tier3').required(),
-    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
+    focusAreas: Joi.array().items(Joi.string().trim().min(1)).min(1).required(),
     startDate: Joi.date().optional(),
-    duration: Joi.string().valid('4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks').optional(),
+    duration: Joi.string().valid('2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom').optional(),
     strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow(null),
     strategyName: Joi.string().trim().optional().allow('', null),
     monitoringMethod: Joi.string().valid(
@@ -329,12 +329,12 @@ const mentorAssignmentCreateSchema = Joi.object({
 });
 
 const mentorAssignmentUpdateSchema = Joi.object({
-    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
+    focusAreas: Joi.array().items(Joi.string().trim().min(1)).min(1).optional(),
     tier: Joi.string().valid('tier1', 'tier2', 'tier3').optional(),
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
     startDate: Joi.date().optional(),
     endDate: Joi.date().optional(),
-    duration: Joi.string().valid('4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks').optional().allow('', null),
+    duration: Joi.string().valid('2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom').optional().allow('', null),
     strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow('', null),
     strategyName: Joi.string().trim().optional().allow('', null),
     monitoringMethod: Joi.string().valid(
@@ -367,10 +367,11 @@ const mentorAssignmentUpdateSchema = Joi.object({
         nextSteps: Joi.string().allow('', null).optional(),
         value: Joi.number().optional(),
         unit: Joi.string().allow('', null),
-        performed: Joi.boolean().optional(),
-        skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
-        skipReasonNote: Joi.string().allow('', null).optional(),
-        celebration: Joi.string().allow('', null),
+	        performed: Joi.boolean().optional(),
+	        skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
+	        skipReasonNote: Joi.string().allow('', null).optional(),
+            lateReason: Joi.string().trim().max(300).allow('', null).optional(),
+	        celebration: Joi.string().allow('', null),
         // Qualitative mode fields (Kindergarten MTSS)
         signal: Joi.string().valid('emerging', 'developing', 'consistent').allow(null).optional(),
         tags: Joi.array().items(

@@ -8,7 +8,7 @@ class OpenRouterChatService {
         this.lastRequestTime = 0;
         this.disabledUntil = 0;
         this.lastConfigSignature = '';
-        this.envFilePath = path.resolve(process.cwd(), '.env');
+        this.envFilePath = path.resolve(__dirname, '../../.env');
         this.lastEnvMtimeMs = 0;
         this.lastEnvCheckAt = 0;
         this.envReloadCheckIntervalMs = parseInt(process.env.OPENROUTER_ENV_CHECK_INTERVAL_MS || '10000', 10);
@@ -41,14 +41,24 @@ class OpenRouterChatService {
     parseModelList(value = '') {
         return value
             .split(',')
-            .map((item) => item.trim())
+            .map((item) => this.normalizeModelId(item))
             .filter(Boolean);
+    }
+
+    normalizeModelId(value = '') {
+        const normalized = String(value || '').trim();
+        if (!normalized) return '';
+
+        // Legacy OpenRouter identifiers in this project used a ":free" suffix.
+        // The current API model list no longer exposes those IDs, so normalize
+        // them to the base model identifier to keep older env values working.
+        return normalized.replace(/:free$/i, '');
     }
 
     getEnvConfig() {
         const apiKey = process.env.OPENROUTER_API_KEY || '';
         const baseUrl = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-        const primaryModel = process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview:free';
+        const primaryModel = this.normalizeModelId(process.env.OPENROUTER_MODEL || 'arcee-ai/trinity-large-preview');
         const fallbackModels = this.parseModelList(process.env.OPENROUTER_FALLBACK_MODELS || '');
         const maxTokens = parseInt(process.env.OPENROUTER_MAX_TOKENS || '1024', 10);
         const temperature = parseFloat(process.env.OPENROUTER_TEMPERATURE || '0.4');
@@ -126,16 +136,16 @@ class OpenRouterChatService {
         const explicitCandidates = Array.isArray(options.modelCandidates)
             ? options.modelCandidates
             : this.parseModelList(String(options.modelCandidates || ''));
-        const explicitPrimary = String(options.model || options.primaryModel || '').trim();
+        const explicitPrimary = this.normalizeModelId(options.model || options.primaryModel || '');
         const explicitFallbacks = Array.isArray(options.fallbackModels)
             ? options.fallbackModels
             : this.parseModelList(String(options.fallbackModels || ''));
 
         const normalizedCandidates = explicitCandidates
-            .map((entry) => String(entry || '').trim())
+            .map((entry) => this.normalizeModelId(entry))
             .filter(Boolean);
         const normalizedFallbacks = explicitFallbacks
-            .map((entry) => String(entry || '').trim())
+            .map((entry) => this.normalizeModelId(entry))
             .filter(Boolean);
 
         const overrideOrdered = [

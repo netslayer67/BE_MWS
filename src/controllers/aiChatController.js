@@ -1,7 +1,16 @@
 const aiChatService = require('../services/aiChatService');
 const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
+const AIAssistantFeedback = require('../models/AIAssistantFeedback');
 
 const getRequestUserId = (req) => req.user?.id || req.user?._id || null;
+const ASSISTANT_FALLBACK_MESSAGE = 'AI Assistant could not respond. Retry or continue without AI.';
+const FEEDBACK_REASONS = new Set(['not_useful', 'wrong_answer']);
+const normalizeText = (value = '', maxLength = 2000) =>
+    String(value || '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength);
 
 /**
  * Send a chat message and get AI response
@@ -35,6 +44,11 @@ const sendMessage = async (req, res, _next, telemetryCtx) => {
 
         const startedAt = Date.now();
         const response = await aiChatService.chat(userId, message.trim(), sessionId);
+        if (!normalizeText(response?.message, 4000)) {
+            response.message = ASSISTANT_FALLBACK_MESSAGE;
+            response.error = true;
+            response.errorCode = response.errorCode || 'AI_EMPTY_RESPONSE';
+        }
         const latencyMs = Date.now() - startedAt;
 
         telemetryCtx?.setTelemetry?.({
@@ -68,6 +82,63 @@ const sendMessage = async (req, res, _next, telemetryCtx) => {
         res.status(500).json({
             success: false,
             message: 'Failed to send message',
+            error: error.message
+        });
+    }
+};
+
+const submitFeedback = async (req, res) => {
+    try {
+        const userId = getRequestUserId(req);
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        const reason = normalizeText(req.body?.reason, 40);
+        if (!FEEDBACK_REASONS.has(reason)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Feedback reason must be not_useful or wrong_answer'
+            });
+        }
+
+        const response = normalizeText(req.body?.response, 4000);
+        if (!response) {
+            return res.status(400).json({
+                success: false,
+                message: 'Assistant response is required'
+            });
+        }
+
+        const feedback = await AIAssistantFeedback.create({
+            userId,
+            userRole: normalizeText(req.user?.role, 80),
+            sessionId: normalizeText(req.body?.sessionId, 140),
+            messageId: normalizeText(req.body?.messageId, 140),
+            prompt: normalizeText(req.body?.prompt, 2000),
+            response,
+            reason,
+            metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}
+        });
+
+        res.status(201).json({
+            success: true,
+            data: {
+                feedback: {
+                    id: feedback._id,
+                    reason: feedback.reason,
+                    createdAt: feedback.createdAt
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Failed to submit AI assistant feedback:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to submit assistant feedback',
             error: error.message
         });
     }
@@ -326,5 +397,6 @@ module.exports = {
     archiveConversation,
     getAssistantProfile,
     updateAssistantProfile,
+    submitFeedback,
     executeOperation
 };
