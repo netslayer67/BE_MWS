@@ -22,6 +22,8 @@
     "sync:legacy-checkins:dry": "node src/scripts/syncLegacyCheckinUsers.js",
     "cleanup:mtss:orphan-assignments": "node src/scripts/cleanupOrphanMentorAssignments.js --apply",
     "cleanup:mtss:orphan-assignments:dry": "node src/scripts/cleanupOrphanMentorAssignments.js",
+    "reconcile:mentor-ids": "node src/scripts/reconcileMentorIds.js --apply",
+    "reconcile:mentor-ids:dry": "node src/scripts/reconcileMentorIds.js",
     "seed:mtss": "node src/scripts/seedMtssData.js",
     "seed:mtss-helix": "node src/scripts/seedMtssGrade7HelixComplete.js",
     "seed:mtss-pilot-units": "node src/scripts/seedMtssPilotUnitClasses.js",

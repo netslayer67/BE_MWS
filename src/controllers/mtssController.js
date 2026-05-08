@@ -734,6 +734,8 @@ const enrichAssignmentForTeacherTools = (assignment = {}, viewer = {}) => {
 
     return {
         ...assignment,
+        mentorName: assignment.mentorId?.name || null,
+        mentorEmail: assignment.mentorId?.email || null,
         weeklyFocusOverview: buildWeeklyFocusOverview(assignment.checkIns || []),
         viewerPermissions,
         viewerCanEditPlan: viewerPermissions.canEditPlan,
