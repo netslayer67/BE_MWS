@@ -49,7 +49,7 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
     deliveryMode: {
         type: String,
         enum: ['immediate', 'digest_daily', 'digest_weekly', 'dashboard_only'],
-        default: 'immediate'
+        default: 'digest_daily'
     },
 
     // Digest settings (if using digest mode)
@@ -160,7 +160,7 @@ teacherNotificationPreferenceSchema.statics.getDefaults = function() {
             breakthrough: { enabled: true, minSeverity: 'low' },
             intervention_needed: { enabled: true, minSeverity: 'urgent' }
         },
-        deliveryMode: 'immediate',
+        deliveryMode: 'digest_daily',
         emailNotifications: { enabled: true },
         inAppNotifications: { enabled: true, playSound: false },
         slackNotifications: { enabled: false },

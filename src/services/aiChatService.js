@@ -9,6 +9,8 @@ const UserStudent = require('../models/UserStudent');
 const StudentAIAssistantProfile = require('../models/StudentAIAssistantProfile');
 const MTSSTierReviewRequest = require('../models/MTSSTierReviewRequest');
 const notificationService = require('./notificationService');
+const teacherNotifierService = require('./teacherNotifierService');
+const studentNotifierService = require('./studentNotifierService');
 const {
     ALLOWED_TYPES: EVIDENCE_ALLOWED_TYPES,
     MAX_FILE_SIZE: EVIDENCE_MAX_FILE_SIZE,
@@ -5743,7 +5745,10 @@ Critical language requirement:
     async resolveTierReviewRecipients(requester = {}) {
         const requesterId = String(requester?._id || requester?.id || '').trim();
         const requesterUnit = String(requester?.unit || '').trim().toLowerCase();
-        const leadershipRoles = ['head_unit', 'principal', 'directorate', 'admin', 'superadmin'];
+
+        // Only notify direct supervisors: head_unit of same unit first, then principal/directorate.
+        // Cap at 3 to avoid broadcasting to every admin in the system.
+        const leadershipRoles = ['head_unit', 'principal', 'directorate'];
         const recipients = await User.find({
             role: { $in: leadershipRoles },
             isActive: { $ne: false }
@@ -5761,7 +5766,7 @@ Critical language requirement:
                 if (aWeight !== bWeight) return aWeight - bWeight;
                 return String(a.role || '').localeCompare(String(b.role || ''));
             })
-            .slice(0, 24)
+            .slice(0, 3)  // max 3 recipients — direct unit head + 1-2 school-level supervisors
             .map((entry = {}) => String(entry._id || '').trim());
     }
 
@@ -5986,6 +5991,18 @@ Critical language requirement:
                         }
                     });
                 });
+
+                // Email delivery — non-blocking, retried internally via notificationService
+                studentNotifierService.sendMtssUpdateEmails({
+                    students: targetStudents,
+                    actor,
+                    operation,
+                    assignmentId,
+                    titleBuilder,
+                    messageBuilder
+                }).catch((err) => {
+                    console.error('[StudentNotifier] Email dispatch failed:', err.message);
+                });
             } catch (error) {
                 console.error('[AIChat][Notification] Failed to dispatch student MTSS notifications:', error.message);
             }
@@ -6022,6 +6039,17 @@ Critical language requirement:
                 actionRoute: '/mtss/teacher',
                 ...metadata
             }
+        });
+
+        // Email delivery — non-blocking, retried internally
+        setImmediate(() => {
+            teacherNotifierService.sendMtssUpdateEmail(targetUserId, title, message, {
+                operation,
+                actionRoute: '/mtss/teacher',
+                ...metadata
+            }).catch((err) => {
+                console.error(`[TeacherNotifier] MTSS update email failed for ${targetUserId}:`, err.message);
+            });
         });
     }
 
@@ -7039,6 +7067,29 @@ Critical language requirement:
         assignment.lastPlanUpdatedAt = new Date();
         assignment.lastPlanUpdatedBy = viewerId;
         await assignment.save();
+
+        // Notify students only when something actually changed
+        if (changedFields.length > 0) {
+            const studentIds = this.extractObjectIdList(assignment.studentIds || []);
+            if (studentIds.length > 0) {
+                const students = await MTSSStudent.find({ _id: { $in: studentIds } })
+                    .select('_id name email className').lean();
+                const changedLabel = changedFields.length === 1
+                    ? changedFields[0]
+                    : `${changedFields.length} fields`;
+                await this.dispatchStudentMtssNotifications({
+                    students,
+                    actor: user,
+                    operation: 'update_mtss_intervention_plan',
+                    assignmentId,
+                    category: 'reminder',
+                    priority: 'medium',
+                    titleBuilder: () => 'Your support plan was updated',
+                    messageBuilder: () =>
+                        `${this.normalizeMessageText(user?.name || 'Your mentor', 80)} updated your MTSS plan (${changedLabel}).`
+                });
+            }
+        }
 
         return {
             operation: 'update_mtss_intervention_plan',

@@ -222,7 +222,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
     supportContactResponse: {
         status: {
             type: String,
-            enum: ['pending', 'acknowledged', 'handled'],
+            enum: ['pending', 'acknowledged', 'follow_up', 'success', 'handled'],
             default: 'pending'
         },
         contactId: {
@@ -235,6 +235,11 @@ const emotionalCheckinSchema = new mongoose.Schema({
         details: {
             type: String,
             maxlength: 1000,
+            trim: true
+        },
+        resolutionMessage: {
+            type: String,
+            maxlength: 500,
             trim: true
         }
     },

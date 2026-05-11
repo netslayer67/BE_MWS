@@ -63,10 +63,13 @@ const startServer = async () => {
         initializeApp().then((initialized) => {
             if (initialized) {
                 winston.info('Background initialization completed successfully');
-                return;
+            } else {
+                winston.warn('Background initialization completed with readiness disabled');
             }
 
-            winston.warn('Background initialization completed with readiness disabled');
+            // Start teacher due-reminder scheduler after DB is warm
+            const teacherNotifierService = require('./services/teacherNotifierService');
+            teacherNotifierService.startDueReminderScheduler();
         }).catch((error) => {
             winston.error('Background initialization crashed:', error);
         });

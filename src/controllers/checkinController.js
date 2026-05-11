@@ -227,19 +227,23 @@ const queueSupportNotifications = ({
                 notificationService.sendEmailNotification(notificationPayload)
             ]);
 
-            if (slackResult.status === 'rejected') {
-                console.error('❌ Slack notification failed:', slackResult.reason?.message || slackResult.reason);
-            } else if (slackResult.value?.success === false) {
-                console.error('❌ Slack notification failed:', slackResult.value.error);
+            const slackOk = slackResult.status === 'fulfilled' && slackResult.value?.success !== false;
+            const emailOk = emailResult.status === 'fulfilled' && emailResult.value?.success !== false;
+
+            if (!slackOk) {
+                const reason = slackResult.reason?.message || slackResult.value?.error || 'unknown';
+                console.error(`❌ Slack notification failed for ${logLabel}: ${reason}`);
+            }
+            if (!emailOk) {
+                const reason = emailResult.reason?.message || emailResult.value?.error || 'unknown';
+                console.error(`❌ Email notification failed for ${logLabel}: ${reason}`);
             }
 
-            if (emailResult.status === 'rejected') {
-                console.error('❌ Email notification failed:', emailResult.reason?.message || emailResult.reason);
-            } else if (emailResult.value?.success === false) {
-                console.error('❌ Email notification failed:', emailResult.value.error);
+            if (!slackOk && !emailOk) {
+                console.error(`🚨 CRITICAL: Both Slack and email delivery failed for support request — checkinId: ${notificationPayload.checkinId}, contact: ${notificationPayload.supportContactEmail}`);
+            } else {
+                console.log(`✅ Support notifications delivered for ${logLabel} (slack=${slackOk}, email=${emailOk})`);
             }
-
-            console.log(`✅ Background support notifications finished for ${logLabel}`);
         } catch (error) {
             console.error(`❌ Background support notifications crashed for ${logLabel}:`, error);
         }
@@ -1306,12 +1310,18 @@ const getCheckinHistory = async (req, res) => {
             if (!isSelf && !elevated && !dashboardRole) {
                 return sendError(res, 'Access denied for this user\'s history', 403);
             }
-            query.userId = requestedUserId;
+            query.$or = [
+                { userId: requestedUserId },
+                { legacyResolvedUserId: requestedUserId }
+            ];
             const requestedUser = await findAnyUserById(requestedUserId, 'role');
             queryRole = requestedUser?.role || req.user.role;
         } else {
             // Default to current user's history if no userId specified
-            query.userId = req.user.id;
+            query.$or = [
+                { userId: req.user.id },
+                { legacyResolvedUserId: req.user.id }
+            ];
         }
 
         const CheckinModel = getCheckinModelForRole(queryRole);

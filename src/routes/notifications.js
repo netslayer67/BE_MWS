@@ -10,6 +10,10 @@ const {
     createSupportRequestNotification,
     handleSlackAction
 } = require('../controllers/notificationController');
+const {
+    getNotificationPreferences,
+    updateNotificationPreferences
+} = require('../controllers/notificationPreferenceController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { validateQuery } = require('../middleware/validation');
 
@@ -43,5 +47,9 @@ router.post('/support-request', requireAdmin, createSupportRequestNotification);
 
 // Slack interactive actions (no authentication required for Slack webhooks)
 router.post('/slack/actions', handleSlackAction);
+
+// ── Notification preference routes ─────────────────────────────────────────
+router.get('/preferences', getNotificationPreferences);
+router.put('/preferences', updateNotificationPreferences);
 
 module.exports = router;

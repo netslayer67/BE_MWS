@@ -649,10 +649,11 @@ const getDashboardStats = async (req, res) => {
 
             // Flagged users (needs support) - enhanced AI analysis with historical data
             // For head_unit, only show flagged users from their unit who selected them as support contact
+            const RESOLVED_STATUSES = new Set(['handled', 'success']);
             const flaggedCheckins = periodCheckins.filter(c => {
-                // Must not have been handled yet
+                // Must not have been resolved yet
                 const notHandled = !c.supportContactResponse ||
-                    c.supportContactResponse.status !== 'handled';
+                    !RESOLVED_STATUSES.has(c.supportContactResponse.status);
 
                 if (!notHandled) return false;
 
@@ -779,6 +780,7 @@ const getDashboardStats = async (req, res) => {
                     capacityLevel: checkin.capacityLevel,
                     status: checkin.supportContactResponse?.status || 'pending',
                     responseDetails: checkin.supportContactResponse?.details || null,
+                    resolutionMessage: checkin.supportContactResponse?.resolutionMessage || null,
                     respondedAt: checkin.supportContactResponse?.respondedAt || null
                 };
             });
@@ -1647,19 +1649,19 @@ const getUserCheckinHistory = async (req, res) => {
 const confirmSupportRequest = async (req, res) => {
     try {
         const { requestId } = req.params;
-        const { action, details, followUpActions } = req.body;
+        const { action, details, followUpActions, resolutionMessage } = req.body;
         const contactId = req.user.id;
 
-        if (!['handled', 'acknowledged'].includes(action)) {
-            return sendError(res, 'Invalid action. Must be "handled" or "acknowledged"', 400);
+        if (!['handled', 'acknowledged', 'follow_up', 'success'].includes(action)) {
+            return sendError(res, 'Invalid action. Must be "acknowledged", "follow_up", "success", or "handled"', 400);
         }
 
-        // Validate required details for handled action
-        if (action === 'handled' && (!details || details.trim().length < 10)) {
-            return sendError(res, 'Details are required for handled requests (minimum 10 characters)', 400);
+        // Validate required resolution message for success/handled actions
+        if ((action === 'success' || action === 'handled') && (!resolutionMessage || resolutionMessage.trim().length < 10)) {
+            return sendError(res, 'Resolution message is required (minimum 10 characters)', 400);
         }
 
-        const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions);
+        const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions, resolutionMessage);
 
         if (!result.success) {
             const statusCode = result.code || 500;
@@ -1676,6 +1678,7 @@ const confirmSupportRequest = async (req, res) => {
                 contactName: req.user.name,
                 contactRole: req.user.role,
                 details,
+                resolutionMessage,
                 followUpActions,
                 updatedAt: new Date()
             });
@@ -1686,29 +1689,45 @@ const confirmSupportRequest = async (req, res) => {
             const checkin = await StudentEmotionalCheckin.findById(requestId).populate('userId', 'name email')
                 || await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
             if (checkin && checkin.userId?.email) {
-                const subject = action === 'handled'
-                    ? `Your Support Request Has Been Handled - ${req.user.name}`
-                    : `Your Support Request Has Been Acknowledged - ${req.user.name}`;
+                const isResolved = action === 'success' || action === 'handled';
+                const subject = isResolved
+                    ? `Your Support Request Has Been Resolved — ${req.user.name}`
+                    : action === 'follow_up'
+                        ? `Follow-Up in Progress — ${req.user.name}`
+                        : `Your Support Request Has Been Acknowledged — ${req.user.name}`;
 
-                const actionText = action === 'handled' ? 'handled' : 'acknowledged';
+                const headerColor = isResolved ? '#059669' : '#0369a1';
+                const headerGradient = isResolved
+                    ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                    : 'linear-gradient(135deg, #0369a1 0%, #0284c7 100%)';
+                const headerIcon = isResolved ? '✅' : action === 'follow_up' ? '🤝' : '👀';
+                const headerLabel = isResolved ? 'Support Request Resolved'
+                    : action === 'follow_up' ? 'Follow-Up in Progress'
+                    : 'Support Request Acknowledged';
+
                 const htmlContent = `
                         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-                                <h1 style="margin: 0; font-size: 24px;">✅ Support Request ${actionText.charAt(0).toUpperCase() + actionText.slice(1)}</h1>
+                            <div style="background: ${headerGradient}; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                                <h1 style="margin: 0; font-size: 24px;">${headerIcon} ${headerLabel}</h1>
                             </div>
                             <div style="background: white; padding: 30px; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px;">
                                 <p style="font-size: 16px; color: #333; margin-bottom: 20px;">
-                                    Your support request from ${new Date(checkin.submittedAt).toLocaleDateString()} has been <strong>${actionText}</strong> by ${req.user.name} (${req.user.role}).
+                                    Hi <strong>${checkin.userId.name}</strong>, your support request from ${new Date(checkin.submittedAt).toLocaleDateString()} has been updated by <strong>${req.user.name}</strong>.
                                 </p>
-                                ${details ? `
-                                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                                    <h3 style="margin-top: 0; color: #495057;">Follow-up Details:</h3>
-                                    <p style="margin: 0; color: #6c757d;">${details}</p>
+                                ${isResolved && resolutionMessage ? `
+                                <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #059669;">
+                                    <h3 style="margin-top: 0; color: #065f46; font-size: 14px;">What was done:</h3>
+                                    <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">${resolutionMessage}</p>
+                                </div>
+                                ` : ''}
+                                ${action === 'follow_up' ? `
+                                <div style="background: #eff6ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #0369a1;">
+                                    <p style="margin: 0; color: #1e40af; font-size: 14px;">Your mentor is currently following up with you. They will get in touch soon.</p>
                                 </div>
                                 ` : ''}
                                 <div style="text-align: center; margin: 30px 0;">
                                     <a href="${buildFrontendUrl('/emotional-wellness')}"
-                                       style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                                       style="background: ${headerColor}; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                                         View My Dashboard
                                     </a>
                                 </div>
@@ -1720,7 +1739,7 @@ const confirmSupportRequest = async (req, res) => {
                     `;
 
                 await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
-                console.log(`✅ Notification email sent to ${checkin.userId.name} about ${action} request`);
+                console.log(`✅ Notification email sent to ${checkin.userId.name} about "${action}" update`);
             }
         } catch (emailError) {
             console.error('❌ Failed to send confirmation email:', emailError);
@@ -1731,6 +1750,7 @@ const confirmSupportRequest = async (req, res) => {
             requestId,
             action,
             details,
+            resolutionMessage,
             followUpActions,
             contactName: req.user.name,
             contactRole: req.user.role

@@ -3,6 +3,7 @@ const TeacherAlert = require('../models/TeacherAlert');
 const MTSSStudent = require('../models/MTSSStudent');
 const MentorAssignment = require('../models/MentorAssignment');
 const User = require('../models/User');
+const teacherNotifierService = require('./teacherNotifierService');
 
 /**
  * AI Insight Service - Phase 2
@@ -475,6 +476,13 @@ class AIInsightService {
                 );
 
                 console.log(`✅ Generated ${savedAlerts.length} new alerts for ${user.name}`);
+
+                // Email all assigned teachers — non-blocking, retried internally
+                setImmediate(() => {
+                    teacherNotifierService.sendAlertEmails(savedAlerts).catch((err) => {
+                        console.error('[TeacherNotifier] Alert email dispatch failed:', err.message);
+                    });
+                });
             }
 
             if (skippedAlerts.length > 0) {
