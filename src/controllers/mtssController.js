@@ -20,6 +20,11 @@ const {
     normalizeClassLabel,
     normalizeGradeLabel
 } = require('../utils/mtssAccess');
+const {
+    buildAssignmentPairings,
+    buildMentorSubjectCoverageRows,
+    getMentorAssignmentFocusLabels
+} = require('../utils/mentorAssignmentPairingUtils');
 
 const TIER_ORDER = {
     tier1: 1,
@@ -734,6 +739,8 @@ const enrichAssignmentForTeacherTools = (assignment = {}, viewer = {}) => {
 
     return {
         ...assignment,
+        focusLabels: getMentorAssignmentFocusLabels(assignment),
+        pairings: buildAssignmentPairings(assignment),
         mentorName: assignment.mentorId?.name || null,
         mentorEmail: assignment.mentorId?.email || null,
         weeklyFocusOverview: buildWeeklyFocusOverview(assignment.checkIns || []),
@@ -1432,8 +1439,9 @@ const getMentorAssignments = async (req, res) => {
             });
 
         const assignments = scopedAssignments.map((assignment) => enrichAssignmentForTeacherTools(assignment, req.user));
+        const mentorSubjectCoverage = buildMentorSubjectCoverageRows(assignments);
 
-        sendSuccess(res, 'Mentor assignments retrieved', { assignments });
+        sendSuccess(res, 'Mentor assignments retrieved', { assignments, mentorSubjectCoverage });
     } catch (error) {
         console.error('Failed to fetch mentor assignments:', error);
         sendError(res, 'Failed to retrieve mentor assignments', 500);

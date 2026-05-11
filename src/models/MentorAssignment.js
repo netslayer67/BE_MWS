@@ -18,7 +18,8 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     focusAreas: [{
         type: String,
-        trim: true
+        trim: true,
+        required: true
     }],
     status: {
         type: String,
@@ -175,5 +176,8 @@ const mentorAssignmentSchema = new mongoose.Schema({
 
 mentorAssignmentSchema.index({ mentorId: 1, status: 1 });
 mentorAssignmentSchema.index({ studentIds: 1, status: 1 });
+mentorAssignmentSchema.path('focusAreas').validate(function validateFocusAreas(value) {
+    return Array.isArray(value) && value.some((area) => String(area || '').trim());
+}, 'At least one focus area is required.');
 
 module.exports = mongoose.model('MentorAssignment', mentorAssignmentSchema);
