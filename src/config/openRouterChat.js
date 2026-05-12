@@ -48,11 +48,9 @@ class OpenRouterChatService {
     normalizeModelId(value = '') {
         const normalized = String(value || '').trim();
         if (!normalized) return '';
-
-        // Legacy OpenRouter identifiers in this project used a ":free" suffix.
-        // The current API model list no longer exposes those IDs, so normalize
-        // them to the base model identifier to keep older env values working.
-        return normalized.replace(/:free$/i, '');
+        // Preserve the :free suffix — OpenRouter uses it to route to the free-tier
+        // variant of a model, which is a distinct endpoint from the paid version.
+        return normalized;
     }
 
     getEnvConfig() {

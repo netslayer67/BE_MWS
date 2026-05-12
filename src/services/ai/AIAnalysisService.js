@@ -53,11 +53,19 @@ class AIAnalysisService {
         const cachedResult = cacheService.getCheckinAnalysis(cacheKey);
         if (cachedResult) {
             console.log('✅ Using cached AI analysis');
-            return {
-                ...cachedResult,
-                cached: true,
-                processingTime: Date.now() - startTime
-            };
+            const sanitized = { ...cachedResult, cached: true, processingTime: Date.now() - startTime };
+            // Re-enforce numeric hard floor — cached results may predate this rule or contain
+            // a stale AI error that set needsSupport incorrectly.
+            const p = Number(checkinData?.presenceLevel);
+            const c = Number(checkinData?.capacityLevel);
+            if (Number.isFinite(p) && Number.isFinite(c)) {
+                if (p >= 7 && c >= 7) {
+                    sanitized.needsSupport = false;
+                } else if (p <= 4 || c <= 4) {
+                    sanitized.needsSupport = true;
+                }
+            }
+            return sanitized;
         }
 
         if (!googleAI.isAvailable()) {

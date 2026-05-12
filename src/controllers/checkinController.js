@@ -1348,13 +1348,24 @@ const getCheckinHistory = async (req, res) => {
             .populate('supportContactUserId', 'name role department');
 
         const pagination = getPaginationInfo(page, limit, total);
-        const resolvedCheckins = [];
-        for (const checkin of checkins) {
-            const user = await findAnyUserById(checkin.userId, 'name email role department unit');
+
+        // Collect unique userId values from the result set, then fetch all at once
+        // to avoid N+1 queries (previously fired one DB call per checkin).
+        const uniqueUserIds = [...new Set(
+            checkins.map((c) => String(c.userId)).filter(Boolean)
+        )];
+        const userLookupResults = await Promise.all(
+            uniqueUserIds.map((uid) => findAnyUserById(uid, 'name email role department unit'))
+        );
+        const userMap = Object.fromEntries(
+            uniqueUserIds.map((uid, i) => [uid, userLookupResults[i]])
+        );
+
+        const resolvedCheckins = checkins.map((checkin) => {
             const normalized = checkin.toObject();
-            normalized.userId = user || checkin.userId;
-            resolvedCheckins.push(normalized);
-        }
+            normalized.userId = userMap[String(checkin.userId)] || checkin.userId;
+            return normalized;
+        });
 
         sendSuccess(res, 'Check-in history retrieved', {
             checkins: resolvedCheckins,

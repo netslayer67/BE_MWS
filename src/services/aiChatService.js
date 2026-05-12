@@ -918,6 +918,65 @@ class AIChatService {
         });
     }
 
+    buildMtssCoverageSnapshot(assignments = []) {
+        const rows = Array.isArray(assignments) ? assignments : [];
+        const uniqueStudents = new Set();
+        const focusCounts = {};
+        const mentorLoads = {};
+        let activeAssignments = 0;
+        let overdueAssignments = 0;
+        let tier3Assignments = 0;
+
+        rows.forEach((assignment = {}) => {
+            const status = this.normalizeRole(assignment.status || 'active');
+            if (status === 'active') activeAssignments += 1;
+            if (this.normalizeTierCode(assignment.tier || 'tier2') === 'tier3') tier3Assignments += 1;
+
+            const latestCheckInDate = Array.isArray(assignment.checkIns) && assignment.checkIns.length
+                ? assignment.checkIns[assignment.checkIns.length - 1]?.date
+                : assignment.lastPlanUpdatedAt || assignment.updatedAt || assignment.createdAt;
+            const daysSince = this.getDaysSince(latestCheckInDate);
+            if ((status === 'active' || status === 'paused') && (daysSince === null || daysSince >= 10)) {
+                overdueAssignments += 1;
+            }
+
+            const mentorName = this.normalizeMessageText(assignment.mentorId?.name || 'Unassigned mentor', 80);
+            if (mentorName) mentorLoads[mentorName] = Number(mentorLoads[mentorName] || 0) + 1;
+
+            const students = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
+            students.forEach((student = {}) => {
+                const key = String(student?._id || student?.id || student || '').trim();
+                if (key) uniqueStudents.add(key);
+            });
+
+            const focuses = Array.isArray(assignment.focusAreas) && assignment.focusAreas.length
+                ? assignment.focusAreas
+                : [assignment.strategyName || 'General support'];
+            focuses.forEach((focus) => {
+                const label = this.normalizeMessageText(focus, 80);
+                if (label) focusCounts[label] = Number(focusCounts[label] || 0) + 1;
+            });
+        });
+
+        const topFocusAreas = Object.entries(focusCounts)
+            .sort(([, left], [, right]) => right - left)
+            .slice(0, 6)
+            .map(([label, count]) => ({ label, count }));
+        const mentorLoadRows = Object.entries(mentorLoads)
+            .sort(([, left], [, right]) => right - left)
+            .slice(0, 8)
+            .map(([mentorName, count]) => ({ mentorName, count }));
+
+        return {
+            activeAssignments,
+            overdueAssignments,
+            tier3Assignments,
+            uniqueStudents: uniqueStudents.size,
+            topFocusAreas,
+            mentorLoadRows
+        };
+    }
+
     buildMtssRichStudentContext(assignments = []) {
         return (Array.isArray(assignments) ? assignments : []).map((assignment = {}) => {
             const students = Array.isArray(assignment.studentIds)
@@ -1498,6 +1557,8 @@ class AIChatService {
         const leadershipSnapshot = context?.workforce?.leadershipSnapshot || {};
         const leadershipActive = Number(leadershipSnapshot?.activeAssignments || 0);
         const leadershipOverdue = Number(leadershipSnapshot?.overdueAssignments || 0);
+        const coverageSnapshot = context?.workforce?.mtssCoverageSnapshot || {};
+        const coverageStudents = Number(coverageSnapshot?.uniqueStudents || 0);
 
         return [
             {
@@ -1556,6 +1617,17 @@ class AIChatService {
                                 : isTeacherRole
                                     ? 'Generates classroom-ready intervention plans, progress notes, and follow-up sequences.'
                                     : 'Generates practical workday plans, checklists, and prioritized next actions.'
+                    },
+                    {
+                        icon: '⚙️',
+                        title: 'MTSS Execution Support',
+                        description: isStudent
+                            ? 'Can prepare student-friendly next steps from MTSS tasks and mentor plans.'
+                            : isLeadershipRole
+                                ? `Can prepare principal-ready briefs, mentor rebalancing guidance, tier-review queues, and action forms for ${coverageStudents} student(s) in scope.`
+                                : isTeacherRole
+                                    ? 'Can draft or launch progress check-ins, intervention revisions, evidence upload, status updates, goal completion, and tier-review requests.'
+                                    : 'Can prepare authorized MTSS automation forms and keep actions grounded in role permissions.'
                     }
                 ]
             }
@@ -1638,6 +1710,7 @@ class AIChatService {
         const mtss = context?.mtss || {};
         const role = this.normalizeRole(context?.actor?.role || '');
         const leadershipSnapshot = workforce?.leadershipSnapshot || null;
+        const coverageSnapshot = workforce?.mtssCoverageSnapshot || null;
         const tierMap = workforce?.assignmentsByTier && typeof workforce.assignmentsByTier === 'object'
             ? workforce.assignmentsByTier
             : {};
@@ -1715,6 +1788,38 @@ class AIChatService {
                     { label: 'Students Covered', value: Number(leadershipSnapshot.uniqueStudents || 0) }
                 ]
             });
+        }
+
+        if (this.isLeadershipRole(role) && coverageSnapshot && Number(coverageSnapshot.activeAssignments || 0) > 0) {
+            const focusRows = Array.isArray(coverageSnapshot.topFocusAreas) ? coverageSnapshot.topFocusAreas : [];
+            const mentorRows = Array.isArray(coverageSnapshot.mentorLoadRows) ? coverageSnapshot.mentorLoadRows : [];
+
+            if (focusRows.length > 0) {
+                widgets.push({
+                    id: 'workforce_mtss_focus_pressure_chart',
+                    type: 'bar_chart',
+                    title: 'MTSS Focus Pressure',
+                    subtitle: 'Most common focus areas in your role scope',
+                    xKey: 'label',
+                    yKey: 'count',
+                    yDomain: [0, Math.max(...focusRows.map((entry) => Number(entry.count || 0)), 1)],
+                    data: focusRows
+                });
+            }
+
+            if (mentorRows.length > 0) {
+                widgets.push({
+                    id: 'workforce_mtss_mentor_load_table',
+                    type: 'table',
+                    title: 'Mentor Load Snapshot',
+                    subtitle: 'Assignment count by mentor in current scope',
+                    columns: [
+                        { key: 'mentorName', label: 'Mentor' },
+                        { key: 'count', label: 'Assignments' }
+                    ],
+                    rows: mentorRows
+                });
+            }
         }
 
         return widgets;
@@ -2123,6 +2228,9 @@ class AIChatService {
         const actorName = String(actor.name || actor.preferredName || '').trim() || 'Current User';
         const actorRole = this.normalizeRole(actor.role || '');
         const actorRoleLabel = actor.roleLabel || this.getWorkforceRoleLabel(actorRole);
+        const dashboardRoute = this.isMtssAdminRole(actorRole) ? '/mtss/admin' : '/mtss/teacher';
+        const dashboardIntent = this.isMtssAdminRole(actorRole) ? 'open_mtss_admin_dashboard' : 'open_mtss_teacher_dashboard';
+        const dashboardLabel = this.isMtssAdminRole(actorRole) ? 'MTSS Admin Dashboard' : 'MTSS Teacher Dashboard';
         const assignmentOptions = assignmentList.slice(0, 10).map((assignment = {}) => ({
             id: assignment.id,
             studentName: Array.isArray(assignment.students)
@@ -2169,9 +2277,9 @@ class AIChatService {
                 label: 'Open MTSS Dashboard',
                 action: {
                     type: 'navigate',
-                    intent: 'open_mtss_teacher_dashboard',
-                    navigateTo: '/mtss/teacher',
-                    label: 'MTSS Teacher Dashboard'
+                    intent: dashboardIntent,
+                    navigateTo: dashboardRoute,
+                    label: dashboardLabel
                 }
             },
             {
@@ -3200,8 +3308,12 @@ ${mentorLines}`;
             routes.add('/emotional-checkin/not-submitted');
         }
 
-        if (['admin', 'superadmin', 'directorate'].includes(normalizedRole)) {
+        if (['head_unit', 'principal', 'admin', 'superadmin', 'directorate'].includes(normalizedRole)) {
             routes.add('/mtss/admin');
+            routes.add('/mtss/admin/assign');
+        }
+
+        if (['admin', 'superadmin', 'directorate'].includes(normalizedRole)) {
             routes.add('/user-management');
         }
 
@@ -3356,7 +3468,7 @@ ${mentorLines}`;
         }
 
         if (mentionsMtss) {
-            if (['admin', 'superadmin', 'directorate'].includes(role) && /(admin|lead|manage|kelola)/i.test(text)) {
+            if (['head_unit', 'principal', 'admin', 'superadmin', 'directorate'].includes(role) && /(admin|lead|principal|manage|mentor|analytics|overview|kelola)/i.test(text)) {
                 return this.buildNavigateAction('open_mtss_admin_dashboard', '/mtss/admin', 'MTSS Admin Dashboard', 0.95, role);
             }
             if (['teacher', 'se_teacher', 'head_unit', 'principal', 'directorate', 'admin', 'superadmin'].includes(role)) {
@@ -4182,7 +4294,9 @@ ${teacherLines}`;
                         })
                             .sort({ updatedAt: -1 })
                             .limit(150)
-                            .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
+                            .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId studentIds baselineScore targetScore metricLabel createdAt updatedAt lastPlanUpdatedAt')
+                            .populate('mentorId', 'name username nickname gender email role jobPosition unit department')
+                            .populate('studentIds', 'name nickname currentGrade className tags')
                             .lean()
                         : Promise.resolve([]);
                 } else {
@@ -4192,8 +4306,9 @@ ${teacherLines}`;
                     })
                         .sort({ updatedAt: -1 })
                         .limit(400)
-                        .select('tier status studentIds mentorId checkIns createdAt updatedAt lastPlanUpdatedAt')
+                        .select('tier status focusAreas strategyName monitoringMethod monitoringFrequency goals checkIns mentorId studentIds baselineScore targetScore metricLabel createdAt updatedAt lastPlanUpdatedAt')
                         .populate('mentorId', 'unit department name')
+                        .populate('studentIds', 'name nickname currentGrade className tags')
                         .lean();
                 }
             }
@@ -4205,15 +4320,24 @@ ${teacherLines}`;
             ]);
 
             const assignmentSnapshot = this.buildAssignmentSnapshot(mentorAssignments);
-            const openTasks = this.buildMtssActionItems(assignmentSnapshot);
-            const focusAreas = this.extractFocusAreas(mentorAssignments);
+            const leadershipAssignmentSnapshot = isPrincipalLike
+                ? this.buildAssignmentSnapshot(leadershipAssignments).slice(0, 30)
+                : [];
+            const effectiveAssignmentSnapshot = assignmentSnapshot.length > 0
+                ? assignmentSnapshot
+                : leadershipAssignmentSnapshot;
+            const openTasks = this.buildMtssActionItems(effectiveAssignmentSnapshot);
+            const focusAreas = this.extractFocusAreas(
+                assignmentSnapshot.length > 0 ? mentorAssignments : leadershipAssignments
+            );
             const emotionalSummary = this.analyzeEmotionalPatterns(recentCheckIns);
             const currentTier = this.getCurrentTier(
-                assignmentSnapshot.map((assignment) => ({ tier: assignment.tierCode }))
+                effectiveAssignmentSnapshot.map((assignment) => ({ tier: assignment.tierCode }))
             );
 
             const uniqueStudentIds = new Set();
-            mentorAssignments.forEach((assignment = {}) => {
+            const studentCountSourceAssignments = mentorAssignments.length > 0 ? mentorAssignments : leadershipAssignments;
+            studentCountSourceAssignments.forEach((assignment = {}) => {
                 const studentIds = Array.isArray(assignment.studentIds) ? assignment.studentIds : [];
                 studentIds.forEach((entry) => {
                     const key = String(entry?._id || entry || '').trim();
@@ -4223,18 +4347,27 @@ ${teacherLines}`;
             const uniqueStudentCount = uniqueStudentIds.size;
 
             const flaggedSelfCheckins = recentCheckIns.filter((entry = {}) => Boolean(entry?.aiAnalysis?.needsSupport)).length;
-            const assignmentsByTier = assignmentSnapshot.reduce((acc, assignment = {}) => {
+            const assignmentsByTier = effectiveAssignmentSnapshot.reduce((acc, assignment = {}) => {
                 const tierCode = String(assignment.tierCode || 'tier1').toLowerCase();
                 acc[tierCode] = Number(acc[tierCode] || 0) + 1;
                 return acc;
             }, {});
 
-            const enrichedAssignments = isMentorRole
+            const personalEnrichedAssignments = isMentorRole
                 ? this.buildMtssRichStudentContext(mentorAssignments)
                 : [];
+            const leadershipEnrichedAssignments = isPrincipalLike
+                ? this.buildMtssRichStudentContext(leadershipAssignments).slice(0, 40)
+                : [];
+            const enrichedAssignments = personalEnrichedAssignments.length > 0
+                ? personalEnrichedAssignments
+                : leadershipEnrichedAssignments;
             const leadershipSnapshot = isLeadershipRole
                 ? this.buildLeadershipSnapshot(leadershipAssignments)
                 : null;
+            const mtssCoverageSnapshot = isLeadershipRole
+                ? this.buildMtssCoverageSnapshot(leadershipAssignments)
+                : this.buildMtssCoverageSnapshot(mentorAssignments);
             // Cross-unit breakdown only for directorate — groups by each mentor's unit
             const crossUnitSnapshot = isDirectorate
                 ? this.buildCrossUnitSnapshot(leadershipAssignments)
@@ -4264,14 +4397,14 @@ ${teacherLines}`;
                     jobPosition: user.jobPosition || null
                 },
                 mtss: {
-                    hasProfile: assignmentSnapshot.length > 0,
+                    hasProfile: effectiveAssignmentSnapshot.length > 0,
                     currentTier,
                     interventions: [],
                     activeInterventions: [],
-                    assignments: assignmentSnapshot,
+                    assignments: effectiveAssignmentSnapshot,
                     openTasks,
-                    assignmentCount: assignmentSnapshot.length,
-                    activeAssignmentCount: assignmentSnapshot.filter((assignment) => assignment.status === 'active').length,
+                    assignmentCount: effectiveAssignmentSnapshot.length,
+                    activeAssignmentCount: effectiveAssignmentSnapshot.filter((assignment) => assignment.status === 'active').length,
                     mentors: [],
                     focusAreas
                 },
@@ -4296,6 +4429,7 @@ ${teacherLines}`;
                     assignmentsByTier,
                     enrichedAssignments,
                     leadershipSnapshot,
+                    mtssCoverageSnapshot,
                     crossUnitSnapshot
                 },
                 assistant: this.buildDefaultAssistantRuntime(userId),
@@ -4845,6 +4979,9 @@ CRITICAL LANGUAGE REQUIREMENT:
 
         const roleLabel = context?.actor?.roleLabel || this.getWorkforceRoleLabel(role);
         const isKindergarten = this.isKindergartenContext(context);
+        const isLeadership = this.isLeadershipRole(role);
+        const coverage = context?.workforce?.mtssCoverageSnapshot || {};
+        const scopeLabel = isLeadership ? 'Unit MTSS Coverage' : 'Your Assigned Students';
 
         const rosterLines = enrichedAssignments.slice(0, 10).map((assignment) => {
             const students = Array.isArray(assignment.students) ? assignment.students : [];
@@ -4914,7 +5051,11 @@ Use measurable goals, numeric scores or clearly countable indicators, and concre
 
 You are an advanced MTSS AI partner for ${roleLabel}. You have direct access to the student data listed below and must use it when answering MTSS questions.
 
-### Your Assigned Students (Live Snapshot):
+### ${scopeLabel} (Live Snapshot):
+- Active assignments in scope: ${Number(coverage.activeAssignments || enrichedAssignments.length || 0)}
+- Overdue / missing check-ins in scope: ${Number(coverage.overdueAssignments || 0)}
+- Tier 3 cases in scope: ${Number(coverage.tier3Assignments || 0)}
+- Unique students in scope: ${Number(coverage.uniqueStudents || 0)}
 ${rosterLines.join('\n') || '  - No active student assignments found.'}
 ${kindergartenCapabilities}${standardCapabilities}`;
     }
@@ -5098,6 +5239,7 @@ You are a practical operations assistant.
         const rolePlaybookSection = this.buildWorkforceRolePlaybookSection(context);
         const isDirectorate = this.isDirectorateRole(actor?.role || '');
         const crossUnitSnapshot = Array.isArray(workforce?.crossUnitSnapshot) ? workforce.crossUnitSnapshot : [];
+        const coverageSnapshot = workforce?.mtssCoverageSnapshot || {};
 
         let leadershipLines = '- Leadership metrics are not applicable for this role.';
         if (this.isLeadershipRole(actor?.role || '')) {
@@ -5152,6 +5294,7 @@ Workforce snapshot (internal data):
 - Total mentored students (snapshot): ${workforce?.totalMentoredStudents || 0}
 - Recent self check-ins needing support: ${workforce?.flaggedSelfCheckins || 0}
 - Current assignment tier signal: ${mtss?.currentTier ? this.toTierLabel(mtss.currentTier) : 'Not recorded'}
+- MTSS coverage in role scope: ${Number(coverageSnapshot.activeAssignments || 0)} active, ${Number(coverageSnapshot.overdueAssignments || 0)} overdue, ${Number(coverageSnapshot.tier3Assignments || 0)} tier-3, ${Number(coverageSnapshot.uniqueStudents || 0)} unique students
 Leadership metrics (if applicable):
 ${leadershipLines}
 Assignment details:
@@ -7869,6 +8012,12 @@ ${memory}`;
 
             if (forcedReplies.length > 0) {
                 responseText = Array.from(new Set(forcedReplies.map((value) => String(value).trim()).filter(Boolean))).join('\n\n');
+            }
+
+            if (!this.isStudentContext(context)
+                && this.wantsCapabilitiesOverview(userMessage, intentUserKey)
+                && /(mtss|teacher|principal|dock|automation|automasi|kebisaan|kemampuan|fitur)/i.test(String(userMessage || ''))) {
+                responseText = this.buildCapabilitiesReadyReply(context);
             }
 
             const isWorkforceSprintPlan = !this.isStudentContext(context) && this.wantsMtssSprintPlan(userMessage, intentUserKey);
