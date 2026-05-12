@@ -110,6 +110,45 @@ const updateNotificationPreferences = async (req, res) => {
             if (ia.enabled !== undefined) update['inAppNotifications.enabled'] = Boolean(ia.enabled);
         }
 
+        // ── alert type preferences ─────────────────────────────────────────
+        const VALID_ALERT_TYPES = [
+            'academic_struggle', 'learning_style_detected', 'emotional_pattern',
+            'progress_decline', 'engagement_low', 'breakthrough', 'intervention_needed'
+        ];
+        const VALID_SEVERITIES = ['low', 'medium', 'high', 'urgent'];
+
+        if (body.alertPreferences) {
+            for (const type of VALID_ALERT_TYPES) {
+                const ap = body.alertPreferences[type];
+                if (!ap) continue;
+                if (ap.enabled !== undefined) {
+                    update[`alertPreferences.${type}.enabled`] = Boolean(ap.enabled);
+                }
+                if (ap.minSeverity !== undefined) {
+                    if (!VALID_SEVERITIES.includes(ap.minSeverity)) {
+                        return res.status(400).json({ success: false, message: `Invalid severity for: ${type}` });
+                    }
+                    update[`alertPreferences.${type}.minSeverity`] = ap.minSeverity;
+                }
+            }
+        }
+
+        // ── advance notice days ────────────────────────────────────────────
+        if (body.advanceNoticeDays !== undefined) {
+            const days = Number(body.advanceNoticeDays);
+            if (!Number.isInteger(days) || days < 0 || days > 14) {
+                return res.status(400).json({ success: false, message: 'advanceNoticeDays must be 0–14' });
+            }
+            update.advanceNoticeDays = days;
+        }
+
+        // ── smart summary ──────────────────────────────────────────────────
+        if (body.smartSummary) {
+            if (body.smartSummary.enabled !== undefined) {
+                update['smartSummary.enabled'] = Boolean(body.smartSummary.enabled);
+            }
+        }
+
         update.lastUpdated = new Date();
 
         const pref = await TeacherNotificationPreference.findOneAndUpdate(

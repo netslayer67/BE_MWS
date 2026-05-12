@@ -57,6 +57,10 @@ function isRateCapped(email) {
 
 const digestQueue = new Map();
 
+// Advance-notice cooldown: Map<"teacherId:assignmentId:advance", timestamp>
+const advanceNoticeCooldown = new Map();
+const ADVANCE_NOTICE_COOLDOWN_MS = 22 * 60 * 60 * 1000; // 22 h
+
 function enqueueDigest(teacherId, ctx, item) {
     if (!digestQueue.has(teacherId)) {
         digestQueue.set(teacherId, { ctx, items: [] });
@@ -109,7 +113,9 @@ class TeacherNotifierService {
             emailAddress: pref?.emailNotifications?.address || user.email,
             quietHours: pref?.quietHours ?? defaults.quietHours,
             deliveryMode: pref?.deliveryMode ?? defaults.deliveryMode,
-            digestSchedule: pref?.digestSchedule ?? defaults.digestSchedule
+            digestSchedule: pref?.digestSchedule ?? defaults.digestSchedule,
+            advanceNoticeDays: pref?.advanceNoticeDays ?? 1,
+            smartSummary: pref?.smartSummary ?? { enabled: true },
         };
     }
 
@@ -417,8 +423,29 @@ class TeacherNotifierService {
     /**
      * Builds a single consolidated digest HTML email from queued items.
      */
-    _buildDigestHtml({ teacherName, items, actionUrl }) {
-        const rows = items.map((item, i) => `
+    _buildDigestHtml({ teacherName, items, actionUrl, smartSummary = true }) {
+        let displayItems = items;
+        if (smartSummary && items.length > 1) {
+            const groups = new Map();
+            for (const item of items) {
+                const key = item.operation || 'update';
+                if (!groups.has(key)) {
+                    groups.set(key, { ...item, studentNames: [...(item.studentNames || [])], count: 1 });
+                } else {
+                    const g = groups.get(key);
+                    g.count++;
+                    for (const name of (item.studentNames || [])) {
+                        if (!g.studentNames.includes(name)) g.studentNames.push(name);
+                    }
+                }
+            }
+            displayItems = Array.from(groups.values()).map(g => ({
+                ...g,
+                title: g.count > 1 ? `${g.title} ×${g.count}` : g.title
+            }));
+        }
+
+        const rows = displayItems.map((item, i) => `
           <tr style="background:${i % 2 === 0 ? '#f9fafb' : '#ffffff'}">
             <td style="padding:10px 14px;font-size:13px;color:#374151;border-bottom:1px solid #f3f4f6;">
               ${item.title}
@@ -469,6 +496,146 @@ class TeacherNotifierService {
 </body></html>`;
     }
 
+    _buildAdvanceNoticeHtml({ teacherName, upcoming, daysLabel }) {
+        const rows = upcoming.map((u, i) => {
+            const dueDate = new Date(u.dueAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            return `
+          <tr style="background:${i % 2 === 0 ? '#f0fdf4' : '#ffffff'}">
+            <td style="padding:10px 14px;font-size:13px;color:#374151;border-bottom:1px solid #f3f4f6;">
+              ${u.studentNames.join(', ') || '—'}
+            </td>
+            <td style="padding:10px 14px;font-size:12px;color:#6b7280;border-bottom:1px solid #f3f4f6;">
+              ${u.assignment.monitoringFrequency}
+            </td>
+            <td style="padding:10px 14px;font-size:11px;color:#059669;font-weight:600;border-bottom:1px solid #f3f4f6;white-space:nowrap;">
+              ${dueDate}
+            </td>
+          </tr>`;
+        }).join('');
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f3f4f6;">
+<div style="max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.07);">
+  <div style="background:linear-gradient(135deg,#065f46 0%,#059669 100%);color:#fff;padding:28px;">
+    <p style="margin:0 0 4px;font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:1px;">MTSS Advance Notice</p>
+    <h1 style="margin:0;font-size:20px;font-weight:600;">${upcoming.length} Check-in${upcoming.length > 1 ? 's' : ''} Due ${daysLabel}</h1>
+  </div>
+  <div style="padding:24px;">
+    <p style="color:#374151;font-size:15px;margin:0 0 8px;">Hi <strong>${teacherName}</strong>,</p>
+    <p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0 0 20px;">
+      Heads up — the following MTSS monitoring check-ins are due <strong>${daysLabel}</strong>.
+      Plan ahead so your students stay on track.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+      <thead>
+        <tr style="background:#ecfdf5;">
+          <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#065f46;">Student(s)</th>
+          <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#065f46;">Frequency</th>
+          <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#065f46;">Due Date</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="text-align:center;margin:28px 0 16px;">
+      <a href="${buildFrontendUrl('/mtss/teacher')}" style="background:linear-gradient(135deg,#065f46,#059669);color:#fff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;display:inline-block;">
+        Open MTSS Dashboard
+      </a>
+    </div>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+    <p style="color:#9ca3af;font-size:11px;text-align:center;margin:0;">
+      MWS IntegraLearn · MTSS Advance Notice<br>
+      <a href="${buildFrontendUrl('/notifications/settings')}" style="color:#6b7280;text-decoration:none;">Manage notification preferences</a>
+    </p>
+  </div>
+</div>
+</body></html>`;
+    }
+
+    /**
+     * Checks active MTSS assignments and sends a single advance-notice summary email
+     * to any teacher who has advanceNoticeDays > 0 and has check-ins due within that window.
+     * Uses a 22h cooldown per assignment to avoid re-sending until the next day.
+     */
+    async checkAdvanceNotices() {
+        try {
+            const now = new Date();
+
+            const prefs = await TeacherNotificationPreference.find({
+                advanceNoticeDays: { $gt: 0 }
+            }).lean();
+
+            if (!prefs.length) return;
+
+            for (const pref of prefs) {
+                const teacherId = String(pref.teacherId);
+                const daysAhead = pref.advanceNoticeDays || 1;
+                const windowEnd = new Date(now.getTime() + daysAhead * 86_400_000);
+
+                const ctx = await this.getTeacherContext(teacherId);
+                if (!ctx || !ctx.emailEnabled || ctx.deliveryMode === 'dashboard_only') continue;
+                if (isQuietHours(ctx.quietHours)) continue;
+
+                const assignments = await MentorAssignment.find({
+                    mentorId: pref.teacherId,
+                    status: 'active',
+                    monitoringFrequency: { $in: ['Daily', 'Weekly', 'Bi-weekly'] }
+                })
+                    .populate('studentIds', 'name')
+                    .lean();
+
+                const upcoming = [];
+                for (const assignment of assignments) {
+                    const lastCheckIn = (assignment.checkIns || []).reduce((latest, ci) => {
+                        const d = new Date(ci.date);
+                        return !latest || d > latest ? d : latest;
+                    }, null);
+
+                    const refDate = lastCheckIn || new Date(assignment.startDate);
+                    const freqDays = FREQ_DAYS[assignment.monitoringFrequency] || 7;
+                    const dueAt = new Date(refDate.getTime() + freqDays * 86_400_000);
+
+                    // Only upcoming (not yet overdue), within the advance window
+                    if (dueAt <= now || dueAt > windowEnd) continue;
+
+                    const cooldownKey = `${teacherId}:${String(assignment._id)}:advance`;
+                    const lastSent = advanceNoticeCooldown.get(cooldownKey);
+                    if (lastSent && (now - lastSent) < ADVANCE_NOTICE_COOLDOWN_MS) continue;
+
+                    upcoming.push({
+                        assignment,
+                        dueAt,
+                        studentNames: (assignment.studentIds || []).map((s) => s.name).filter(Boolean),
+                        cooldownKey,
+                    });
+                }
+
+                if (!upcoming.length) continue;
+
+                const daysLabel = daysAhead === 1 ? 'tomorrow' : `in ${daysAhead} days`;
+                const html = this._buildAdvanceNoticeHtml({ teacherName: ctx.user.name, upcoming, daysLabel });
+                const subject = `MTSS Reminder: ${upcoming.length} check-in${upcoming.length > 1 ? 's' : ''} due ${daysLabel}`;
+
+                try {
+                    await notificationService.sendEmail(ctx.emailAddress, subject, html);
+                    for (const u of upcoming) advanceNoticeCooldown.set(u.cooldownKey, now);
+                    winston.info(`[TeacherNotifier] Advance notice → ${ctx.user.name}, ${upcoming.length} item(s) due ${daysLabel}`);
+                } catch (err) {
+                    winston.error(`[TeacherNotifier] Advance notice email failed for ${teacherId}:`, err.message);
+                }
+            }
+
+            // Prune stale cooldown entries
+            const staleThreshold = now.getTime() - ADVANCE_NOTICE_COOLDOWN_MS * 2;
+            for (const [key, ts] of advanceNoticeCooldown) {
+                if (ts < staleThreshold) advanceNoticeCooldown.delete(key);
+            }
+        } catch (error) {
+            winston.error('[TeacherNotifier] Advance notice check crashed:', error.message);
+        }
+    }
+
     /**
      * Flushes pending digest queues for teachers whose scheduled send time has arrived.
      * Also flushes any queue that has been sitting for more than 26 hours (safety drain).
@@ -500,7 +667,8 @@ class TeacherNotifierService {
                 const html = this._buildDigestHtml({
                     teacherName: entry.ctx.user.name,
                     items: entry.items,
-                    actionUrl
+                    actionUrl,
+                    smartSummary: entry.ctx.smartSummary?.enabled !== false,
                 });
                 const subject = entry.items.length === 1
                     ? `MTSS Update: ${entry.items[0].title}`
@@ -527,6 +695,10 @@ class TeacherNotifierService {
             // Due reminders
             this.checkDueAssignmentsAndNotify(true);
             setInterval(() => this.checkDueAssignmentsAndNotify(), HOUR_MS);
+
+            // Advance notices (checked hourly, 22h cooldown prevents duplicates)
+            this.checkAdvanceNotices();
+            setInterval(() => this.checkAdvanceNotices(), HOUR_MS);
 
             // Digest flush
             this.flushDueDigests();

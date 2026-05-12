@@ -88,9 +88,17 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
     // Quiet hours
     quietHours: {
         enabled: { type: Boolean, default: true },
-        start: { type: String, default: '18:00' }, // 6 PM
-        end: { type: String, default: '07:00' }, // 7 AM
+        start: { type: String, default: '18:00' },
+        end: { type: String, default: '07:00' },
         weekendsOnly: { type: Boolean, default: false }
+    },
+
+    // Advance notice: email a deadline summary N days before check-ins are due (0 = off)
+    advanceNoticeDays: { type: Number, default: 1, min: 0, max: 14 },
+
+    // Smart summary: group same-type notifications into one digest row
+    smartSummary: {
+        enabled: { type: Boolean, default: true }
     },
 
     // Last updated
@@ -165,7 +173,9 @@ teacherNotificationPreferenceSchema.statics.getDefaults = function() {
         inAppNotifications: { enabled: true, playSound: false },
         slackNotifications: { enabled: false },
         studentFilters: { onlyMyStudents: true },
-        quietHours: { enabled: true, start: '18:00', end: '07:00' }
+        quietHours: { enabled: true, start: '18:00', end: '07:00' },
+        advanceNoticeDays: 1,
+        smartSummary: { enabled: true },
     };
 };
 
