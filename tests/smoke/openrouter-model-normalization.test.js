@@ -6,16 +6,17 @@ describe('OpenRouter chat configuration', () => {
         jest.resetModules();
     });
 
-    test('loads backend env file path and normalizes legacy model ids', () => {
+    test('loads backend env file path and preserves :free suffix in model ids', () => {
         let service;
         jest.isolateModules(() => {
             service = require('../../src/config/openRouterChat');
         });
 
         expect(service.envFilePath.replace(/\\/g, '/')).toMatch(/\.env$/);
-        expect(service.normalizeModelId('arcee-ai/trinity-large-preview:free')).toBe('arcee-ai/trinity-large-preview');
+        // :free suffix must be preserved — OpenRouter uses it to route to the free-tier endpoint
+        expect(service.normalizeModelId('arcee-ai/trinity-large-preview:free')).toBe('arcee-ai/trinity-large-preview:free');
         expect(service.parseModelList('stepfun/step-3.5-flash:free, openai/gpt-chat-latest')).toEqual([
-            'stepfun/step-3.5-flash',
+            'stepfun/step-3.5-flash:free',
             'openai/gpt-chat-latest'
         ]);
         expect(
@@ -24,8 +25,8 @@ describe('OpenRouter chat configuration', () => {
                 fallbackModels: ['openai/gpt-chat-latest:free']
             }, true)
         ).toEqual([
-            'stepfun/step-3.5-flash',
-            'openai/gpt-chat-latest'
+            'stepfun/step-3.5-flash:free',
+            'openai/gpt-chat-latest:free'
         ]);
     });
 });
