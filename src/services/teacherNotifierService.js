@@ -5,6 +5,12 @@ const MentorAssignment = require('../models/MentorAssignment');
 const notificationService = require('./notificationService');
 const { buildFrontendUrl } = require('../utils/frontendUrl');
 
+// Slack is available when the bot token is configured
+const SLACK_CONFIGURED = Boolean(
+    process.env.SLACK_BOT_TOKEN &&
+    process.env.SLACK_BOT_TOKEN !== 'xoxb-your-slack-bot-token'
+);
+
 // Due-reminder cooldown: Map<assignmentId, Date> — in-memory, reset on restart
 const dueReminderCooldown = new Map();
 const DUE_REMINDER_COOLDOWN_MS = 23 * 60 * 60 * 1000; // 23 h
@@ -109,13 +115,14 @@ class TeacherNotifierService {
         const defaults = TeacherNotificationPreference.getDefaults();
         return {
             user,
-            emailEnabled: pref ? pref.emailNotifications?.enabled !== false : defaults.emailNotifications.enabled,
+            emailEnabled: pref ? pref.emailNotifications?.enabled === true : defaults.emailNotifications.enabled,
             emailAddress: pref?.emailNotifications?.address || user.email,
             quietHours: pref?.quietHours ?? defaults.quietHours,
             deliveryMode: pref?.deliveryMode ?? defaults.deliveryMode,
             digestSchedule: pref?.digestSchedule ?? defaults.digestSchedule,
-            advanceNoticeDays: pref?.advanceNoticeDays ?? 1,
-            smartSummary: pref?.smartSummary ?? { enabled: true },
+            advanceNoticeDays: pref?.advanceNoticeDays ?? 0,
+            smartSummary: pref?.smartSummary ?? { enabled: false },
+            slackEnabled: pref?.slackNotifications?.enabled === true,
         };
     }
 
@@ -210,6 +217,64 @@ class TeacherNotifierService {
 </html>`;
     }
 
+    // ── Slack DM helper ───────────────────────────────────────────────────
+
+    /**
+     * Sends a Slack DM to a mentor for an MTSS event.
+     * No-ops silently when: Slack not configured, preference disabled,
+     * quiet hours active, or the user has no Slack account.
+     */
+    async _sendSlackDMToMentor(ctx, title, message, metadata = {}) {
+        if (!SLACK_CONFIGURED) return { sent: false, reason: 'slack_not_configured' };
+        if (!ctx.slackEnabled) return { sent: false, reason: 'slack_disabled_by_preference' };
+        if (isQuietHours(ctx.quietHours)) return { sent: false, reason: 'quiet_hours' };
+
+        try {
+            const slackUser = await notificationService.slack.findUserByEmail(ctx.emailAddress);
+            if (!slackUser?.id) return { sent: false, reason: 'slack_user_not_found' };
+
+            const studentNames = Array.isArray(metadata.studentNames) && metadata.studentNames.length
+                ? metadata.studentNames.join(', ')
+                : null;
+
+            const actionUrl = buildFrontendUrl(metadata.actionRoute || '/mtss/teacher');
+
+            const blocks = [
+                {
+                    type: 'header',
+                    text: { type: 'plain_text', text: `📋 MTSS Update`, emoji: true }
+                },
+                {
+                    type: 'section',
+                    text: { type: 'mrkdwn', text: `*${title}*\n${message}` }
+                },
+                ...(studentNames ? [{
+                    type: 'section',
+                    fields: [
+                        { type: 'mrkdwn', text: `*Student(s):*\n${studentNames}` }
+                    ]
+                }] : []),
+                {
+                    type: 'actions',
+                    elements: [{
+                        type: 'button',
+                        text: { type: 'plain_text', text: 'Open MTSS Dashboard', emoji: true },
+                        style: 'primary',
+                        url: actionUrl
+                    }]
+                }
+            ];
+
+            const plainText = `MTSS Update: ${title}\n${message}${studentNames ? `\nStudent(s): ${studentNames}` : ''}`;
+            await notificationService.slack.sendDirectMessage(slackUser.id, plainText, blocks);
+            winston.info(`[TeacherNotifier] Slack DM sent to ${ctx.user.name} — "${title}"`);
+            return { sent: true, to: ctx.emailAddress };
+        } catch (err) {
+            winston.warn(`[TeacherNotifier] Slack DM failed for ${ctx.user.name}: ${err.message}`);
+            return { sent: false, reason: 'slack_error', error: err.message };
+        }
+    }
+
     // ── public entry points ────────────────────────────────────────────────
 
     /**
@@ -279,6 +344,10 @@ class TeacherNotifierService {
         await notificationService.sendEmail(ctx.emailAddress, `MTSS Update: ${title}`, html);
         markUpdateSent(cooldownKey);
         winston.info(`[TeacherNotifier] MTSS update email sent to ${ctx.user.name} — "${title}"`);
+
+        // Slack DM — non-blocking, independent of email delivery
+        this._sendSlackDMToMentor(ctx, title, message, { ...metadata, studentNames }).catch(() => {});
+
         return { sent: true, to: ctx.emailAddress };
     }
 
@@ -333,16 +402,27 @@ class TeacherNotifierService {
     async _sendAlertEmailToTeacher(teacherId, alerts) {
         const ctx = await this.getTeacherContext(teacherId);
         if (!ctx) return;
-        if (!ctx.emailEnabled || ctx.deliveryMode === 'dashboard_only') return;
-        if (isQuietHours(ctx.quietHours)) return;
 
-        const subject = alerts.length === 1
-            ? `Student Alert: ${alerts[0].title}`
-            : `${alerts.length} Student Alerts Require Your Attention`;
+        const canEmail = ctx.emailEnabled && ctx.deliveryMode !== 'dashboard_only' && !isQuietHours(ctx.quietHours);
 
-        const html = this._buildAlertEmailHtml(ctx.user.name, alerts);
-        await notificationService.sendEmail(ctx.emailAddress, subject, html);
-        winston.info(`[TeacherNotifier] Alert email (${alerts.length}) sent to ${ctx.user.name}`);
+        if (canEmail) {
+            const subject = alerts.length === 1
+                ? `Student Alert: ${alerts[0].title}`
+                : `${alerts.length} Student Alerts Require Your Attention`;
+            const html = this._buildAlertEmailHtml(ctx.user.name, alerts);
+            await notificationService.sendEmail(ctx.emailAddress, subject, html);
+            winston.info(`[TeacherNotifier] Alert email (${alerts.length}) sent to ${ctx.user.name}`);
+        }
+
+        // Slack DM — sent regardless of email mode, respects its own preference + quiet hours
+        if (alerts.length > 0) {
+            const title = alerts.length === 1
+                ? alerts[0].title
+                : `${alerts.length} Student Alerts`;
+            const message = alerts.map((a) => `• ${a.title}: ${a.studentName}`).join('\n');
+            const studentNames = [...new Set(alerts.map((a) => a.studentName).filter(Boolean))];
+            this._sendSlackDMToMentor(ctx, title, message, { studentNames }).catch(() => {});
+        }
     }
 
     /**
@@ -632,6 +712,15 @@ class TeacherNotifierService {
                 } catch (err) {
                     winston.error(`[TeacherNotifier] Advance notice email failed for ${teacherId}:`, err.message);
                 }
+
+                // Slack DM for advance notice
+                const advanceStudentNames = upcoming.flatMap((u) => u.studentNames);
+                const advanceTitle = `MTSS Check-in Due ${daysLabel}`;
+                const advanceMsg = `${upcoming.length} MTSS monitoring check-in${upcoming.length > 1 ? 's' : ''} due ${daysLabel}. Please plan ahead.`;
+                this._sendSlackDMToMentor(ctx, advanceTitle, advanceMsg, {
+                    studentNames: advanceStudentNames,
+                    actionRoute: '/mtss/teacher'
+                }).catch(() => {});
             }
 
             // Prune stale cooldown entries

@@ -110,6 +110,12 @@ const updateNotificationPreferences = async (req, res) => {
             if (ia.enabled !== undefined) update['inAppNotifications.enabled'] = Boolean(ia.enabled);
         }
 
+        // ── slack notifications ────────────────────────────────────────────
+        if (body.slackNotifications) {
+            const sn = body.slackNotifications;
+            if (sn.enabled !== undefined) update['slackNotifications.enabled'] = Boolean(sn.enabled);
+        }
+
         // ── alert type preferences ─────────────────────────────────────────
         const VALID_ALERT_TYPES = [
             'academic_struggle', 'learning_style_detected', 'emotional_pattern',
