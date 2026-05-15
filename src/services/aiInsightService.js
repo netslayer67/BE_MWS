@@ -471,13 +471,33 @@ class AIInsightService {
             // Save all alerts (if any)
             let savedAlerts = [];
             if (alerts.length > 0) {
+                // Resolve the student's active MTSS mentors so assignedTo is explicitly
+                // set to mentor-role only — homeroom and subject teachers are excluded.
+                let mentorAssignedTo = [];
+                try {
+                    const mentorAssignments = await MentorAssignment.find({
+                        studentIds: user._id,
+                        status: 'active'
+                    }).populate('mentorId', 'name').lean();
+
+                    mentorAssignedTo = mentorAssignments
+                        .filter((a) => a.mentorId)
+                        .map((a) => ({
+                            teacherId: a.mentorId._id || a.mentorId,
+                            teacherName: a.mentorId.name || '',
+                            role: 'mentor'
+                        }));
+                } catch (err) {
+                    console.warn('[AIInsight] Could not resolve mentors for assignedTo:', err.message);
+                }
+
                 savedAlerts = await Promise.all(
-                    alerts.map(alert => new TeacherAlert(alert).save())
+                    alerts.map(alert => new TeacherAlert({ ...alert, assignedTo: mentorAssignedTo }).save())
                 );
 
                 console.log(`✅ Generated ${savedAlerts.length} new alerts for ${user.name}`);
 
-                // Email all assigned teachers — non-blocking, retried internally
+                // Email assigned mentors — non-blocking, retried internally
                 setImmediate(() => {
                     teacherNotifierService.sendAlertEmails(savedAlerts).catch((err) => {
                         console.error('[TeacherNotifier] Alert email dispatch failed:', err.message);

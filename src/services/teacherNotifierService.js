@@ -293,18 +293,26 @@ class TeacherNotifierService {
         const byTeacher = new Map();
 
         for (const alert of alerts) {
+            // Only notify the student's MTSS mentors — homeroom and subject teachers
+            // are excluded from MTSS alert emails by design.
             const teachers = Array.isArray(alert.assignedTo) && alert.assignedTo.length > 0
-                ? alert.assignedTo.map((t) => String(t.teacherId || ''))
+                ? alert.assignedTo
+                    .filter((t) => t.role === 'mentor')
+                    .map((t) => String(t.teacherId || ''))
+                    .filter(Boolean)
                 : [];
 
             if (teachers.length === 0 && alert.studentId) {
-                // fall back: find active mentors for this student
+                // fall back: find active MTSS mentors for this student
                 try {
                     const assignments = await MentorAssignment.find({
                         studentIds: alert.studentId,
                         status: 'active'
                     }).select('mentorId').lean();
-                    assignments.forEach((a) => teachers.push(String(a.mentorId || '')));
+                    assignments.forEach((a) => {
+                        const mid = String(a.mentorId || '');
+                        if (mid) teachers.push(mid);
+                    });
                 } catch { /* best-effort */ }
             }
 
