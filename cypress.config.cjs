@@ -40,6 +40,8 @@ module.exports = defineConfig({
             frontendUrl: process.env.CYPRESS_FRONTEND_URL || 'http://localhost:5173',
             testEmail: process.env.CYPRESS_TEST_EMAIL || 'staff@example.com',
             testPassword: process.env.CYPRESS_TEST_PASSWORD || 'password123',
+            principalEmail: process.env.CYPRESS_PRINCIPAL_EMAIL || process.env.CYPRESS_TEST_EMAIL || '',
+            principalPassword: process.env.CYPRESS_PRINCIPAL_PASSWORD || process.env.CYPRESS_TEST_PASSWORD || '',
             manualBurst: Number(process.env.CYPRESS_MANUAL_BURST || 5),
             aiBurst: Number(process.env.CYPRESS_AI_BURST || 5)
         },

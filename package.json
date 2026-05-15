@@ -13,6 +13,7 @@
     "test:mtss": "jest mtss-grade7-helix.test.js --verbose",
     "test:mtss:watch": "jest mtss-grade7-helix.test.js --watch",
     "test:cypress": "cypress run --e2e",
+    "test:cypress:ai-principal": "cypress run --e2e --spec cypress/e2e/ai-assistant-principal.cy.js",
     "test:cypress:mtss": "cypress run --e2e --spec cypress/e2e/mtss-grade7-helix.cy.js",
     "test:cypress:mtss:open": "cypress open --e2e --browser chrome",
     "seed": "node src/scripts/seedUsersFromData.js",

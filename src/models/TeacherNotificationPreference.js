@@ -16,31 +16,31 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
     // Alert type preferences
     alertPreferences: {
         academic_struggle: {
-            enabled: { type: Boolean, default: true },
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' }
         },
         learning_style_detected: {
-            enabled: { type: Boolean, default: true },
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'low' }
         },
         emotional_pattern: {
-            enabled: { type: Boolean, default: true },
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' }
         },
         progress_decline: {
-            enabled: { type: Boolean, default: true },
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' }
         },
         engagement_low: {
-            enabled: { type: Boolean, default: false }, // Default off - less critical
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' }
         },
         breakthrough: {
-            enabled: { type: Boolean, default: true }, // Celebrate success!
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'low' }
         },
         intervention_needed: {
-            enabled: { type: Boolean, default: true }, // Always enabled for urgent
+            enabled: { type: Boolean, default: false },
             minSeverity: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'urgent' }
         }
     },
@@ -49,7 +49,7 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
     deliveryMode: {
         type: String,
         enum: ['immediate', 'digest_daily', 'digest_weekly', 'dashboard_only'],
-        default: 'digest_daily'
+        default: 'dashboard_only'
     },
 
     // Digest settings (if using digest mode)
@@ -61,7 +61,7 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
 
     // Email notifications
     emailNotifications: {
-        enabled: { type: Boolean, default: true },
+        enabled: { type: Boolean, default: false },
         address: String // Override default user email
     },
 
@@ -87,18 +87,18 @@ const teacherNotificationPreferenceSchema = new mongoose.Schema({
 
     // Quiet hours
     quietHours: {
-        enabled: { type: Boolean, default: true },
+        enabled: { type: Boolean, default: false },
         start: { type: String, default: '18:00' },
         end: { type: String, default: '07:00' },
         weekendsOnly: { type: Boolean, default: false }
     },
 
     // Advance notice: email a deadline summary N days before check-ins are due (0 = off)
-    advanceNoticeDays: { type: Number, default: 1, min: 0, max: 14 },
+    advanceNoticeDays: { type: Number, default: 0, min: 0, max: 14 },
 
     // Smart summary: group same-type notifications into one digest row
     smartSummary: {
-        enabled: { type: Boolean, default: true }
+        enabled: { type: Boolean, default: false }
     },
 
     // Last updated
@@ -160,22 +160,22 @@ teacherNotificationPreferenceSchema.methods.shouldReceiveAlert = function(alert)
 teacherNotificationPreferenceSchema.statics.getDefaults = function() {
     return {
         alertPreferences: {
-            academic_struggle: { enabled: true, minSeverity: 'medium' },
-            learning_style_detected: { enabled: true, minSeverity: 'low' },
-            emotional_pattern: { enabled: true, minSeverity: 'medium' },
-            progress_decline: { enabled: true, minSeverity: 'medium' },
-            engagement_low: { enabled: false, minSeverity: 'medium' },
-            breakthrough: { enabled: true, minSeverity: 'low' },
-            intervention_needed: { enabled: true, minSeverity: 'urgent' }
+            academic_struggle:       { enabled: false, minSeverity: 'medium' },
+            learning_style_detected: { enabled: false, minSeverity: 'low'    },
+            emotional_pattern:       { enabled: false, minSeverity: 'medium' },
+            progress_decline:        { enabled: false, minSeverity: 'medium' },
+            engagement_low:          { enabled: false, minSeverity: 'medium' },
+            breakthrough:            { enabled: false, minSeverity: 'low'    },
+            intervention_needed:     { enabled: false, minSeverity: 'urgent' },
         },
-        deliveryMode: 'digest_daily',
-        emailNotifications: { enabled: true },
+        deliveryMode: 'dashboard_only',
+        emailNotifications: { enabled: false },
         inAppNotifications: { enabled: true, playSound: false },
         slackNotifications: { enabled: false },
         studentFilters: { onlyMyStudents: true },
-        quietHours: { enabled: true, start: '18:00', end: '07:00' },
-        advanceNoticeDays: 1,
-        smartSummary: { enabled: true },
+        quietHours: { enabled: false, start: '18:00', end: '07:00' },
+        advanceNoticeDays: 0,
+        smartSummary: { enabled: false },
     };
 };
 
