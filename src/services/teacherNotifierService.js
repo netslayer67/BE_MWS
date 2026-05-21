@@ -462,10 +462,12 @@ class TeacherNotifierService {
 
                 if (dueAt > now) continue;
 
-                // On first run after boot, skip assignments overdue by less than one full cooldown
-                // window — they were likely already notified before the server restarted and the
-                // in-memory cooldown was wiped, so we don't want to re-blast those teachers.
-                if (isFirstRunAfterBoot && (now - dueAt) < DUE_REMINDER_COOLDOWN_MS) continue;
+                // On first run after boot, skip ALL overdue assignments regardless of how long
+                // they've been overdue. The in-memory cooldown was wiped on restart, so we cannot
+                // know which assignments were already notified. Skipping here lets the first
+                // regular hourly cycle (1 h later) send reminders and seed the cooldown map —
+                // subsequent restarts within that 23 h window will then correctly deduplicate.
+                if (isFirstRunAfterBoot) continue;
 
                 // cooldown check
                 const lastReminder = dueReminderCooldown.get(aid);
@@ -785,11 +787,23 @@ class TeacherNotifierService {
      * Waits 5 minutes after boot so the DB connection is fully warm.
      */
     startDueReminderScheduler() {
+        // Only run in production, or when explicitly opted in via env var.
+        // This prevents email spam on local dev, staging, and CI/CD restarts.
+        const isEnabled = process.env.NODE_ENV === 'production'
+            || process.env.TEACHER_NOTIFIER_ENABLED === 'true';
+
+        if (!isEnabled) {
+            winston.info('[TeacherNotifier] Schedulers DISABLED (non-production). Set TEACHER_NOTIFIER_ENABLED=true to enable.');
+            return;
+        }
+
         const HOUR_MS = 60 * 60 * 1000;
         const DIGEST_INTERVAL_MS = 30 * 60 * 1000; // check every 30 min
 
         setTimeout(() => {
-            // Due reminders
+            // First run after boot: skip all due-reminders so the in-memory cooldown
+            // can be seeded cleanly by the first regular hourly cycle (1 hour later).
+            // This prevents re-blasting teachers every time the server restarts.
             this.checkDueAssignmentsAndNotify(true);
             setInterval(() => this.checkDueAssignmentsAndNotify(), HOUR_MS);
 

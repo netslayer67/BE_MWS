@@ -315,13 +315,15 @@ class AIInsightService {
             .map(([emotion, count]) => ({ emotion, count }))
             .sort((a, b) => b.count - a.count);
 
+        const negativeEmotions = ['stressed', 'sad', 'anxious', 'tired'];
+        const acuteDistressEmotions = ['stressed', 'anxious', 'sad'];
+
         // Determine trend
         let trend = 'stable';
         if (emotionTimeline.length >= 5) {
             const firstHalf = emotionTimeline.slice(0, Math.floor(emotionTimeline.length / 2));
             const secondHalf = emotionTimeline.slice(Math.floor(emotionTimeline.length / 2));
 
-            const negativeEmotions = ['stressed', 'sad', 'anxious', 'tired'];
             const firstNegative = firstHalf.filter(e => negativeEmotions.includes(e.emotion)).length / firstHalf.length;
             const secondNegative = secondHalf.filter(e => negativeEmotions.includes(e.emotion)).length / secondHalf.length;
 
@@ -329,9 +331,16 @@ class AIInsightService {
             else if (secondNegative < firstNegative - 0.2) trend = 'improving';
         }
 
+        // AI-14: Detect acute crisis from the most recent 3 emotions regardless of overall trend
+        const ACUTE_WINDOW = 3;
+        const recentEmotions = emotionTimeline.slice(-ACUTE_WINDOW);
+        const acuteDistressCount = recentEmotions.filter(e => acuteDistressEmotions.includes(e.emotion)).length;
+        const acuteCrisis = recentEmotions.length >= ACUTE_WINDOW && acuteDistressCount === ACUTE_WINDOW;
+
         return {
             dominantEmotion: emotionBreakdown[0]?.emotion || 'neutral',
-            trend,
+            trend: acuteCrisis ? 'acute_crisis' : trend,
+            acuteCrisis,
             breakdown: emotionBreakdown,
             timeline: emotionTimeline.slice(-10) // Last 10 emotions
         };
@@ -491,9 +500,21 @@ class AIInsightService {
                     console.warn('[AIInsight] Could not resolve mentors for assignedTo:', err.message);
                 }
 
-                savedAlerts = await Promise.all(
+                // AI-7: Use allSettled + rollback to avoid partial alert persistence on failure
+                const saveResults = await Promise.allSettled(
                     alerts.map(alert => new TeacherAlert({ ...alert, assignedTo: mentorAssignedTo }).save())
                 );
+                const fulfilled = saveResults.filter(r => r.status === 'fulfilled').map(r => r.value);
+                const failed = saveResults.filter(r => r.status === 'rejected');
+                if (failed.length > 0) {
+                    console.error(`[AIInsight] ${failed.length} alert(s) failed to save for ${user.name}:`, failed.map(r => r.reason?.message));
+                    if (fulfilled.length > 0) {
+                        await Promise.allSettled(fulfilled.map(a => a.deleteOne()));
+                        console.warn(`[AIInsight] Rolled back ${fulfilled.length} partial alert(s) for ${user.name}`);
+                    }
+                    throw new Error(`Alert batch save failed for ${user.name}: ${failed[0]?.reason?.message}`);
+                }
+                savedAlerts = fulfilled;
 
                 console.log(`✅ Generated ${savedAlerts.length} new alerts for ${user.name}`);
 

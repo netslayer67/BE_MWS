@@ -1264,7 +1264,7 @@ const sanitizeCheckIn = (checkIn = {}) => {
         date: safeDate,
         summary: summary || 'Progress update',
         nextSteps: nextSteps || undefined,
-        value: Number.isFinite(parsedValue) ? parsedValue : undefined,
+        value: Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : undefined,
         unit: checkIn.unit ? checkIn.unit.toString().trim().toLowerCase() : undefined,
         performed: typeof checkIn.performed === 'boolean' ? checkIn.performed : true,
 	        skipReason: checkIn.skipReason || undefined,
@@ -1291,15 +1291,15 @@ const sanitizeCheckIn = (checkIn = {}) => {
     };
 };
 
-const normalizeAssignmentTier = (tier = 'tier2') => {
-    let normalizedTier = tier || 'tier2';
+const normalizeAssignmentTier = (tier = 'tier1') => {
+    let normalizedTier = tier || 'tier1';
     if (typeof normalizedTier === 'string') {
         normalizedTier = normalizedTier.toLowerCase().replace(/\s+/g, '');
         if (!normalizedTier.startsWith('tier')) {
             normalizedTier = `tier${normalizedTier}`;
         }
     }
-    return normalizedTier || 'tier2';
+    return normalizedTier || 'tier1';
 };
 
 const createMentorAssignment = async (req, res) => {
@@ -1349,6 +1349,7 @@ const createMentorAssignment = async (req, res) => {
             : [];
 
         const resolvedMode = 'quantitative';
+        const focusAreasOverridden = !normalizedFocusAreas.length;
         const resolvedFocusAreas = normalizedFocusAreas.length ? normalizedFocusAreas : ['Universal Supports'];
 
         const cleanedStrategyName = strategyName?.trim() || undefined;
@@ -1391,7 +1392,23 @@ const createMentorAssignment = async (req, res) => {
             lastPlanUpdatedBy: req.user?.id || null
         });
 
-        sendSuccess(res, 'Intervention plan created', { assignment }, 201);
+        // Post-creation TOCTOU guard: a concurrent request may have won the race.
+        // If we find a conflict (excluding ourselves), roll back and return 409.
+        const postConflicts = await findSubjectConflicts({
+            studentIds,
+            subjectKeys: requestedSubjectKeys,
+            excludeAssignmentId: assignment._id
+        });
+        if (postConflicts.length) {
+            await MentorAssignment.deleteOne({ _id: assignment._id });
+            return sendError(res, buildDuplicateInterventionMessage(postConflicts), 409);
+        }
+
+        const responsePayload = { assignment };
+        if (focusAreasOverridden) {
+            responsePayload.warnings = ['Focus areas were empty; defaulted to "Universal Supports"'];
+        }
+        sendSuccess(res, 'Intervention plan created', responsePayload, 201);
 
         emitAssignmentEvent(assignment._id, 'created').catch((error) => {
             console.error('Failed to broadcast new mentor assignment:', error);

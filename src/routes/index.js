@@ -175,6 +175,33 @@ router.use('/v1/dev/topology', devTopologyRoutes);
 // OAuth routes are now mounted directly in app.js
 // router.use('/auth', authRoutes);
 
+// AI-16: Client-side audit event sink (docx downloads, exports, etc.)
+router.post('/v1/audit/events', (req, res) => {
+    try {
+        const { event, filename, reportTitle, sourcePage, actorId, actorName, actorRole, timestamp } = req.body || {};
+        const ALLOWED_EVENTS = new Set(['docx_download']);
+        if (!event || !ALLOWED_EVENTS.has(event)) {
+            return res.status(400).json({ success: false, message: 'Invalid event type' });
+        }
+        console.info('[AuditLog]', JSON.stringify({
+            event,
+            filename,
+            reportTitle,
+            sourcePage,
+            actorId,
+            actorName,
+            actorRole,
+            timestamp,
+            serverTimestamp: new Date().toISOString(),
+            ip: req.ip,
+            ua: req.headers['user-agent'],
+        }));
+        res.status(204).end();
+    } catch (_) {
+        res.status(204).end();
+    }
+});
+
 // Health check endpoint
 router.get('/health', (req, res) => {
     res.status(200).json({

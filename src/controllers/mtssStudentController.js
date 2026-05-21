@@ -366,7 +366,7 @@ const buildFilter = (query = {}, skipGradeClassFilter = false) => {
     }
 
     if (query.search) {
-        const regex = new RegExp(query.search.trim(), 'i');
+        const regex = new RegExp(escapeRegex(query.search.trim()), 'i');
         filter.$or = [{ name: regex }, { nickname: regex }, { email: regex }];
     }
 
@@ -1111,11 +1111,12 @@ const submitKindergartenMoodCheckin = async (req, res) => {
         const resolvedSource = sanitizeSubmissionSource(source, fallbackSource);
         const now = new Date();
         const todayKey = toDateKey(now);
-        const currentEntries = toSafeArray(student.kindergartenMoodCheckIns);
-        const existingIndex = currentEntries.findIndex((entry = {}) => (
-            toDateKey(entry.date) === todayKey &&
-            sanitizeSubmissionSource(entry.source, 'student') === resolvedSource
-        ));
+
+        // Build start/end of today for the atomic range query
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(startOfDay);
+        endOfDay.setDate(endOfDay.getDate() + 1);
 
         const nextEntry = {
             date: now,
@@ -1127,21 +1128,44 @@ const submitKindergartenMoodCheckin = async (req, res) => {
             submittedByUserId: req.user?.id || req.user?._id
         };
 
-        if (existingIndex >= 0) {
-            const existing = currentEntries[existingIndex]?.toObject?.() || currentEntries[existingIndex];
-            currentEntries[existingIndex] = { ...existing, ...nextEntry };
-        } else {
-            currentEntries.push(nextEntry);
+        // Atomically replace an existing same-source entry for today (arrayFilter update).
+        // If no entry matched, modifiedCount === 0 and we push a new one.
+        const updateResult = await MTSSStudent.updateOne(
+            { _id: student._id },
+            { $set: { 'kindergartenMoodCheckIns.$[entry]': nextEntry } },
+            {
+                arrayFilters: [
+                    {
+                        'entry.date': { $gte: startOfDay, $lt: endOfDay },
+                        'entry.source': resolvedSource
+                    }
+                ]
+            }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+            // No existing entry for today: push new entry and trim retention atomically
+            await MTSSStudent.updateOne(
+                { _id: student._id },
+                {
+                    $push: {
+                        kindergartenMoodCheckIns: {
+                            $each: [nextEntry],
+                            $slice: -KINDERGARTEN_MOOD_RETENTION
+                        }
+                    }
+                }
+            );
         }
 
-        student.kindergartenMoodCheckIns = currentEntries.slice(-KINDERGARTEN_MOOD_RETENTION);
-        await student.save();
+        // Refetch to get the committed state for the portal payload
+        const updatedStudent = await MTSSStudent.findById(student._id).lean();
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
             .select('focusAreas strategyName monitoringMethod checkIns mode updatedAt')
             .lean();
 
-        const kindergartenPortal = buildKindergartenPortalPayload({ student: student.toObject(), assignments });
+        const kindergartenPortal = buildKindergartenPortalPayload({ student: updatedStudent, assignments });
 
         sendSuccess(res, 'Kindergarten mood check-in saved', {
             moodCheckin: kindergartenPortal.moodCheckin,

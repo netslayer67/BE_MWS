@@ -1,7 +1,12 @@
 const aiInsightService = require('../services/aiInsightService');
 const TeacherAlert = require('../models/TeacherAlert');
+const MentorAssignment = require('../models/MentorAssignment');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/response');
+
+const VALID_STATUSES = new Set(['new', 'acknowledged', 'in_progress', 'resolved', 'dismissed']);
+const VALID_SEVERITIES = new Set(['low', 'medium', 'high', 'urgent']);
+const VALID_ALERT_TYPES = new Set(['academic_struggle', 'learning_style_detected', 'emotional_pattern', 'breakthrough', 'engagement_low', 'intervention_needed']);
 
 /**
  * Get student insights for a specific student
@@ -18,7 +23,19 @@ const getStudentInsights = async (req, res) => {
             return sendError(res, 'Student not found', 404);
         }
 
-        // TODO: Add authorization check - only teachers/mentors of this student
+        // AI-1: Verify teacher/mentor has an active assignment for this student
+        const userRole = req.user.role;
+        const isPrivileged = ['admin', 'superadmin', 'directorate', 'head_unit'].includes(userRole);
+        if (!isPrivileged) {
+            const hasAssignment = await MentorAssignment.exists({
+                mentorId: req.user._id,
+                studentIds: studentId,
+                status: { $ne: 'archived' },
+            });
+            if (!hasAssignment) {
+                return sendError(res, 'You do not have an active intervention for this student', 403);
+            }
+        }
 
         // Get analysis
         const analysis = await aiInsightService.analyzeStudentPatterns(
@@ -73,13 +90,19 @@ const getMyAlerts = async (req, res) => {
         const teacherId = req.user._id;
         const { status, severity, alertType, limit = 50, offset = 0 } = req.query;
 
-        // Build query
-        const query = {
-            $or: [
-                { 'assignedTo.teacherId': teacherId },
-                { status: 'new' } // All new alerts visible to all teachers
-            ]
-        };
+        // AI-5: Validate enum params before building MongoDB query
+        if (status && !VALID_STATUSES.has(status)) {
+            return sendError(res, `Invalid status value: ${status}`, 400);
+        }
+        if (severity && !VALID_SEVERITIES.has(severity)) {
+            return sendError(res, `Invalid severity value: ${severity}`, 400);
+        }
+        if (alertType && !VALID_ALERT_TYPES.has(alertType)) {
+            return sendError(res, `Invalid alertType value: ${alertType}`, 400);
+        }
+
+        // AI-2: Only show alerts explicitly assigned to this teacher — no global "new" leak
+        const query = { 'assignedTo.teacherId': teacherId };
 
         if (status) query.status = status;
         if (severity) query.severity = severity;
