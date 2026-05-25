@@ -1,7 +1,7 @@
 /**
  * reconcileMentorIds.js
  *
- * Finds MentorAssignment records where mentorId no longer resolves to a User,
+ * Finds stale MTSS teacher User references that no longer resolve to a User,
  * then recovers the correct User via:
  *   1. SEED_MENTOR_MAP — explicit stale-ID → email mapping derived from seed scripts
  *   2. createdBy field fallback
@@ -47,6 +47,262 @@ const SEED_MENTOR_MAP = {
     // not in any known seed script. Requires manual confirmation.
 };
 
+const toObjectId = (value) => new mongoose.Types.ObjectId(value);
+
+const createEmptyCounts = () => ({
+    mentorId: 0,
+    createdBy: 0,
+    lastPlanUpdatedBy: 0,
+    planChangeLogChangedBy: 0,
+    interventionAssignedMentor: 0,
+    interventionUpdatedBy: 0,
+    interventionHistoryUpdatedBy: 0
+});
+
+const addCount = (counts, key, amount = 1) => {
+    counts[key] = (counts[key] || 0) + amount;
+};
+
+const mergeCounts = (target, source = {}) => {
+    Object.entries(source).forEach(([key, value]) => {
+        if (value) addCount(target, key, value);
+    });
+};
+
+const formatCounts = (counts = {}) =>
+    Object.entries(counts)
+        .filter(([, value]) => value)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ') || 'none';
+
+const resolveMappedUser = ({ staleId, userByEmail, userById, assignment, studentsById }) => {
+    const mappedEmail = SEED_MENTOR_MAP[staleId];
+    const mappedUser = mappedEmail ? userByEmail.get(mappedEmail) : null;
+    if (mappedUser) {
+        return { candidate: mappedUser, source: `seed-map:${mappedEmail}` };
+    }
+
+    const createdByKey = assignment?.createdBy ? String(assignment.createdBy) : null;
+    const createdByUser = createdByKey ? userById.get(createdByKey) : null;
+    if (createdByUser) {
+        return { candidate: createdByUser, source: 'createdBy' };
+    }
+
+    for (const sid of (assignment?.studentIds || [])) {
+        const student = studentsById.get(String(sid));
+        if (!student) continue;
+        for (const intervention of (student.interventions || [])) {
+            const assignedMentor = intervention.assignedMentor ? String(intervention.assignedMentor) : null;
+            if (assignedMentor && userById.has(assignedMentor) && assignedMentor !== staleId) {
+                return { candidate: userById.get(assignedMentor), source: 'studentIntervention' };
+            }
+        }
+    }
+
+    return { candidate: null, source: null };
+};
+
+const buildKnownReferenceMap = ({ userByEmail }) => {
+    const staleToNew = new Map();
+    const mappedRows = [];
+    const missingMappedUsers = [];
+
+    Object.entries(SEED_MENTOR_MAP).forEach(([staleId, email]) => {
+        const user = userByEmail.get(email);
+        if (!user) {
+            missingMappedUsers.push({ staleId, email });
+            return;
+        }
+
+        staleToNew.set(staleId, String(user._id));
+        mappedRows.push({
+            staleId,
+            candidateId: String(user._id),
+            candidateName: user.name,
+            candidateEmail: user.email,
+            source: `seed-map:${email}`
+        });
+    });
+
+    return { staleToNew, mappedRows, missingMappedUsers };
+};
+
+const addOrphanMentorMappings = ({ assignments, usersById, usersByEmail, studentsById, staleToNew }) => {
+    const orphanRows = [];
+    const needsManualReview = [];
+
+    assignments.forEach((assignment) => {
+        const staleId = assignment.mentorId ? String(assignment.mentorId) : null;
+        if (!staleId || usersById.has(staleId) || staleToNew.has(staleId)) return;
+
+        const { candidate, source } = resolveMappedUser({
+            staleId,
+            userByEmail: usersByEmail,
+            userById: usersById,
+            assignment,
+            studentsById
+        });
+        const studentNames = (assignment.studentIds || [])
+            .map((id) => studentsById.get(String(id))?.name || String(id))
+            .join(', ');
+        const focusLabel = (assignment.focusAreas || []).join(', ') || assignment.strategyName || 'Unknown';
+        const row = {
+            assignmentId: String(assignment._id),
+            staleId,
+            tier: assignment.tier,
+            focusLabel,
+            students: studentNames,
+            candidateId: candidate ? String(candidate._id) : null,
+            candidateName: candidate?.name || null,
+            candidateEmail: candidate?.email || null,
+            source
+        };
+
+        if (candidate) {
+            staleToNew.set(staleId, String(candidate._id));
+            orphanRows.push(row);
+            return;
+        }
+
+        needsManualReview.push(row);
+    });
+
+    return { orphanRows, needsManualReview };
+};
+
+const rewriteAssignmentReferences = ({ assignment, staleToNew }) => {
+    const set = {};
+    const counts = createEmptyCounts();
+    const replacementCounts = {};
+
+    ['mentorId', 'createdBy', 'lastPlanUpdatedBy'].forEach((field) => {
+        const staleId = assignment[field] ? String(assignment[field]) : null;
+        const nextId = staleId ? staleToNew.get(staleId) : null;
+        if (!nextId) return;
+        set[field] = toObjectId(nextId);
+        addCount(counts, field);
+        addCount(replacementCounts, staleId);
+    });
+
+    if (Array.isArray(assignment.planChangeLog) && assignment.planChangeLog.length) {
+        let changed = false;
+        const nextLog = assignment.planChangeLog.map((entry = {}) => {
+            const staleId = entry.changedBy ? String(entry.changedBy) : null;
+            const nextId = staleId ? staleToNew.get(staleId) : null;
+            if (!nextId) return entry;
+            changed = true;
+            addCount(counts, 'planChangeLogChangedBy');
+            addCount(replacementCounts, staleId);
+            return { ...entry, changedBy: toObjectId(nextId) };
+        });
+
+        if (changed) {
+            set.planChangeLog = nextLog;
+        }
+    }
+
+    return { set, counts, replacementCounts };
+};
+
+const rewriteStudentReferences = ({ student, staleToNew }) => {
+    const counts = createEmptyCounts();
+    const replacementCounts = {};
+    let changed = false;
+
+    const nextInterventions = (student.interventions || []).map((intervention = {}) => {
+        let nextIntervention = intervention;
+
+        ['assignedMentor', 'updatedBy'].forEach((field) => {
+            const staleId = nextIntervention[field] ? String(nextIntervention[field]) : null;
+            const nextId = staleId ? staleToNew.get(staleId) : null;
+            if (!nextId) return;
+            nextIntervention = { ...nextIntervention, [field]: toObjectId(nextId) };
+            changed = true;
+            addCount(counts, field === 'assignedMentor' ? 'interventionAssignedMentor' : 'interventionUpdatedBy');
+            addCount(replacementCounts, staleId);
+        });
+
+        if (Array.isArray(nextIntervention.history) && nextIntervention.history.length) {
+            let historyChanged = false;
+            const nextHistory = nextIntervention.history.map((entry = {}) => {
+                const staleId = entry.updatedBy ? String(entry.updatedBy) : null;
+                const nextId = staleId ? staleToNew.get(staleId) : null;
+                if (!nextId) return entry;
+                historyChanged = true;
+                changed = true;
+                addCount(counts, 'interventionHistoryUpdatedBy');
+                addCount(replacementCounts, staleId);
+                return { ...entry, updatedBy: toObjectId(nextId) };
+            });
+
+            if (historyChanged) {
+                nextIntervention = { ...nextIntervention, history: nextHistory };
+            }
+        }
+
+        return nextIntervention;
+    });
+
+    return {
+        set: changed ? { interventions: nextInterventions } : {},
+        counts,
+        replacementCounts
+    };
+};
+
+const buildReferencePlan = ({ assignments, students, usersById, usersByEmail, studentsById }) => {
+    const { staleToNew, mappedRows, missingMappedUsers } = buildKnownReferenceMap({ userByEmail: usersByEmail });
+    const { orphanRows, needsManualReview } = addOrphanMentorMappings({
+        assignments,
+        usersById,
+        usersByEmail,
+        studentsById,
+        staleToNew
+    });
+
+    const assignmentUpdates = [];
+    const studentUpdates = [];
+    const totalCounts = createEmptyCounts();
+    const replacementCounts = {};
+
+    assignments.forEach((assignment) => {
+        const rewrite = rewriteAssignmentReferences({ assignment, staleToNew });
+        if (!Object.keys(rewrite.set).length) return;
+        assignmentUpdates.push({
+            assignmentId: String(assignment._id),
+            set: rewrite.set,
+            counts: rewrite.counts
+        });
+        mergeCounts(totalCounts, rewrite.counts);
+        mergeCounts(replacementCounts, rewrite.replacementCounts);
+    });
+
+    students.forEach((student) => {
+        const rewrite = rewriteStudentReferences({ student, staleToNew });
+        if (!Object.keys(rewrite.set).length) return;
+        studentUpdates.push({
+            studentId: String(student._id),
+            studentName: student.name,
+            set: rewrite.set,
+            counts: rewrite.counts
+        });
+        mergeCounts(totalCounts, rewrite.counts);
+        mergeCounts(replacementCounts, rewrite.replacementCounts);
+    });
+
+    return {
+        staleToNew,
+        mappedRows,
+        missingMappedUsers,
+        orphanRows,
+        needsManualReview,
+        assignmentUpdates,
+        studentUpdates,
+        totalCounts,
+        replacementCounts
+    };
+};
+
 const run = async ({ apply = false } = {}) => {
     if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required.');
     await mongoose.connect(process.env.MONGODB_URI);
@@ -54,153 +310,104 @@ const run = async ({ apply = false } = {}) => {
     try {
         // --- Load all data in one pass ---
         const [assignments, users, students] = await Promise.all([
-            MentorAssignment.find({ status: { $in: ['active', 'paused'] } })
-                .select('_id mentorId createdBy studentIds focusAreas strategyName tier status')
+            MentorAssignment.find({})
+                .select('_id mentorId createdBy lastPlanUpdatedBy studentIds focusAreas strategyName tier status planChangeLog')
                 .lean(),
             User.find({}).select('_id name email username isActive role').lean(),
             MTSSStudent.find({}).select('_id name interventions').lean(),
         ]);
 
-        const userById = new Map(users.map(u => [String(u._id), u]));
-        const userByEmail = new Map(users.map(u => [u.email, u]));
-        const studentById = new Map(students.map(s => [String(s._id), s]));
+        const usersById = new Map(users.map((user) => [String(user._id), user]));
+        const usersByEmail = new Map(users.map((user) => [user.email, user]));
+        const studentsById = new Map(students.map((student) => [String(student._id), student]));
 
-        // --- Identify orphan assignments ---
-        const orphans = assignments.filter(a => {
-            const mid = a.mentorId ? String(a.mentorId) : null;
-            return !mid || !userById.has(mid);
+        const plan = buildReferencePlan({
+            assignments,
+            students,
+            usersById,
+            usersByEmail,
+            studentsById
         });
 
-        if (!orphans.length) {
-            console.log('✅ No orphan mentorId found. All assignments resolve correctly.');
-            return;
+        console.log(`Known stale teacher IDs mapped: ${plan.mappedRows.length}`);
+        plan.mappedRows.forEach((row) => {
+            console.log(`- ${row.staleId} → ${row.candidateId} (${row.candidateName}, ${row.candidateEmail})`);
+        });
+
+        if (plan.missingMappedUsers.length) {
+            console.log('\nMapped emails missing from User collection:');
+            plan.missingMappedUsers.forEach((row) => {
+                console.log(`- ${row.staleId} → ${row.email}`);
+            });
         }
 
-        console.log(`⚠️  Found ${orphans.length} orphan assignment(s):\n`);
-
-        const toUpdate = [];
-        const needsManualReview = [];
-
-        for (const assignment of orphans) {
-            const staleId = String(assignment.mentorId);
-            const studentNames = (assignment.studentIds || [])
-                .map(id => studentById.get(String(id))?.name || String(id))
-                .join(', ');
-            const focusLabel = (assignment.focusAreas || []).join(', ') || assignment.strategyName || 'Unknown';
-
-            // Strategy 1: SEED_MENTOR_MAP — explicit known mapping
-            const mappedEmail = SEED_MENTOR_MAP[staleId];
-            const mappedUser = mappedEmail ? userByEmail.get(mappedEmail) : null;
-
-            // Strategy 2: createdBy is a valid user
-            const createdByKey = assignment.createdBy ? String(assignment.createdBy) : null;
-            const createdByUser = createdByKey ? userById.get(createdByKey) : null;
-
-            // Strategy 3: MTSSStudent.interventions hint
-            let interventionHint = null;
-            for (const sid of (assignment.studentIds || [])) {
-                const student = studentById.get(String(sid));
-                if (!student) continue;
-                for (const iv of (student.interventions || [])) {
-                    const am = iv.assignedMentor ? String(iv.assignedMentor) : null;
-                    if (am && userById.has(am) && am !== staleId) {
-                        interventionHint = userById.get(am);
-                        break;
-                    }
-                }
-                if (interventionHint) break;
-            }
-
-            const candidate = mappedUser || createdByUser || interventionHint || null;
-            const source = mappedUser ? `seed-map:${mappedEmail}`
-                : createdByUser ? 'createdBy'
-                : interventionHint ? 'studentIntervention'
-                : null;
-
-            const row = {
-                assignmentId: String(assignment._id),
-                staleId,
-                tier: assignment.tier,
-                focusLabel,
-                students: studentNames,
-                candidateId: candidate ? String(candidate._id) : null,
-                candidateName: candidate?.name || null,
-                candidateEmail: candidate?.email || null,
-                source,
-            };
-
-            console.log(`  Assignment : ${row.assignmentId}`);
-            console.log(`  Stale ID   : ${row.staleId}`);
-            console.log(`  Focus      : ${row.focusLabel} (${row.tier})`);
-            console.log(`  Students   : ${row.students}`);
-
-            if (candidate) {
-                console.log(`  → Candidate: ${candidate.name} (${candidate.email}) via [${source}]`);
-                toUpdate.push(row);
-            } else {
-                console.log(`  → ⚠️  No candidate — needs manual assignment`);
-                needsManualReview.push(row);
-            }
-            console.log('');
+        if (plan.orphanRows.length) {
+            console.log(`\nAdditional orphan mentorId mappings recovered: ${plan.orphanRows.length}`);
+            plan.orphanRows.forEach((row) => {
+                console.log(`- ${row.assignmentId}: ${row.staleId} → ${row.candidateId} (${row.candidateName}) via ${row.source}`);
+            });
         }
 
-        console.log('─'.repeat(60));
-        console.log(`Auto-fixable  : ${toUpdate.length}`);
-        console.log(`Manual review : ${needsManualReview.length}`);
-        console.log('─'.repeat(60));
+        console.log('\nPlanned reference sync:');
+        console.log(`- MentorAssignment documents: ${plan.assignmentUpdates.length}`);
+        console.log(`- MTSSStudent documents: ${plan.studentUpdates.length}`);
+        console.log(`- Field replacements: ${formatCounts(plan.totalCounts)}`);
+        console.log(`- Replacements by stale ID: ${formatCounts(plan.replacementCounts)}`);
+
+        if (plan.assignmentUpdates.length) {
+            console.log('\nMentorAssignment samples:');
+            plan.assignmentUpdates.slice(0, 10).forEach((row) => {
+                console.log(`- ${row.assignmentId}: ${formatCounts(row.counts)}`);
+            });
+            if (plan.assignmentUpdates.length > 10) {
+                console.log(`- ... ${plan.assignmentUpdates.length - 10} more`);
+            }
+        }
+
+        if (plan.studentUpdates.length) {
+            console.log('\nMTSSStudent samples:');
+            plan.studentUpdates.slice(0, 10).forEach((row) => {
+                console.log(`- ${row.studentName} (${row.studentId}): ${formatCounts(row.counts)}`);
+            });
+            if (plan.studentUpdates.length > 10) {
+                console.log(`- ... ${plan.studentUpdates.length - 10} more`);
+            }
+        }
 
         if (!apply) {
             console.log('\nDry run — no changes written. Re-run with --apply to commit fixes.');
             return;
         }
 
-        // --- Apply fixes: MentorAssignment.mentorId ---
-        const staleToNew = new Map(toUpdate.map(r => [r.staleId, r.candidateId]));
-        let fixed = 0;
-
-        for (const row of toUpdate) {
+        let fixedAssignments = 0;
+        for (const row of plan.assignmentUpdates) {
             const result = await MentorAssignment.updateOne(
-                { _id: new mongoose.Types.ObjectId(row.assignmentId) },
-                { $set: { mentorId: new mongoose.Types.ObjectId(row.candidateId) } }
+                { _id: toObjectId(row.assignmentId) },
+                { $set: row.set }
             );
             if (result.modifiedCount) {
-                console.log(`✅ Fixed assignment ${row.assignmentId}: ${row.staleId} → ${row.candidateId} (${row.candidateName})`);
-                fixed++;
+                fixedAssignments++;
             }
         }
 
-        // --- Apply fixes: MTSSStudent.interventions.assignedMentor ---
-        const staleIdSet = new Set(orphans.map(a => String(a.mentorId)));
-        let studentFixCount = 0;
-
-        for (const student of students) {
-            if (!(student.interventions || []).length) continue;
-            let changed = false;
-            const updatedInterventions = student.interventions.map(iv => {
-                const am = iv.assignedMentor ? String(iv.assignedMentor) : null;
-                if (!am || !staleIdSet.has(am)) return iv;
-                const newId = staleToNew.get(am);
-                if (!newId) return iv;
-                changed = true;
-                return { ...iv, assignedMentor: new mongoose.Types.ObjectId(newId) };
-            });
-
-            if (changed) {
-                await MTSSStudent.updateOne(
-                    { _id: student._id },
-                    { $set: { interventions: updatedInterventions } }
-                );
-                studentFixCount++;
-                console.log(`✅ Updated interventions for student: ${student.name}`);
+        let fixedStudents = 0;
+        for (const row of plan.studentUpdates) {
+            const result = await MTSSStudent.updateOne(
+                { _id: toObjectId(row.studentId) },
+                { $set: row.set }
+            );
+            if (result.modifiedCount) {
+                fixedStudents++;
             }
         }
 
-        console.log(`\n✅ Fixed ${fixed} MentorAssignment record(s)`);
-        console.log(`✅ Fixed ${studentFixCount} MTSSStudent intervention reference(s)`);
+        console.log(`\n✅ Fixed ${fixedAssignments} MentorAssignment document(s)`);
+        console.log(`✅ Fixed ${fixedStudents} MTSSStudent document(s)`);
+        console.log(`✅ Field replacements applied: ${formatCounts(plan.totalCounts)}`);
 
-        if (needsManualReview.length) {
-            console.log(`\n⚠️  ${needsManualReview.length} assignment(s) still need manual review:`);
-            needsManualReview.forEach(r => {
+        if (plan.needsManualReview.length) {
+            console.log(`\n⚠️  ${plan.needsManualReview.length} assignment(s) still need manual review:`);
+            plan.needsManualReview.forEach(r => {
                 console.log(`  - ${r.assignmentId} | staleId: ${r.staleId} | focus: ${r.focusLabel} | students: ${r.students}`);
             });
             console.log('\nTo fix manually, add the stale ID → email mapping to SEED_MENTOR_MAP in this script.');
