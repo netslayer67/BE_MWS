@@ -83,7 +83,7 @@ const SUBJECT_DEFINITIONS = {
         goal: 'Improve math computation accuracy'
     },
     Attendance: {
-        mentorEmail: 'hadi@millennia21.id',
+        mentorEmail: 'abu@millennia21.id',
         tier: 'tier2',
         focusLabel: 'Attendance',
         metricLabel: '%',
@@ -206,7 +206,7 @@ async function seedGrade7HelixComplete() {
 
         // Step 3: Fetch teachers
         console.log('Step 3: Fetching teachers...');
-        const teacherEmails = ['abu@millennia21.id', 'nadiamws@millennia21.id', 'sisil@millennia21.id', 'hadi@millennia21.id'];
+        const teacherEmails = ['abu@millennia21.id', 'nadiamws@millennia21.id', 'sisil@millennia21.id'];
         const teachers = await User.find({ email: { $in: teacherEmails } }).lean();
         const teacherMap = {};
         teachers.forEach(t => { teacherMap[t.email] = t; });

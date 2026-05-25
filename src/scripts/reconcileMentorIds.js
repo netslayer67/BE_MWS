@@ -34,20 +34,64 @@ require('dotenv').config();
 const SEED_MENTOR_MAP = {
     // Grade 7 Helix seed mentors
     '69a781044b656add22a8aab3': 'abu@millennia21.id',         // SEL + Behavior + Bahasa Indonesia
-    '69a7810c4b656add22a8aad3': 'hadi@millennia21.id',        // Attendance
+    '69a7810c4b656add22a8aad3': 'abu@millennia21.id',         // Junior High Attendance
     '69a781104b656add22a8aae6': 'nadiamws@millennia21.id',    // English (tier3)
     '69a7811c4b656add22a8ab1a': 'sisil@millennia21.id',       // Math
 
     // Pilot unit seed mentors (seedMtssPilotUnitClasses.js)
     '69a781194b656add22a8ab0f': 'yohana@millennia21.id',      // Kindergarten Starlight: SEL+Behavior+English+Math+Attendance
     '69a781184b656add22a8ab0a': 'triafadilla@millennia21.id', // Grade 2 Skyrocket: English+Math+SEL+Indonesian+Behavior
-    '69a781194b656add22a8ab0d': 'vickiaprinando@millennia21.id', // Grade 9 Messier 87: English+Math+Behavior+Attendance+Indonesian
+    '69a781194b656add22a8ab0d': 'vickiaprinando@millennia21.id', // Grade 9 Messier 87 non-attendance subjects
 
     // NOTE: '69a781054b656add22a8aab6' (english tier2 + social) — origin unclear,
     // not in any known seed script. Requires manual confirmation.
 };
 
 const toObjectId = (value) => new mongoose.Types.ObjectId(value);
+const JUNIOR_HIGH_ATTENDANCE_MENTOR_EMAIL = 'abu@millennia21.id';
+
+const isAttendanceFocus = (assignment = {}) => {
+    const focusAreas = Array.isArray(assignment.focusAreas) ? assignment.focusAreas : [];
+    return focusAreas.some((area) => String(area || '').trim().toLowerCase() === 'attendance')
+        || /attendance/i.test(assignment.strategyName || '');
+};
+
+const isJuniorHighStudent = (student = {}) => {
+    const currentGrade = String(student.currentGrade || '');
+    const className = String(student.className || '');
+    return /grade\s*(7|8|9)\b/i.test(currentGrade) || /grade\s*(7|8|9)\b/i.test(className);
+};
+
+const isJuniorHighAttendanceAssignment = ({ assignment, studentsById }) => {
+    if (!isAttendanceFocus(assignment)) return false;
+    return (assignment.studentIds || []).some((id) => {
+        const student = studentsById.get(String(id));
+        return isJuniorHighStudent(student);
+    });
+};
+
+const getReferenceReplacementId = ({
+    staleId,
+    staleToNew,
+    userByEmail,
+    assignment,
+    student,
+    intervention,
+    studentsById
+}) => {
+    if (!staleId || !staleToNew.has(staleId)) return null;
+
+    const isJuniorHighAttendance = assignment
+        ? isJuniorHighAttendanceAssignment({ assignment, studentsById })
+        : isJuniorHighStudent(student) && intervention?.type === 'ATTENDANCE';
+
+    const juniorHighAttendanceMentor = userByEmail.get(JUNIOR_HIGH_ATTENDANCE_MENTOR_EMAIL);
+    if (isJuniorHighAttendance && juniorHighAttendanceMentor?._id) {
+        return String(juniorHighAttendanceMentor._id);
+    }
+
+    return staleToNew.get(staleId);
+};
 
 const createEmptyCounts = () => ({
     mentorId: 0,
@@ -76,6 +120,16 @@ const formatCounts = (counts = {}) =>
         .join(', ') || 'none';
 
 const resolveMappedUser = ({ staleId, userByEmail, userById, assignment, studentsById }) => {
+    if (isJuniorHighAttendanceAssignment({ assignment, studentsById })) {
+        const juniorHighAttendanceMentor = userByEmail.get(JUNIOR_HIGH_ATTENDANCE_MENTOR_EMAIL);
+        if (juniorHighAttendanceMentor) {
+            return {
+                candidate: juniorHighAttendanceMentor,
+                source: `juniorHighAttendance:${JUNIOR_HIGH_ATTENDANCE_MENTOR_EMAIL}`
+            };
+        }
+    }
+
     const mappedEmail = SEED_MENTOR_MAP[staleId];
     const mappedUser = mappedEmail ? userByEmail.get(mappedEmail) : null;
     if (mappedUser) {
@@ -170,14 +224,20 @@ const addOrphanMentorMappings = ({ assignments, usersById, usersByEmail, student
     return { orphanRows, needsManualReview };
 };
 
-const rewriteAssignmentReferences = ({ assignment, staleToNew }) => {
+const rewriteAssignmentReferences = ({ assignment, staleToNew, userByEmail, studentsById }) => {
     const set = {};
     const counts = createEmptyCounts();
     const replacementCounts = {};
 
     ['mentorId', 'createdBy', 'lastPlanUpdatedBy'].forEach((field) => {
         const staleId = assignment[field] ? String(assignment[field]) : null;
-        const nextId = staleId ? staleToNew.get(staleId) : null;
+        const nextId = getReferenceReplacementId({
+            staleId,
+            staleToNew,
+            userByEmail,
+            assignment,
+            studentsById
+        });
         if (!nextId) return;
         set[field] = toObjectId(nextId);
         addCount(counts, field);
@@ -188,7 +248,13 @@ const rewriteAssignmentReferences = ({ assignment, staleToNew }) => {
         let changed = false;
         const nextLog = assignment.planChangeLog.map((entry = {}) => {
             const staleId = entry.changedBy ? String(entry.changedBy) : null;
-            const nextId = staleId ? staleToNew.get(staleId) : null;
+            const nextId = getReferenceReplacementId({
+                staleId,
+                staleToNew,
+                userByEmail,
+                assignment,
+                studentsById
+            });
             if (!nextId) return entry;
             changed = true;
             addCount(counts, 'planChangeLogChangedBy');
@@ -204,7 +270,7 @@ const rewriteAssignmentReferences = ({ assignment, staleToNew }) => {
     return { set, counts, replacementCounts };
 };
 
-const rewriteStudentReferences = ({ student, staleToNew }) => {
+const rewriteStudentReferences = ({ student, staleToNew, userByEmail }) => {
     const counts = createEmptyCounts();
     const replacementCounts = {};
     let changed = false;
@@ -214,7 +280,13 @@ const rewriteStudentReferences = ({ student, staleToNew }) => {
 
         ['assignedMentor', 'updatedBy'].forEach((field) => {
             const staleId = nextIntervention[field] ? String(nextIntervention[field]) : null;
-            const nextId = staleId ? staleToNew.get(staleId) : null;
+            const nextId = getReferenceReplacementId({
+                staleId,
+                staleToNew,
+                userByEmail,
+                student,
+                intervention: nextIntervention
+            });
             if (!nextId) return;
             nextIntervention = { ...nextIntervention, [field]: toObjectId(nextId) };
             changed = true;
@@ -226,7 +298,13 @@ const rewriteStudentReferences = ({ student, staleToNew }) => {
             let historyChanged = false;
             const nextHistory = nextIntervention.history.map((entry = {}) => {
                 const staleId = entry.updatedBy ? String(entry.updatedBy) : null;
-                const nextId = staleId ? staleToNew.get(staleId) : null;
+                const nextId = getReferenceReplacementId({
+                    staleId,
+                    staleToNew,
+                    userByEmail,
+                    student,
+                    intervention: nextIntervention
+                });
                 if (!nextId) return entry;
                 historyChanged = true;
                 changed = true;
@@ -266,7 +344,12 @@ const buildReferencePlan = ({ assignments, students, usersById, usersByEmail, st
     const replacementCounts = {};
 
     assignments.forEach((assignment) => {
-        const rewrite = rewriteAssignmentReferences({ assignment, staleToNew });
+        const rewrite = rewriteAssignmentReferences({
+            assignment,
+            staleToNew,
+            userByEmail: usersByEmail,
+            studentsById
+        });
         if (!Object.keys(rewrite.set).length) return;
         assignmentUpdates.push({
             assignmentId: String(assignment._id),
@@ -278,7 +361,11 @@ const buildReferencePlan = ({ assignments, students, usersById, usersByEmail, st
     });
 
     students.forEach((student) => {
-        const rewrite = rewriteStudentReferences({ student, staleToNew });
+        const rewrite = rewriteStudentReferences({
+            student,
+            staleToNew,
+            userByEmail: usersByEmail
+        });
         if (!Object.keys(rewrite.set).length) return;
         studentUpdates.push({
             studentId: String(student._id),
@@ -314,7 +401,7 @@ const run = async ({ apply = false } = {}) => {
                 .select('_id mentorId createdBy lastPlanUpdatedBy studentIds focusAreas strategyName tier status planChangeLog')
                 .lean(),
             User.find({}).select('_id name email username isActive role').lean(),
-            MTSSStudent.find({}).select('_id name interventions').lean(),
+            MTSSStudent.find({}).select('_id name currentGrade className interventions').lean(),
         ]);
 
         const usersById = new Map(users.map((user) => [String(user._id), user]));

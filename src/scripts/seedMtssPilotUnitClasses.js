@@ -117,6 +117,9 @@ const UNIT_SEED_CONFIGS = [
         key: 'juniorhigh-messier87',
         label: 'Grade 9 - Messier 87',
         teacherEmail: 'vickiaprinando@millennia21.id',
+        planTeacherEmails: {
+            ATTENDANCE: 'abu@millennia21.id',
+        },
         classPattern: /Grade 9 - Messier 87/i,
         studentLimit: 5,
         plans: ['ENGLISH', 'MATH', 'BEHAVIOR', 'ATTENDANCE', 'INDONESIAN'],
@@ -207,7 +210,12 @@ async function seedPilotUnitClasses() {
             socketTimeoutMS: 45000,
         });
 
-        const teacherEmails = UNIT_SEED_CONFIGS.map((config) => config.teacherEmail);
+        const teacherEmails = [
+            ...new Set(UNIT_SEED_CONFIGS.flatMap((config) => [
+                config.teacherEmail,
+                ...Object.values(config.planTeacherEmails || {}),
+            ])),
+        ];
         const teachers = await User.find({ email: { $in: teacherEmails } }).select('name email').lean();
         const teacherMap = new Map(teachers.map((teacher) => [teacher.email, teacher]));
 
@@ -238,6 +246,11 @@ async function seedPilotUnitClasses() {
             for (const [index, student] of students.entries()) {
                 const planKey = config.plans[index % config.plans.length];
                 const plan = PLAN_LIBRARY[planKey];
+                const planTeacherEmail = config.planTeacherEmails?.[planKey] || config.teacherEmail;
+                const planTeacher = teacherMap.get(planTeacherEmail);
+                if (!planTeacher?._id) {
+                    throw new Error(`Teacher account not found for ${planTeacherEmail}`);
+                }
                 const notesTag = `${SEED_TAG}|${config.key}|${plan.type}`;
                 const checkIns = buildCheckIns(plan);
                 const startDate = checkIns[0].date;
@@ -245,12 +258,12 @@ async function seedPilotUnitClasses() {
 
                 await MTSSStudent.findByIdAndUpdate(student._id, {
                     $set: {
-                        interventions: buildStudentInterventions(plan, teacher._id, notesTag),
+                        interventions: buildStudentInterventions(plan, planTeacher._id, notesTag),
                     },
                 });
 
                 await MentorAssignment.create({
-                    mentorId: teacher._id,
+                    mentorId: planTeacher._id,
                     studentIds: [student._id],
                     tier: plan.tier,
                     focusAreas: [plan.focusArea],
@@ -258,8 +271,8 @@ async function seedPilotUnitClasses() {
                     startDate,
                     endDate,
                     duration: plan.duration,
-                    createdBy: teacher._id,
-                    lastPlanUpdatedBy: teacher._id,
+                    createdBy: planTeacher._id,
+                    lastPlanUpdatedBy: planTeacher._id,
                     lastPlanUpdatedAt: new Date(),
                     strategyId: toObjectId(plan.strategyId),
                     strategyName: plan.strategyName,

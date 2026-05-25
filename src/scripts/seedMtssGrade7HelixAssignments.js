@@ -41,7 +41,7 @@ const SUBJECT_DEFINITIONS = {
         target: 80
     },
     ATTENDANCE: {
-        mentorEmail: 'hadi@millennia21.id',
+        mentorEmail: 'abu@millennia21.id',
         tier: 'tier2',
         focusLabel: 'Attendance',
         metricLabel: '%',
