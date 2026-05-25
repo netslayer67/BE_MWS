@@ -15,6 +15,9 @@ services:
       SESSION_SECRET: ${JWT_SECRET}
       GOOGLE_REDIRECT_URL: https://app-stg.mws.web.id/auth/google/callback
       OPENROUTER_APP_NAME: IntegraLearn AI Chat Staging
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-deldcwiji}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
