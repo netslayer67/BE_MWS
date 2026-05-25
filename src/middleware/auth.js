@@ -119,6 +119,10 @@ const requireMTSSAccess = (req, res, next) => {
     if (!req.user) {
         return sendError(res, 'Authentication required', 401);
     }
+    // Students access their own scoped MTSS record; applyViewerScope enforces the filter
+    if (req.user.role === 'student') {
+        return next();
+    }
     if (!hasMtssAccess(req.user)) {
         return sendError(res, 'You do not have access to MTSS.', 403);
     }
