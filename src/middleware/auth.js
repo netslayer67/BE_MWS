@@ -29,6 +29,7 @@ const buildRequestUser = (user) => {
         currentGrade: user.currentGrade,
         className: user.className,
         nickname: user.nickname,
+        gender: user.gender || '',
         joinAcademicYear: user.joinAcademicYear,
         reportsTo: user.reportsTo,
         subordinates: user.subordinates || [],
