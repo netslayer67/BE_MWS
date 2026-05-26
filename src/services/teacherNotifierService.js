@@ -122,7 +122,8 @@ class TeacherNotifierService {
             digestSchedule: pref?.digestSchedule ?? defaults.digestSchedule,
             advanceNoticeDays: pref?.advanceNoticeDays ?? 0,
             smartSummary: pref?.smartSummary ?? { enabled: false },
-            slackEnabled: pref?.slackNotifications?.enabled === true,
+            // Auto-enabled when Slack bot is configured; teacher can opt out via preferences
+        slackEnabled: SLACK_CONFIGURED && (pref == null || pref.slackNotifications?.enabled !== false),
         };
     }
 
@@ -217,12 +218,106 @@ class TeacherNotifierService {
 </html>`;
     }
 
-    // ── Slack DM helper ───────────────────────────────────────────────────
+    // ── Slack DM helpers ──────────────────────────────────────────────────
+
+    /**
+     * Builds Slack Block Kit blocks tailored to the notification operation type.
+     * operation: 'due_reminder' | 'advance_notice' | 'alert' | default
+     */
+    _buildSlackBlocks({ operation, title, message, studentNames, actionUrl, metadata = {} }) {
+        const stripHtml = (str) => String(str || '').replace(/<[^>]+>/g, '');
+        const settingsUrl = buildFrontendUrl('/notifications/settings');
+        const baseUrl = actionUrl || buildFrontendUrl('/mtss/teacher');
+
+        // Deep-link URLs: open My Students tab, optionally pre-fill search with student name
+        const studentsTabUrl = `${baseUrl}?tab=students`;
+        const studentSearchUrl = studentNames?.length === 1
+            ? `${baseUrl}?tab=students&search=${encodeURIComponent(studentNames[0])}`
+            : studentsTabUrl;
+
+        const OP = {
+            due_reminder: {
+                headerEmoji: '⚠️',
+                statusEmoji: metadata.overdueDays > 0 ? '🔴' : '🟡',
+                statusText: metadata.overdueDays > 0
+                    ? `Overdue — ${metadata.overdueDays} day${metadata.overdueDays > 1 ? 's' : ''}`
+                    : 'Due today',
+                primaryBtn: { text: '✏️ Submit Progress Update', url: studentSearchUrl },
+                secondaryBtn: { text: '📋 View All Students', url: studentsTabUrl },
+            },
+            advance_notice: {
+                headerEmoji: '📅',
+                statusEmoji: '🟡',
+                statusText: 'Upcoming',
+                primaryBtn: { text: '📊 Open MTSS Dashboard', url: studentsTabUrl },
+                secondaryBtn: null,
+            },
+            alert: {
+                headerEmoji: '🚨',
+                statusEmoji: '🔴',
+                statusText: 'Requires Attention',
+                primaryBtn: { text: '🚨 Review Alert', url: baseUrl, danger: true },
+                secondaryBtn: { text: '👁️ View Student', url: studentSearchUrl },
+            },
+        };
+
+        const op = OP[operation] || {
+            headerEmoji: '📋',
+            statusEmoji: '🔵',
+            statusText: 'New Update',
+            primaryBtn: { text: '📋 Open MTSS Dashboard', url: actionUrl },
+            secondaryBtn: null,
+        };
+
+        const fields = [];
+        if (studentNames?.length) {
+            fields.push({ type: 'mrkdwn', text: `*👤 Student(s):*\n${studentNames.join(', ')}` });
+        }
+        fields.push({ type: 'mrkdwn', text: `*📊 Status:*\n${op.statusEmoji} ${op.statusText}` });
+        if (metadata.frequency) {
+            fields.push({ type: 'mrkdwn', text: `*📅 Frequency:*\n${metadata.frequency}` });
+        }
+
+        const actionElements = [
+            {
+                type: 'button',
+                text: { type: 'plain_text', text: op.primaryBtn.text, emoji: true },
+                style: op.primaryBtn.danger ? 'danger' : 'primary',
+                url: op.primaryBtn.url,
+            },
+            ...(op.secondaryBtn ? [{
+                type: 'button',
+                text: { type: 'plain_text', text: op.secondaryBtn.text, emoji: true },
+                url: op.secondaryBtn.url,
+            }] : []),
+            {
+                type: 'button',
+                text: { type: 'plain_text', text: '⚙️ Notification Settings', emoji: true },
+                url: settingsUrl,
+            },
+        ];
+
+        return [
+            { type: 'section', text: { type: 'mrkdwn', text: `*${op.headerEmoji} MTSS UPDATE*` } },
+            { type: 'header', text: { type: 'plain_text', text: title, emoji: true } },
+            { type: 'section', text: { type: 'mrkdwn', text: stripHtml(message) } },
+            { type: 'divider' },
+            ...(fields.length ? [{ type: 'section', fields }] : []),
+            { type: 'actions', elements: actionElements },
+            {
+                type: 'context',
+                elements: [{
+                    type: 'mrkdwn',
+                    text: `📨 *MWS IntegraLearn* · Millennia World School · <${settingsUrl}|Manage notifications>`,
+                }],
+            },
+        ];
+    }
 
     /**
      * Sends a Slack DM to a mentor for an MTSS event.
-     * No-ops silently when: Slack not configured, preference disabled,
-     * quiet hours active, or the user has no Slack account.
+     * Auto-fires alongside email when Slack is configured.
+     * Respects: explicit opt-out preference, quiet hours, user not found in Slack.
      */
     async _sendSlackDMToMentor(ctx, title, message, metadata = {}) {
         if (!SLACK_CONFIGURED) return { sent: false, reason: 'slack_not_configured' };
@@ -234,38 +329,25 @@ class TeacherNotifierService {
             if (!slackUser?.id) return { sent: false, reason: 'slack_user_not_found' };
 
             const studentNames = Array.isArray(metadata.studentNames) && metadata.studentNames.length
-                ? metadata.studentNames.join(', ')
+                ? metadata.studentNames
                 : null;
-
             const actionUrl = buildFrontendUrl(metadata.actionRoute || '/mtss/teacher');
 
-            const blocks = [
-                {
-                    type: 'header',
-                    text: { type: 'plain_text', text: `📋 MTSS Update`, emoji: true }
-                },
-                {
-                    type: 'section',
-                    text: { type: 'mrkdwn', text: `*${title}*\n${message}` }
-                },
-                ...(studentNames ? [{
-                    type: 'section',
-                    fields: [
-                        { type: 'mrkdwn', text: `*Student(s):*\n${studentNames}` }
-                    ]
-                }] : []),
-                {
-                    type: 'actions',
-                    elements: [{
-                        type: 'button',
-                        text: { type: 'plain_text', text: 'Open MTSS Dashboard', emoji: true },
-                        style: 'primary',
-                        url: actionUrl
-                    }]
-                }
-            ];
+            const blocks = this._buildSlackBlocks({
+                operation: metadata.operation,
+                title,
+                message,
+                studentNames,
+                actionUrl,
+                metadata,
+            });
 
-            const plainText = `MTSS Update: ${title}\n${message}${studentNames ? `\nStudent(s): ${studentNames}` : ''}`;
+            const plainText = [
+                `MTSS Update: ${title}`,
+                String(message).replace(/<[^>]+>/g, ''),
+                studentNames?.length ? `Student(s): ${studentNames.join(', ')}` : null,
+            ].filter(Boolean).join('\n');
+
             await notificationService.slack.sendDirectMessage(slackUser.id, plainText, blocks);
             winston.info(`[TeacherNotifier] Slack DM sent to ${ctx.user.name} — "${title}"`);
             return { sent: true, to: ctx.emailAddress };
@@ -421,7 +503,7 @@ class TeacherNotifierService {
                 : `${alerts.length} Student Alerts`;
             const message = alerts.map((a) => `• ${a.title}: ${a.studentName}`).join('\n');
             const studentNames = [...new Set(alerts.map((a) => a.studentName).filter(Boolean))];
-            this._sendSlackDMToMentor(ctx, title, message, { studentNames }).catch(() => {});
+            this._sendSlackDMToMentor(ctx, title, message, { operation: 'alert', studentNames }).catch(() => {});
         }
     }
 
@@ -487,7 +569,14 @@ class TeacherNotifierService {
                         String(mentor._id),
                         title,
                         message,
-                        { operation: 'due_reminder', actionRoute: '/mtss/teacher', studentNames, assignmentId: aid }
+                        {
+                            operation: 'due_reminder',
+                            actionRoute: '/mtss/teacher',
+                            studentNames,
+                            assignmentId: aid,
+                            overdueDays,
+                            frequency: assignment.monitoringFrequency,
+                        }
                     );
                     if (result.sent) {
                         dueReminderCooldown.set(aid, now);
@@ -720,8 +809,9 @@ class TeacherNotifierService {
                 const advanceTitle = `MTSS Check-in Due ${daysLabel}`;
                 const advanceMsg = `${upcoming.length} MTSS monitoring check-in${upcoming.length > 1 ? 's' : ''} due ${daysLabel}. Please plan ahead.`;
                 this._sendSlackDMToMentor(ctx, advanceTitle, advanceMsg, {
+                    operation: 'advance_notice',
                     studentNames: advanceStudentNames,
-                    actionRoute: '/mtss/teacher'
+                    actionRoute: '/mtss/teacher',
                 }).catch(() => {});
             }
 
