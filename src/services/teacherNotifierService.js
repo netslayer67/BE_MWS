@@ -228,8 +228,13 @@ class TeacherNotifierService {
         const stripHtml = (str) => String(str || '').replace(/<[^>]+>/g, '');
         const settingsUrl = buildFrontendUrl('/notifications/settings');
         const mtssBaseUrl = buildFrontendUrl('/mtss/teacher');
-        const checkinDashboardUrl = buildFrontendUrl('/emotional-checkin/teacher-dashboard');
+        const checkinDashboardBase = buildFrontendUrl('/emotional-checkin/teacher-dashboard');
         const baseUrl = actionUrl || mtssBaseUrl;
+
+        // Deep-link: emotional check-in dashboard with optional student name pre-filled
+        const checkinSearchUrl = studentNames?.length === 1
+            ? `${checkinDashboardBase}?search=${encodeURIComponent(studentNames[0])}`
+            : checkinDashboardBase;
 
         // Deep-link URLs for MTSS (alert / advance notice)
         const studentsTabUrl = `${mtssBaseUrl}?tab=students`;
@@ -244,15 +249,14 @@ class TeacherNotifierService {
                 statusText: metadata.overdueDays > 0
                     ? `Overdue — ${metadata.overdueDays} day${metadata.overdueDays > 1 ? 's' : ''}`
                     : 'Due today',
-                // Links to emotional check-in teacher dashboard (not MTSS progress)
-                primaryBtn: { text: '📋 View Student Check-ins', url: checkinDashboardUrl },
+                primaryBtn: { text: '📋 View Student Check-ins', url: checkinSearchUrl },
                 secondaryBtn: null,
             },
             advance_notice: {
                 headerEmoji: '📅',
                 statusEmoji: '🟡',
                 statusText: 'Upcoming',
-                primaryBtn: { text: '📋 View Student Check-ins', url: checkinDashboardUrl },
+                primaryBtn: { text: '📋 View Student Check-ins', url: checkinSearchUrl },
                 secondaryBtn: null,
             },
             alert: {
