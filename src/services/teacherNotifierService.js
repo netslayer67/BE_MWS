@@ -227,12 +227,14 @@ class TeacherNotifierService {
     _buildSlackBlocks({ operation, title, message, studentNames, actionUrl, metadata = {} }) {
         const stripHtml = (str) => String(str || '').replace(/<[^>]+>/g, '');
         const settingsUrl = buildFrontendUrl('/notifications/settings');
-        const baseUrl = actionUrl || buildFrontendUrl('/mtss/teacher');
+        const mtssBaseUrl = buildFrontendUrl('/mtss/teacher');
+        const checkinDashboardUrl = buildFrontendUrl('/emotional-checkin/teacher-dashboard');
+        const baseUrl = actionUrl || mtssBaseUrl;
 
-        // Deep-link URLs: open My Students tab, optionally pre-fill search with student name
-        const studentsTabUrl = `${baseUrl}?tab=students`;
+        // Deep-link URLs for MTSS (alert / advance notice)
+        const studentsTabUrl = `${mtssBaseUrl}?tab=students`;
         const studentSearchUrl = studentNames?.length === 1
-            ? `${baseUrl}?tab=students&search=${encodeURIComponent(studentNames[0])}`
+            ? `${mtssBaseUrl}?tab=students&search=${encodeURIComponent(studentNames[0])}`
             : studentsTabUrl;
 
         const OP = {
@@ -242,14 +244,15 @@ class TeacherNotifierService {
                 statusText: metadata.overdueDays > 0
                     ? `Overdue — ${metadata.overdueDays} day${metadata.overdueDays > 1 ? 's' : ''}`
                     : 'Due today',
-                primaryBtn: { text: '✏️ Submit Progress Update', url: studentSearchUrl },
-                secondaryBtn: { text: '📋 View All Students', url: studentsTabUrl },
+                // Links to emotional check-in teacher dashboard (not MTSS progress)
+                primaryBtn: { text: '📋 View Student Check-ins', url: checkinDashboardUrl },
+                secondaryBtn: null,
             },
             advance_notice: {
                 headerEmoji: '📅',
                 statusEmoji: '🟡',
                 statusText: 'Upcoming',
-                primaryBtn: { text: '📊 Open MTSS Dashboard', url: studentsTabUrl },
+                primaryBtn: { text: '📋 View Student Check-ins', url: checkinDashboardUrl },
                 secondaryBtn: null,
             },
             alert: {
@@ -561,8 +564,8 @@ class TeacherNotifierService {
                 const overdueDays = Math.floor((now - dueAt) / 86_400_000);
                 const studentNames = (assignment.studentIds || []).map((s) => s.name).filter(Boolean);
                 const overdueLabel = overdueDays > 0 ? ` (${overdueDays} day${overdueDays > 1 ? 's' : ''} overdue)` : '';
-                const title = `Progress Update Due${overdueLabel}`;
-                const message = `Your MTSS progress update for <strong>${studentNames.join(', ') || 'your assigned student(s)'}</strong> is due. Frequency: ${assignment.monitoringFrequency}. Please submit a progress update for this student's intervention plan.`;
+                const title = `Check-in Due${overdueLabel}`;
+                const message = `Your student${studentNames.length > 1 ? 's' : ''} <strong>${studentNames.join(', ') || 'your assigned student(s)'}</strong> ${studentNames.length > 1 ? 'have' : 'has'} not completed their daily check-in. Monitoring frequency: ${assignment.monitoringFrequency}. Please follow up.`;
 
                 try {
                     const result = await this.sendMtssUpdateEmail(
@@ -699,12 +702,12 @@ class TeacherNotifierService {
 <div style="max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.07);">
   <div style="background:linear-gradient(135deg,#065f46 0%,#059669 100%);color:#fff;padding:28px;">
     <p style="margin:0 0 4px;font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:1px;">MTSS Advance Notice</p>
-    <h1 style="margin:0;font-size:20px;font-weight:600;">${upcoming.length} Progress Update${upcoming.length > 1 ? 's' : ''} Due ${daysLabel}</h1>
+    <h1 style="margin:0;font-size:20px;font-weight:600;">${upcoming.length} Check-in${upcoming.length > 1 ? 's' : ''} Due ${daysLabel}</h1>
   </div>
   <div style="padding:24px;">
     <p style="color:#374151;font-size:15px;margin:0 0 8px;">Hi <strong>${teacherName}</strong>,</p>
     <p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0 0 20px;">
-      Heads up — the following MTSS progress updates are due <strong>${daysLabel}</strong>.
+      Heads up — the following student check-ins are due <strong>${daysLabel}</strong>.
       Plan ahead so your students stay on track.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
@@ -794,7 +797,7 @@ class TeacherNotifierService {
 
                 const daysLabel = daysAhead === 1 ? 'tomorrow' : `in ${daysAhead} days`;
                 const html = this._buildAdvanceNoticeHtml({ teacherName: ctx.user.name, upcoming, daysLabel });
-                const subject = `MTSS Reminder: ${upcoming.length} progress update${upcoming.length > 1 ? 's' : ''} due ${daysLabel}`;
+                const subject = `MTSS Reminder: ${upcoming.length} check-in${upcoming.length > 1 ? 's' : ''} due ${daysLabel}`;
 
                 try {
                     await notificationService.sendEmail(ctx.emailAddress, subject, html);
@@ -806,8 +809,8 @@ class TeacherNotifierService {
 
                 // Slack DM for advance notice
                 const advanceStudentNames = upcoming.flatMap((u) => u.studentNames);
-                const advanceTitle = `MTSS Progress Update Due ${daysLabel}`;
-                const advanceMsg = `${upcoming.length} MTSS progress update${upcoming.length > 1 ? 's' : ''} due ${daysLabel}. Please plan ahead.`;
+                const advanceTitle = `MTSS Check-in Due ${daysLabel}`;
+                const advanceMsg = `${upcoming.length} student check-in${upcoming.length > 1 ? 's' : ''} due ${daysLabel}. Please plan ahead.`;
                 this._sendSlackDMToMentor(ctx, advanceTitle, advanceMsg, {
                     operation: 'advance_notice',
                     studentNames: advanceStudentNames,
