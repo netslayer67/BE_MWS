@@ -29,7 +29,7 @@ const getStudentInsights = async (req, res) => {
         if (!isPrivileged) {
             const hasAssignment = await MentorAssignment.exists({
                 mentorId: req.user._id,
-                studentIds: studentId,
+                studentIds: { $in: [studentId] },
                 status: { $ne: 'archived' },
             });
             if (!hasAssignment) {
@@ -169,17 +169,37 @@ const getMyAlerts = async (req, res) => {
 
 /**
  * Get alerts for a specific student
+ * Requires caller to have an active assignment for the student (unless privileged)
  */
 const getStudentAlerts = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { status } = req.query;
+        const { status, limit = 50, offset = 0 } = req.query;
+
+        if (status && !VALID_STATUSES.has(status)) {
+            return sendError(res, `Invalid status value: ${status}`, 400);
+        }
+
+        const userRole = req.user.role;
+        const isPrivileged = ['admin', 'superadmin', 'directorate', 'head_unit'].includes(userRole);
+        if (!isPrivileged) {
+            const hasAssignment = await MentorAssignment.exists({
+                mentorId: req.user._id,
+                studentIds: { $in: [studentId] },
+                status: { $ne: 'archived' },
+            });
+            if (!hasAssignment) {
+                return sendError(res, 'You do not have an active intervention for this student', 403);
+            }
+        }
 
         const query = { studentId };
         if (status) query.status = status;
 
         const alerts = await TeacherAlert.find(query)
             .sort({ priorityScore: -1, generatedAt: -1 })
+            .limit(parseInt(limit))
+            .skip(parseInt(offset))
             .lean();
 
         sendSuccess(res, 'Student alerts retrieved', {
