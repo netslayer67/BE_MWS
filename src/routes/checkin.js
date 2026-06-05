@@ -13,13 +13,14 @@ const {
     getAvailableContacts,
     analyzeEmotion
 } = require('../controllers/checkinController');
-const { authenticate, requireStaffOrTeacher, requireTeacherAccess } = require('../middleware/auth');
+const { authenticate, requireStaffOrTeacher, authorize } = require('../middleware/auth');
 const { validate, validateQuery } = require('../middleware/validation');
 const { emotionalCheckinSchema, paginationSchema, dateRangeSchema } = require('../utils/validationSchemas');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 // Configure multer for image upload with destination
 const upload = multer({
-    dest: 'uploads/', // Specify destination directory
+    storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
@@ -32,8 +33,8 @@ const upload = multer({
 
 // Configure multer for AI submit (handles both form data and JSON)
 const aiUpload = multer({
-    dest: 'uploads/',
-    limits: { fileSize: 5 * 1024 * 1024 },
+    dest: 'uploads/', // Specify destination directory
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -59,7 +60,7 @@ router.post('/ai-submit', requireStaffOrTeacher, aiUpload.single('image'), valid
     console.log('🤖 AI Submit Route - Files:', req.files || req.file ? 'Present' : 'None');
     console.log('🤖 AI Submit Route - Raw body:', req.body);
     next();
-}, submitAICheckin);
+}, devTopologyTelemetryService.instrumentedHandler('ai_checkin_submit', submitAICheckin));
 
 // Get today's check-in
 router.get('/today', getTodayCheckin);
@@ -76,8 +77,8 @@ router.get('/results/:id', getCheckinResults);
 // Get check-in history with pagination and date filtering
 router.get('/history', validateQuery(paginationSchema), validateQuery(dateRangeSchema), getCheckinHistory);
 
-// Teacher daily dashboard for student check-ins
-router.get('/teacher/dashboard', requireTeacherAccess, getTeacherDailyCheckins);
+// Student daily dashboard for teacher + principal + elevated roles
+router.get('/teacher/dashboard', authorize('teacher', 'se_teacher', 'head_unit', 'directorate', 'admin', 'superadmin'), getTeacherDailyCheckins);
 
 // Get available support contacts
 router.get('/contacts/available', getAvailableContacts);

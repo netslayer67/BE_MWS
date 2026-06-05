@@ -24,12 +24,12 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher'],
+        enum: ['student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher', 'counselor'],
         default: 'staff'
     },
     department: {
         type: String,
-        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi', 'CARE'],
         trim: true
     },
     employeeId: {
@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema({
     },
     unit: {
         type: String,
-        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi'],
+        enum: ['Directorate', 'Elementary', 'Junior High', 'Kindergarten', 'Operational', 'MAD Lab', 'Finance', 'Pelangi', 'CARE'],
         trim: true
     },
     jobPosition: {
@@ -107,6 +107,28 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['male', 'female', 'other'],
         trim: true
+    },
+    mtssAccess: {
+        enabled: {
+            type: Boolean,
+            default: undefined
+        },
+        accessLevel: {
+            type: String,
+            enum: ['observer', 'teacher', 'leader', 'admin'],
+            default: null
+        },
+        note: {
+            type: String,
+            trim: true
+        },
+        grantedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        grantedAt: {
+            type: Date
+        }
     }
 }, {
     timestamps: true

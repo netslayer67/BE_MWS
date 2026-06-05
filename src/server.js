@@ -1,6 +1,7 @@
 const http = require('http');
+const path = require('path');
 const winston = require('winston');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 // Import app and initialization
 const { app, initializeApp } = require('./app');
@@ -47,18 +48,30 @@ const PORT = process.env.PORT || 3001;
 
 const startServer = async () => {
     try {
-        // Initialize application (database, AI, etc.)
-        await initializeApp();
-
         // Start HTTP server
         server.listen(PORT, () => {
             winston.info(`🚀 Server running on port ${PORT}`);
             winston.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
             winston.info(`🔗 API available at: http://localhost:${PORT}/api`);
-            winston.info(`💚 Health check: http://localhost:${PORT}/api/health`);
+            winston.info(`💚 Health check: http://localhost:${PORT}/health`);
+            winston.info(`🟢 Readiness check: http://localhost:${PORT}/ready`);
             // Log OAuth-related config for debugging
             winston.info(`🌐 FRONTEND_URL: ${process.env.FRONTEND_URL || 'NOT SET (will use localhost:5173)'}`);
             winston.info(`🔑 GOOGLE_REDIRECT_URL: ${process.env.GOOGLE_REDIRECT_URL || 'NOT SET'}`);
+        });
+
+        initializeApp().then((initialized) => {
+            if (initialized) {
+                winston.info('Background initialization completed successfully');
+            } else {
+                winston.warn('Background initialization completed with readiness disabled');
+            }
+
+            // Start teacher due-reminder scheduler after DB is warm
+            const teacherNotifierService = require('./services/teacherNotifierService');
+            teacherNotifierService.startDueReminderScheduler();
+        }).catch((error) => {
+            winston.error('Background initialization crashed:', error);
         });
 
         // Graceful shutdown handling

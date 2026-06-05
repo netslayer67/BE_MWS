@@ -18,23 +18,30 @@ const TEACHERS = {
         email: 'abu@millennia21.id',
         password: 'Mws21IlhLp?',
         name: 'Pak Abu',
-        expectedSubjects: ['SEL', 'Behavior'],
-        maxSubjects: 2
+        expectedProgressSubjects: ['SEL', 'Behavior', 'Attendance', 'Bahasa Indonesia']
     },
     nadia: {
         email: 'nadiamws@millennia21.id',
         password: 'Mws21IlhLp?',
         name: 'Bu Nadia',
-        expectedSubjects: ['English'],
-        maxSubjects: 1
+        expectedProgressSubjects: ['English']
     },
     sisil: {
         email: 'sisil@millennia21.id',
         password: 'Mws21IlhLp?',
         name: 'Bu Sisil',
-        expectedSubjects: ['Math'],
-        maxSubjects: 1
+        expectedProgressSubjects: ['Math']
     }
+};
+
+const collectProgressSubjects = (assignments = []) => {
+    const subjects = new Set();
+    assignments
+        .filter((assignment) => assignment.viewerCanSubmitProgress === true)
+        .forEach((assignment) => {
+            (assignment.focusAreas || []).forEach((focusArea) => subjects.add(focusArea));
+        });
+    return Array.from(subjects);
 };
 
 describe('MTSS Grade 7 Helix - E2E Tests', () => {
@@ -126,13 +133,13 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
             cy.contains(/Tier \d/i).should('be.visible');
         });
 
-        it('should display intervention subjects for Pak Abu (SEL + Behavior)', () => {
+        it('should display intervention subjects for Pak Abu dashboard', () => {
             cy.visit(`${FRONTEND_URL}/mtss/teacher`);
 
             // Wait for dashboard
             cy.contains('Dashboard', { timeout: 5000 }).click();
 
-            // Check for SEL or Behavior mention
+            // Dashboard should show at least one of Pak Abu's active intervention areas
             cy.get('body').then(($body) => {
                 const hasSubject = $body.text().includes('SEL') || $body.text().includes('Behavior');
                 expect(hasSubject).to.be.true;
@@ -210,7 +217,7 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
             });
         });
 
-        it('should verify Pak Abu has exactly 2 subjects (SEL + Behavior)', () => {
+        it('should verify Pak Abu quick update subjects follow homeroom progress rules', () => {
             cy.request({
                 method: 'GET',
                 url: `${API_BASE_URL}/mtss/mentor-assignments`,
@@ -219,16 +226,10 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
                 expect(response.status).to.eq(200);
                 assignments = response.body.data.assignments;
 
-                // Extract unique focus areas
-                const focusAreas = new Set();
-                assignments.forEach(a => {
-                    a.focusAreas.forEach(area => focusAreas.add(area));
-                });
+                const progressSubjects = collectProgressSubjects(assignments).sort();
+                expect(progressSubjects).to.deep.equal(TEACHERS.abu.expectedProgressSubjects.slice().sort());
 
-                const subjectCount = focusAreas.size;
-                expect(subjectCount).to.be.at.most(2);
-
-                cy.log(`✓ Pak Abu handles ${subjectCount} subject(s): ${Array.from(focusAreas).join(', ')}`);
+                cy.log(`✓ Pak Abu can submit progress for: ${progressSubjects.join(', ')}`);
             });
         });
 
@@ -269,7 +270,7 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
     });
 
     describe('Phase 5: Multi-Teacher Validation', () => {
-        it('should verify each teacher has correct subject count', () => {
+        it('should verify each teacher has correct progress-update subjects', () => {
             const teacherChecks = [];
 
             Object.entries(TEACHERS).forEach(([key, teacher]) => {
@@ -287,21 +288,16 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
                         }).then((assignmentResponse) => {
                             const assignments = assignmentResponse.body.data.assignments;
 
-                            // Extract unique subjects
-                            const subjects = new Set();
-                            assignments.forEach(a => {
-                                a.focusAreas.forEach(area => subjects.add(area));
-                            });
+                            const progressSubjects = collectProgressSubjects(assignments).sort();
+                            expect(progressSubjects, `${teacher.name} progress subjects`).to.deep.equal(
+                                teacher.expectedProgressSubjects.slice().sort()
+                            );
 
-                            const subjectCount = subjects.size;
-                            expect(subjectCount, `${teacher.name} subject count`).to.be.at.most(teacher.maxSubjects);
-
-                            cy.log(`✓ ${teacher.name}: ${subjectCount} subject(s) - ${Array.from(subjects).join(', ')}`);
+                            cy.log(`✓ ${teacher.name}: ${progressSubjects.join(', ')}`);
 
                             return {
                                 teacher: teacher.name,
-                                subjectCount: subjectCount,
-                                subjects: Array.from(subjects)
+                                progressSubjects
                             };
                         });
                     })
@@ -335,7 +331,7 @@ describe('MTSS Grade 7 Helix - E2E Tests', () => {
             cy.log('✓ Teachers authenticated: 3 (Pak Abu, Bu Nadia, Bu Sisil)');
             cy.log('✓ Dashboard verification: Passed');
             cy.log('✓ Progress updates: >= 3 per assignment');
-            cy.log('✓ Subject distribution: Max 2 per teacher');
+            cy.log('✓ Progress subject permissions: aligned with backend flags');
             cy.log('✓ Tier levels: Tier 2/3 verified');
             cy.log('========================================\n');
 

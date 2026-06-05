@@ -18,10 +18,16 @@ const {
     deriveAllowedClassNamesForUser,
     deriveGradesForUnit
 } = require('../utils/mtssAccess');
+const {
+    buildAssignmentPairings,
+    getMentorAssignmentFocusLabels
+} = require('../utils/mentorAssignmentPairingUtils');
 
 const TIER_PRIORITY = { 'Tier 1': 1, 'Tier 2': 2, 'Tier 3': 3 };
 
 const normalizeValue = (value) => (typeof value === 'string' ? value.trim() : value);
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const toExactRegex = (value = '') => new RegExp(`^${escapeRegex(value)}$`, 'i');
 
 const normalizeList = (value) =>
     typeof value === 'string'
@@ -51,16 +57,79 @@ const TIER_CODES = ['tier1', 'tier2', 'tier3'];
 const STATUS_SET = new Set(INTERVENTION_STATUSES);
 const PRIVILEGED_ROLES = new Set(['admin', 'superadmin', 'directorate']);
 const UNIT_LEVEL_ROLES = new Set(['head_unit']); // Principals who see all students in their unit
+const JH_GRADE_WIDE_EXCEPTION_USERS = new Set(['himawan', 'hasan']);
+const CLASS_SCOPED_UNITS = new Set(['elementary', 'kindergarten', 'pelangi']);
 const INTERVENTION_TYPE_META = new Map(INTERVENTION_TYPES.map((entry) => [entry.key, entry]));
 const FOCUS_TYPE_MATCHERS = [
     { key: 'ATTENDANCE', pattern: /attendance|absen|present|presence/i },
     { key: 'BEHAVIOR', pattern: /behavior|behaviour|conduct|discipline/i },
     { key: 'MATH', pattern: /math|mathematics|numeracy|algebra|geometry/i },
-    { key: 'ENGLISH', pattern: /english|ela|literacy|reading|writing|fluency/i },
+    { key: 'ENGLISH', pattern: /english|bahasa inggris|ela|literacy|reading|writing|fluency/i },
+    { key: 'INDONESIAN', pattern: /indonesian|bahasa indonesia|\bbahasa\b|\bbi\b/i },
     { key: 'SEL', pattern: /sel|social|emotional|wellbeing|well-being/i }
 ];
+const KINDERGARTEN_MOOD_META = [
+    { value: 'very_happy', label: 'Very Happy', icon: '😄' },
+    { value: 'happy', label: 'Happy', icon: '🙂' },
+    { value: 'okay', label: 'Okay', icon: '😐' },
+    { value: 'sad', label: 'Sad', icon: '😟' },
+    { value: 'upset', label: 'Upset', icon: '😤' }
+];
+const KINDERGARTEN_REGULATION_META = [
+    { value: 'deep_breathing', label: 'Deep Breathing', icon: '🌬️' },
+    { value: 'cozy_corner', label: 'Cozy Corner', icon: '🛋️' },
+    { value: 'talk_to_friend', label: 'Talk to a Friend', icon: '🤝' },
+    { value: 'quiet_time', label: 'Quiet Time', icon: '🌈' },
+    { value: 'ask_teacher', label: 'Ask My Teacher', icon: '🧑‍🏫' }
+];
+const KINDERGARTEN_SIGNAL_UNLOCK = new Set(['developing', 'consistent']);
+const KINDERGARTEN_ALLOWED_SOURCES = new Set(['student', 'parent_proxy']);
+const KINDERGARTEN_MOOD_RETENTION = 90;
+const KINDERGARTEN_HOME_OBSERVATION_RETENTION = 120;
+const KINDERGARTEN_STAMP_MILESTONE_STEP = 5;
+const KINDERGARTEN_DOMAIN_LABELS = {
+    emotional_regulation: 'Emotional Regulation',
+    language: 'Language',
+    social: 'Social',
+    motor: 'Motor Skills',
+    independence: 'Independence'
+};
 
 const normalizeFocusArea = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const isKindergartenText = (value = '') =>
+    /(kindergarten|pre[-\s]?k|\bk\s*1\b|\bk\s*2\b|kindy)/i.test(String(value || '').trim());
+
+const isKindergartenStudentRecord = (student = {}) => {
+    const pool = [student.currentGrade, student.grade, student.className];
+    return pool.some((entry) => isKindergartenText(entry));
+};
+
+const formatMonthDayYear = (value, fallback = '-') => {
+    if (!value) return fallback;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return fallback;
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
+};
+
+const toDateKey = (value) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const toSafeArray = (value) => (Array.isArray(value) ? value : []);
+
+const sanitizeSubmissionSource = (source, fallback = 'student') => {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (KINDERGARTEN_ALLOWED_SOURCES.has(normalized)) {
+        return normalized;
+    }
+    return fallback;
+};
 
 const resolveInterventionTypeKey = (focusArea) => {
     const cleaned = normalizeFocusArea(focusArea);
@@ -166,9 +235,42 @@ const sanitizeStudentPayload = (payload = {}) => {
     return sanitized;
 };
 
+const isClassScopedTeacherInUnit = (viewer = {}) => {
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    if (!CLASS_SCOPED_UNITS.has(lowerUnit)) return false;
+
+    const lowerJobPosition = (viewer.jobPosition || '').toLowerCase();
+    if (lowerJobPosition.includes('homeroom') || lowerJobPosition.includes('special education')) {
+        return true;
+    }
+
+    return (viewer.classes || []).some((cls) => {
+        const role = (cls?.role || '').toLowerCase();
+        return role.includes('homeroom') || role.includes('special education');
+    });
+};
+
 const applyViewerScope = (filter = {}, viewer = {}) => {
     // Directorate, admin, superadmin see all students
     if (!viewer || PRIVILEGED_ROLES.has(viewer.role)) {
+        return filter;
+    }
+
+    // Students can only access their own MTSS student record by identity fields.
+    if (viewer.role === 'student') {
+        const clauses = [];
+        if (viewer.email) clauses.push({ email: toExactRegex(viewer.email) });
+        if (viewer.username) clauses.push({ username: toExactRegex(viewer.username) });
+        if (viewer.nickname) clauses.push({ nickname: toExactRegex(viewer.nickname) });
+        if (viewer.name) clauses.push({ name: toExactRegex(viewer.name) });
+
+        filter.$and = filter.$and || [];
+        if (clauses.length) {
+            filter.$and.push({ $or: clauses });
+        } else {
+            // Explicit deny-all fallback if we cannot identify the student user.
+            filter.$and.push({ _id: null });
+        }
         return filter;
     }
 
@@ -185,104 +287,42 @@ const applyViewerScope = (filter = {}, viewer = {}) => {
         return filter;
     }
 
-    // Teachers (teacher, se_teacher, staff) only see students in their assigned classes
-    const viewerClasses = viewer.classes || [];
-    if (!viewerClasses.length) {
-        // No class assignments - fall back to unit-based access (limited)
-        const unitGrades = deriveGradesForUnit(viewer.unit || '');
-        if (unitGrades.length) {
-            const gradeClauses = buildGradeFilterClauses(unitGrades);
-            if (gradeClauses.length) {
-                filter.$and = filter.$and || [];
-                filter.$and.push({ $or: gradeClauses });
-            }
-        }
-        return filter;
-    }
+    // JH teachers remain grade-wide. Elementary/Kindergarten homeroom + SE teachers
+    // are class-scoped (grade + class) so roster visibility matches their classroom.
+    const lowerUnit = (viewer.unit || '').toLowerCase();
+    const usernameKey = (viewer.username || '').trim().toLowerCase();
+    const nameKey = (viewer.name || '').trim().toLowerCase();
+    const isJhWideException =
+        lowerUnit === 'junior high' &&
+        (
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(usernameKey) ||
+            JH_GRADE_WIDE_EXCEPTION_USERS.has(nameKey) ||
+            nameKey.includes('himawan') ||
+            nameKey.includes('hasan')
+        );
 
-    // Helper to check if a class assignment indicates a Homeroom Teacher
-    // Homeroom Teachers see ALL students in their grade (not filtered by specific class section)
-    const isHomeroomAssignment = (cls) => {
-        const className = (cls.className || '').toLowerCase();
-        const role = (cls.role || '').toLowerCase();
-        return className === 'homeroom' ||
-               role === 'homeroom teacher' ||
-               role.includes('homeroom');
-    };
+    const allowedGrades = isJhWideException
+        ? deriveGradesForUnit(viewer.unit || 'Junior High')
+        : deriveAllowedGradesForUser(viewer);
 
-    // Separate homeroom assignments (grade-only filter) from specific class assignments
-    const homeroomGrades = [];
-    const specificClasses = [];
+    const useClassScopedFilter = !isJhWideException && isClassScopedTeacherInUnit(viewer);
+    const allowedClasses = useClassScopedFilter ? deriveAllowedClassNamesForUser(viewer) : [];
 
-    viewerClasses.forEach((cls) => {
-        if (!cls.grade) return;
-        if (isHomeroomAssignment(cls)) {
-            // Homeroom teacher - they see all students in the grade
-            homeroomGrades.push(cls.grade);
-            console.log(`[MTSS] Homeroom teacher detected: ${viewer.name} for ${cls.grade} (className: ${cls.className}, role: ${cls.role})`);
-        } else if (cls.className) {
-            // Specific class assignment - they see only that class
-            specificClasses.push(cls);
-        }
-    });
-
-    // Build filter clauses
-    const allClauses = [];
-
-    // Add grade-only clauses for homeroom teachers
-    if (homeroomGrades.length) {
-        const gradeClauses = buildGradeFilterClauses(homeroomGrades);
-        allClauses.push(...gradeClauses);
-    }
-
-    // Add strict class clauses for specific class assignments
-    specificClasses.forEach((cls) => {
-        const gradeRegex = buildGradeRegex(cls.grade);
-        const classRegex = buildClassRegex(cls.className);
-        if (gradeRegex && classRegex) {
-            allClauses.push({ currentGrade: gradeRegex, className: classRegex });
-        }
-    });
-
-    if (allClauses.length) {
+    const gradeClauses = buildGradeFilterClauses(allowedGrades);
+    if (gradeClauses.length) {
         filter.$and = filter.$and || [];
-        filter.$and.push({ $or: allClauses });
-    } else {
-        // Fallback: if no valid class assignments, use grade-only filter
-        const allowedGrades = deriveAllowedGradesForUser(viewer);
-        const gradeClauses = buildGradeFilterClauses(allowedGrades);
-        if (gradeClauses.length) {
+        filter.$and.push({ $or: gradeClauses });
+    }
+
+    if (useClassScopedFilter && allowedClasses.length) {
+        const classClauses = buildClassFilterClauses(allowedClasses);
+        if (classClauses.length) {
             filter.$and = filter.$and || [];
-            filter.$and.push({ $or: gradeClauses });
+            filter.$and.push({ $or: classClauses });
         }
     }
 
     return filter;
-};
-
-// Helper to build grade regex (reused from mtssAccess)
-const buildGradeRegex = (grade = '') => {
-    if (!grade) return null;
-    const gradeMatch = grade.match(/Grade\s*(\d+)/i);
-    if (gradeMatch) {
-        const number = gradeMatch[1];
-        return new RegExp(`^Grade\\s*${number}(\\s*-.*)?$`, 'i');
-    }
-    if (/kindergarten/i.test(grade)) {
-        if (/(pre[-\s]?k)/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*Pre[-\\s]?K.*', 'i');
-        if (/k\s*1/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*1.*', 'i');
-        if (/k\s*2/i.test(grade)) return new RegExp('^Kindergarten(?:\\s|-)*K\\s*2.*', 'i');
-        return new RegExp('^Kindergarten.*', 'i');
-    }
-    return new RegExp(`^${grade.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-};
-
-// Helper to build class regex for partial match
-const buildClassRegex = (className = '') => {
-    if (!className) return null;
-    const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
-    // Match either exact className or as suffix (e.g., "Andromeda" matches "Grade 3 - Andromeda")
-    return new RegExp(`(^${escaped}$|\\s*-\\s*${escaped}$)`, 'i');
 };
 
 const buildFilter = (query = {}, skipGradeClassFilter = false) => {
@@ -326,7 +366,7 @@ const buildFilter = (query = {}, skipGradeClassFilter = false) => {
     }
 
     if (query.search) {
-        const regex = new RegExp(query.search.trim(), 'i');
+        const regex = new RegExp(escapeRegex(query.search.trim()), 'i');
         filter.$or = [{ name: regex }, { nickname: regex }, { email: regex }];
     }
 
@@ -336,16 +376,19 @@ const buildFilter = (query = {}, skipGradeClassFilter = false) => {
 const buildStudentSummary = (students = []) => {
     const tierCounts = {};
     const interventionCounts = {};
+    const isTieredSupport = (intervention = {}) => {
+        const tierValue = String(intervention?.tierCode || intervention?.tier || '').toLowerCase();
+        return tierValue === 'tier2' || tierValue === 'tier3' || intervention?.tier === 'Tier 2' || intervention?.tier === 'Tier 3';
+    };
 
     students.forEach((student) => {
         const interventions = Array.isArray(student.interventions) ? student.interventions : [];
         const focus = pickPrimaryIntervention(interventions);
         const tier = focus?.tier || student.tier || 'Tier 1';
-        const type = focus?.label || student.type;
         tierCounts[tier] = (tierCounts[tier] || 0) + 1;
 
-        if (type) {
-            interventionCounts[type] = (interventionCounts[type] || 0) + 1;
+        if (focus?.label && isTieredSupport(focus)) {
+            interventionCounts[focus.label] = (interventionCounts[focus.label] || 0) + 1;
         }
     });
 
@@ -407,7 +450,7 @@ const loadMentorsByGrade = async (grades = []) => {
                     { 'classes.grade': new RegExp(`^${grade}(\\s|$)`, 'i') }
                 ]
             })
-                .select('name email username jobPosition unit classes')
+                .select('name email username gender jobPosition unit classes')
                 .lean();
 
             // Filter mentors to only those whose class assignments match the grade
@@ -448,7 +491,7 @@ const loadMentorsByGradeAndClass = async (grade = '', className = '') => {
     const mentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     // Filter mentors who have class assignments matching BOTH grade AND className
@@ -487,7 +530,7 @@ const loadMentorsByClassKeys = async (classKeys = []) => {
     const allMentors = await User.find({
         ...mentorRoleFilter
     })
-        .select('name email username jobPosition unit classes')
+        .select('name email username gender jobPosition unit classes')
         .lean();
 
     const filteredMentors = (allMentors || []).filter((mentor) => !shouldExcludeMentor(mentor));
@@ -551,6 +594,9 @@ const buildFallbackSummary = (mentors = []) => {
             .map((mentor) => ({
                 id: mentor?._id?.toString?.() || mentor?._id,
                 name: mentor?.name,
+                nickname: mentor?.username,
+                username: mentor?.username,
+                gender: mentor?.gender,
                 email: mentor?.email,
                 jobPosition: mentor?.jobPosition,
                 unit: mentor?.unit,
@@ -563,6 +609,166 @@ const buildFallbackSummary = (mentors = []) => {
         teacherRoster,
         profile
     };
+};
+
+const resolveScopedStudent = async ({ id, viewer }) => {
+    const filter = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
+    const student = await MTSSStudent.findOne(filter);
+    if (!student) {
+        return { student: null, statusCode: 404, error: 'Student not found' };
+    }
+
+    const scopedFilter = applyViewerScope({ _id: student._id }, viewer);
+    const canAccess = await MTSSStudent.exists(scopedFilter);
+    if (!canAccess) {
+        return { student: null, statusCode: 403, error: 'Insufficient permissions to view this student' };
+    }
+
+    return { student, statusCode: 200, error: null };
+};
+
+const buildKindergartenGrowthBoard = (assignments = []) => {
+    const cards = [];
+
+    assignments.forEach((assignment) => {
+        const focusArea = normalizeFocusArea(assignment.focusAreas?.[0] || assignment.strategyName || assignment.monitoringMethod || '');
+        const checkIns = toSafeArray(assignment.checkIns);
+        checkIns.forEach((entry, index) => {
+            const signal = String(entry?.signal || '').trim().toLowerCase();
+            const evidence = toSafeArray(entry?.evidence);
+            if (!KINDERGARTEN_SIGNAL_UNLOCK.has(signal) || evidence.length === 0) return;
+
+            const date = entry?.date || assignment?.updatedAt || null;
+            const imageEvidence = evidence.filter((item = {}) => (item.resourceType || 'image') === 'image');
+            const audioEvidence = evidence.filter((item = {}) => {
+                const fileType = String(item.fileType || '').toLowerCase();
+                return fileType.startsWith('audio/');
+            });
+            const caption = entry.summary || entry.observation || entry.nextStep || 'New growth moment recorded.';
+            cards.push({
+                id: `${assignment._id || 'assignment'}-${entry?._id || index}`,
+                assignmentId: assignment._id,
+                date: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                signal,
+                tags: toSafeArray(entry.tags).filter(Boolean),
+                focusArea: focusArea || null,
+                caption: String(caption).trim(),
+                imageEvidence,
+                audioEvidence
+            });
+        });
+    });
+
+    cards.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    const stampDays = new Set(cards.map((card) => toDateKey(card.date)).filter(Boolean));
+    const stampCount = stampDays.size;
+    const milestoneTarget = Math.max(
+        KINDERGARTEN_STAMP_MILESTONE_STEP,
+        Math.ceil(Math.max(stampCount, 1) / KINDERGARTEN_STAMP_MILESTONE_STEP) * KINDERGARTEN_STAMP_MILESTONE_STEP
+    );
+    const remainingToMilestone = Math.max(0, milestoneTarget - stampCount);
+
+    return {
+        cards: cards.slice(0, 30),
+        stampCount,
+        milestone: {
+            current: stampCount,
+            target: milestoneTarget,
+            remaining: remainingToMilestone
+        },
+        latestCardDate: cards[0]?.date || null
+    };
+};
+
+const buildKindergartenMoodSnapshot = (student = {}) => {
+    const entries = toSafeArray(student.kindergartenMoodCheckIns)
+        .map((entry) => {
+            const date = entry?.date || null;
+            const source = sanitizeSubmissionSource(entry?.source, 'student');
+            return {
+                id: entry?._id?.toString?.() || null,
+                date: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                dateKey: toDateKey(date),
+                mood: entry?.mood || null,
+                regulationChoice: entry?.regulationChoice || null,
+                note: entry?.note || null,
+                source,
+                submittedByName: entry?.submittedByName || null
+            };
+        })
+        .filter((entry) => entry.date)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const todayKey = toDateKey(new Date());
+    const today = entries.find((entry) => entry.dateKey === todayKey && entry.source === 'student')
+        || entries.find((entry) => entry.dateKey === todayKey)
+        || null;
+
+    return {
+        options: KINDERGARTEN_MOOD_META,
+        regulationOptions: KINDERGARTEN_REGULATION_META,
+        today,
+        recent: entries.slice(0, 7)
+    };
+};
+
+const buildKindergartenParentProxySnapshot = (student = {}) => {
+    const homeObservations = toSafeArray(student.kindergartenHomeObservations)
+        .map((entry) => {
+            const date = entry?.createdAt || null;
+            const source = sanitizeSubmissionSource(entry?.source, 'parent_proxy');
+            return {
+                id: entry?._id?.toString?.() || null,
+                createdAt: date ? new Date(date).toISOString() : null,
+                dateLabel: formatMonthDayYear(date, 'Date not available'),
+                note: entry?.note || '',
+                source,
+                submittedByName: entry?.submittedByName || null
+            };
+        })
+        .filter((entry) => entry.createdAt)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return {
+        homeObservations: homeObservations.slice(0, 15),
+        canSubmit: true
+    };
+};
+
+const buildKindergartenPortalPayload = ({ student = {}, assignments = [] } = {}) => {
+    const hasQualitativeAssignments = toSafeArray(assignments).some((assignment) => assignment.mode === 'qualitative');
+    return {
+        isKindergarten: isKindergartenStudentRecord(student),
+        isQualitative: hasQualitativeAssignments,
+        growthBoard: buildKindergartenGrowthBoard(assignments),
+        moodCheckin: buildKindergartenMoodSnapshot(student),
+        parentProxy: buildKindergartenParentProxySnapshot(student)
+    };
+};
+
+const appendParentObservationToQualitativeAssignment = async ({ studentId, note }) => {
+    const assignment = await MentorAssignment.findOne({
+        studentIds: studentId,
+        mode: 'qualitative',
+        status: { $in: ['active', 'paused'] }
+    }).sort({ updatedAt: -1 });
+
+    if (!assignment) return null;
+
+    assignment.checkIns.push({
+        date: new Date(),
+        summary: `Home observation: ${note}`,
+        nextSteps: 'Review this note with the classroom strategy plan.',
+        context: 'Home Observation',
+        observation: note,
+        response: 'Submitted via parent proxy portal',
+        nextStep: 'Teacher to align next in-class support step',
+        performed: true
+    });
+    await assignment.save();
+    return assignment._id?.toString?.() || null;
 };
 
 const listStudents = async (req, res) => {
@@ -601,8 +807,8 @@ const listStudents = async (req, res) => {
         const studentIds = students.map((student) => student._id);
         const assignments = studentIds.length
             ? await MentorAssignment.find({ studentIds: { $in: studentIds } })
-                  .populate('mentorId', 'name email username jobPosition')
-                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+                  .populate('mentorId', 'name email username gender jobPosition')
+                  .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration updatedAt planChangeLog mode')
                   .lean()
             : [];
 
@@ -617,6 +823,40 @@ const listStudents = async (req, res) => {
             const fallback = buildFallbackSummary(mentorList);
             return formatRosterStudent(student, fallback);
         });
+
+        // Overlay real tier data from MentorAssignments onto interventions
+        // (student.interventions comes from MTSSStudent model which may have stale tier defaults)
+        const TIER_PRIO = { tier3: 3, tier2: 2, tier1: 1 };
+        const studentTierMap = new Map();
+        assignments.forEach((assignment) => {
+            const focusArea = normalizeFocusArea(
+                assignment.focusAreas?.[0] || assignment.strategyName || assignment.monitoringMethod || ''
+            );
+            const typeKey = resolveInterventionTypeKey(focusArea);
+            const tier = assignment.tier || 'tier1';
+            (assignment.studentIds || []).forEach((sid) => {
+                const key = sid?.toString?.() || sid;
+                if (!key) return;
+                if (!studentTierMap.has(key)) studentTierMap.set(key, new Map());
+                const existing = studentTierMap.get(key).get(typeKey);
+                if (!existing || (TIER_PRIO[tier] || 0) > (TIER_PRIO[existing] || 0)) {
+                    studentTierMap.get(key).set(typeKey, tier);
+                }
+            });
+        });
+        payload.forEach((student) => {
+            const tierMap = studentTierMap.get(student.id?.toString());
+            if (!tierMap || !Array.isArray(student.interventions)) return;
+            student.interventions.forEach((iv) => {
+                const realTier = tierMap.get(iv.type);
+                if (realTier) {
+                    iv.tierCode = realTier;
+                    iv.tier = realTier === 'tier3' ? 'Tier 3' : realTier === 'tier2' ? 'Tier 2' : 'Tier 1';
+                    if (!iv.hasData) iv.hasData = true;
+                }
+            });
+        });
+
         const summary = buildStudentSummary(payload);
 
         sendSuccess(res, 'Students retrieved', {
@@ -638,16 +878,16 @@ const listStudents = async (req, res) => {
 const getStudent = async (req, res) => {
     try {
         const { id } = req.params;
-        const filter = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
-        const student = await MTSSStudent.findOne(filter).lean();
-
-        if (!student) {
-            return sendError(res, 'Student not found', 404);
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
         }
+        const student = scopedStudent.student.toObject();
 
         const assignments = await MentorAssignment.find({ studentIds: student._id })
-            .populate('mentorId', 'name email username jobPosition')
-            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency duration')
+            .populate('mentorId', 'name email username gender jobPosition')
+            .populate('planChangeLog.changedBy', 'name username email')
+            .select('studentIds tier status focusAreas startDate endDate goals checkIns mentorId notes baselineScore targetScore metricLabel strategyName monitoringMethod monitoringFrequency customFrequencyDays customFrequencyNote duration createdAt updatedAt planChangeLog mode')
             .lean();
 
         const summaryMap = summarizeAssignmentsForStudents(assignments);
@@ -664,20 +904,42 @@ const getStudent = async (req, res) => {
         }
 
         // Build intervention details with progress data for each assignment
-        const interventionDetails = assignments.map(assignment => {
-            const focusArea = normalizeFocusArea(
-                assignment.focusAreas?.[0] ||
-                assignment.strategyName ||
-                assignment.monitoringMethod
-            );
-            const typeKey = resolveInterventionTypeKey(focusArea);
-            const meta = INTERVENTION_TYPE_META.get(typeKey) || INTERVENTION_TYPE_META.get('SEL');
+        const interventionDetails = assignments.flatMap(assignment => {
+            const focusLabels = getMentorAssignmentFocusLabels(assignment);
+            const scopedFocusLabels = focusLabels.length
+                ? focusLabels
+                : [assignment.strategyName || assignment.monitoringMethod || 'SEL'];
             const checkIns = assignment.checkIns || [];
             const lastCheckIn = checkIns[checkIns.length - 1];
             const firstCheckIn = checkIns[0];
-
-            // Build chart data from check-ins
-            const chart = checkIns.map((checkIn, idx) => ({
+            const isQualitative = false;
+            const reversedCheckIns = [...checkIns].reverse();
+            const latestQualitativeCheckIn = reversedCheckIns.find((checkIn = {}) => (
+                Boolean(checkIn.signal) ||
+                Boolean(checkIn.weeklyFocus) ||
+                Boolean(checkIn.context) ||
+                Boolean(checkIn.observation) ||
+                Boolean(checkIn.response) ||
+                Boolean(checkIn.nextStep) ||
+                (Array.isArray(checkIn.tags) && checkIn.tags.length > 0)
+            )) || null;
+            const signalDistribution = { emerging: 0, developing: 0, consistent: 0 };
+            checkIns.forEach((checkIn = {}) => {
+                const signal = String(checkIn.signal || '').trim().toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(signalDistribution, signal)) {
+                    signalDistribution[signal] += 1;
+                }
+            });
+            const latestSignal = latestQualitativeCheckIn?.signal || null;
+            const latestWeeklyFocus = latestQualitativeCheckIn?.weeklyFocus || null;
+            const latestTags = Array.isArray(latestQualitativeCheckIn?.tags)
+                ? latestQualitativeCheckIn.tags.filter(Boolean)
+                : [];
+            const latestContext = latestQualitativeCheckIn?.context || null;
+            const latestObservation = latestQualitativeCheckIn?.observation || null;
+            const latestResponse = latestQualitativeCheckIn?.response || null;
+            const latestNextStep = latestQualitativeCheckIn?.nextStep || null;
+            const chart = checkIns.map((checkIn) => ({
                 label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
                 date: checkIn.date,
                 reading: checkIn.value ?? 0,
@@ -688,45 +950,110 @@ const getStudent = async (req, res) => {
             // Build history from check-ins
             const history = checkIns.slice().reverse().map(checkIn => ({
                 date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkIn.date)),
+                timestamp: checkIn.date,
                 notes: checkIn.summary || checkIn.nextSteps || 'Check-in recorded',
                 score: checkIn.value,
-                celebration: checkIn.celebration
+                unit: checkIn.unit || assignment.targetScore?.unit || assignment.baselineScore?.unit || assignment.metricLabel || null,
+                performed: checkIn.performed !== false,
+	                skipReason: checkIn.skipReason || null,
+	                skipReasonNote: checkIn.skipReasonNote || null,
+                    lateReason: checkIn.lateReason || null,
+	                celebration: checkIn.celebration,
+                evidence: checkIn.evidence || [],
+                // Qualitative mode fields (Kindergarten)
+                signal: checkIn.signal || null,
+                tags: checkIn.tags || [],
+                context: checkIn.context || null,
+                observation: checkIn.observation || null,
+                response: checkIn.response || null,
+                nextStep: checkIn.nextStep || null,
+                weeklyFocus: checkIn.weeklyFocus || null
             }));
 
-            return {
-                id: assignment._id,
-                type: typeKey,
-                label: meta?.label || focusArea || 'SEL',
-                focusArea: focusArea || meta?.label || null,
-                tier: assignment.tier,
-                tierLabel: assignment.tier === 'tier3' ? 'Tier 3' : assignment.tier === 'tier2' ? 'Tier 2' : 'Tier 1',
-                status: assignment.status,
-                strategyName: assignment.strategyName || focusArea || null,
-                strategyId: assignment.strategyId || null,
-                duration: assignment.duration || null,
-                monitoringMethod: assignment.monitoringMethod || null,
-                monitoringFrequency: assignment.monitoringFrequency || null,
-                mentor: assignment.mentorId?.name || 'MTSS Mentor',
-                mentorEmail: assignment.mentorId?.email || null,
-                startDate: assignment.startDate,
-                endDate: assignment.endDate,
-                baseline: assignment.baselineScore?.value ?? firstCheckIn?.value ?? null,
-                current: lastCheckIn?.value ?? null,
-                target: assignment.targetScore?.value ?? null,
-                progressUnit: assignment.metricLabel || 'score',
-                progress: assignment.targetScore?.value && lastCheckIn?.value
-                    ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
-                    : 0,
-                checkInsCount: checkIns.length,
-                chart,
-                history,
-                goals: assignment.goals || [],
-                notes: assignment.notes
-            };
+            return scopedFocusLabels.map((focusLabel) => {
+                const focusArea = normalizeFocusArea(
+                    focusLabel ||
+                    assignment.strategyName ||
+                    assignment.monitoringMethod
+                );
+                const typeKey = resolveInterventionTypeKey(focusArea);
+                const meta = INTERVENTION_TYPE_META.get(typeKey) || INTERVENTION_TYPE_META.get('SEL');
+                const pairing = buildAssignmentPairings({
+                    ...assignment,
+                    focusAreas: [focusLabel || focusArea],
+                    studentIds: [student]
+                })[0] || null;
+
+                return {
+                    id: `${assignment._id}-${typeKey}`,
+                    assignmentId: assignment._id,
+                    type: typeKey,
+                    label: meta?.label || focusArea || 'SEL',
+                    focusArea: focusArea || meta?.label || null,
+                    tier: assignment.tier,
+                    tierLabel: assignment.tier === 'tier3' ? 'Tier 3' : assignment.tier === 'tier2' ? 'Tier 2' : 'Tier 1',
+                    status: assignment.status,
+                    strategyName: assignment.strategyName || focusArea || null,
+                    strategyId: assignment.strategyId || null,
+                    duration: assignment.duration || null,
+                    monitoringMethod: assignment.monitoringMethod || null,
+                    monitoringFrequency: assignment.monitoringFrequency || null,
+                    customFrequencyDays: assignment.customFrequencyDays || [],
+                    customFrequencyNote: assignment.customFrequencyNote || null,
+                    mentor: assignment.mentorId?.name || 'MTSS Mentor',
+                    pairingLabel: pairing?.pairingLabel || `${student.name} - ${focusArea || meta?.label || 'SEL'} - ${assignment.mentorId?.name || 'MTSS Mentor'}`,
+                    studentSubjectMentorPair: pairing,
+                    mentorNickname: assignment.mentorId?.username || null,
+                    mentorUsername: assignment.mentorId?.username || null,
+                    mentorGender: assignment.mentorId?.gender || null,
+                    mentorEmail: assignment.mentorId?.email || null,
+                    startDate: assignment.startDate,
+                    endDate: assignment.endDate,
+                    createdAt: assignment.createdAt || assignment.startDate,
+                    updatedAt: assignment.updatedAt || assignment.startDate,
+                    baseline: assignment.baselineScore?.value ?? firstCheckIn?.value ?? null,
+                    current: lastCheckIn?.value ?? null,
+                    target: assignment.targetScore?.value ?? null,
+                    progressUnit: assignment.metricLabel || 'score',
+                    progress: (
+                        assignment.targetScore?.value && lastCheckIn?.value
+                            ? Math.min(100, Math.round((lastCheckIn.value / assignment.targetScore.value) * 100))
+                            : 0
+                    ),
+                    checkInsCount: checkIns.length,
+                    chart,
+                    history,
+                    goals: assignment.goals || [],
+                    notes: assignment.notes,
+                    mode: 'quantitative',
+                    planChangeLog: (assignment.planChangeLog || []).map((entry = {}) => ({
+                        ...entry,
+                        changedByName: entry.changedBy?.name || entry.changedBy?.username || null,
+                        changedByEmail: entry.changedBy?.email || null
+                    })),
+                    latestSignal,
+                    latestWeeklyFocus,
+                    latestTags,
+                    latestContext,
+                    latestObservation,
+                    latestResponse,
+                    latestNextStep,
+                    signalDistribution
+                };
+            });
         });
 
         // Add interventionDetails to payload
         payload.interventionDetails = interventionDetails;
+        payload.assignmentCount = assignments.length;
+        payload.activeAssignmentCount = assignments.filter((assignment) => assignment.status === 'active').length;
+        payload.lastAssignmentAt = assignments
+            .map((assignment) => assignment.updatedAt || assignment.endDate || assignment.startDate || null)
+            .filter(Boolean)
+            .map((value) => new Date(value))
+            .filter((value) => !Number.isNaN(value.getTime()))
+            .sort((a, b) => b - a)[0]?.toISOString() || null;
+        payload.dataSource = assignments.length ? 'mtssstudents+mentorassignments' : 'mtssstudents';
 
         sendSuccess(res, 'Student retrieved', { student: payload });
     } catch (error) {
@@ -766,9 +1093,149 @@ const updateStudent = async (req, res) => {
     }
 };
 
+const submitKindergartenMoodCheckin = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { mood, regulationChoice, note, source } = req.body;
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
+        }
+
+        const student = scopedStudent.student;
+        if (!isKindergartenStudentRecord(student)) {
+            return sendError(res, 'Mood check-in is only available for Kindergarten records', 400);
+        }
+
+        const fallbackSource = req.user?.role === 'student' ? 'student' : 'parent_proxy';
+        const resolvedSource = sanitizeSubmissionSource(source, fallbackSource);
+        const now = new Date();
+        const todayKey = toDateKey(now);
+
+        // Build start/end of today for the atomic range query
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(startOfDay);
+        endOfDay.setDate(endOfDay.getDate() + 1);
+
+        const nextEntry = {
+            date: now,
+            mood,
+            regulationChoice: regulationChoice || undefined,
+            note: typeof note === 'string' && note.trim() ? note.trim() : undefined,
+            source: resolvedSource,
+            submittedByName: req.user?.name || req.user?.username || 'Family User',
+            submittedByUserId: req.user?.id || req.user?._id
+        };
+
+        // Atomically replace an existing same-source entry for today (arrayFilter update).
+        // If no entry matched, modifiedCount === 0 and we push a new one.
+        const updateResult = await MTSSStudent.updateOne(
+            { _id: student._id },
+            { $set: { 'kindergartenMoodCheckIns.$[entry]': nextEntry } },
+            {
+                arrayFilters: [
+                    {
+                        'entry.date': { $gte: startOfDay, $lt: endOfDay },
+                        'entry.source': resolvedSource
+                    }
+                ]
+            }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+            // No existing entry for today: push new entry and trim retention atomically
+            await MTSSStudent.updateOne(
+                { _id: student._id },
+                {
+                    $push: {
+                        kindergartenMoodCheckIns: {
+                            $each: [nextEntry],
+                            $slice: -KINDERGARTEN_MOOD_RETENTION
+                        }
+                    }
+                }
+            );
+        }
+
+        // Refetch to get the committed state for the portal payload
+        const updatedStudent = await MTSSStudent.findById(student._id).lean();
+
+        const assignments = await MentorAssignment.find({ studentIds: student._id })
+            .select('focusAreas strategyName monitoringMethod checkIns mode updatedAt')
+            .lean();
+
+        const kindergartenPortal = buildKindergartenPortalPayload({ student: updatedStudent, assignments });
+
+        sendSuccess(res, 'Kindergarten mood check-in saved', {
+            moodCheckin: kindergartenPortal.moodCheckin,
+            kindergartenPortal
+        });
+    } catch (error) {
+        console.error('Failed to submit Kindergarten mood check-in:', error);
+        sendError(res, 'Failed to submit mood check-in', 500);
+    }
+};
+
+const submitKindergartenHomeObservation = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { note, source } = req.body;
+        const scopedStudent = await resolveScopedStudent({ id, viewer: req.user });
+        if (!scopedStudent.student) {
+            return sendError(res, scopedStudent.error, scopedStudent.statusCode);
+        }
+
+        const student = scopedStudent.student;
+        if (!isKindergartenStudentRecord(student)) {
+            return sendError(res, 'Home observations are only available for Kindergarten records', 400);
+        }
+
+        const trimmedNote = String(note || '').trim();
+        if (!trimmedNote) {
+            return sendError(res, 'Observation note is required', 400);
+        }
+
+        const fallbackSource = req.user?.role === 'student' ? 'student' : 'parent_proxy';
+        const resolvedSource = sanitizeSubmissionSource(source, fallbackSource);
+        const observations = toSafeArray(student.kindergartenHomeObservations);
+        observations.push({
+            createdAt: new Date(),
+            note: trimmedNote,
+            source: resolvedSource,
+            submittedByName: req.user?.name || req.user?.username || 'Family User',
+            submittedByUserId: req.user?.id || req.user?._id
+        });
+
+        student.kindergartenHomeObservations = observations.slice(-KINDERGARTEN_HOME_OBSERVATION_RETENTION);
+        await student.save();
+
+        const assignmentId = await appendParentObservationToQualitativeAssignment({
+            studentId: student._id,
+            note: trimmedNote
+        });
+
+        const assignments = await MentorAssignment.find({ studentIds: student._id })
+            .select('focusAreas strategyName monitoringMethod checkIns mode updatedAt')
+            .lean();
+        const kindergartenPortal = buildKindergartenPortalPayload({ student: student.toObject(), assignments });
+
+        sendSuccess(res, 'Kindergarten home observation saved', {
+            parentProxy: kindergartenPortal.parentProxy,
+            kindergartenPortal,
+            syncedAssignmentId: assignmentId
+        });
+    } catch (error) {
+        console.error('Failed to submit Kindergarten home observation:', error);
+        sendError(res, 'Failed to submit home observation', 500);
+    }
+};
+
 module.exports = {
     listStudents,
     getStudent,
     createStudent,
-    updateStudent
+    updateStudent,
+    submitKindergartenMoodCheckin,
+    submitKindergartenHomeObservation
 };

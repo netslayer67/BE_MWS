@@ -8,7 +8,7 @@ require('dotenv').config();
  * Complete MTSS Grade 7 Helix Seed Script
  *
  * Creates complete test scenario where:
- * - EVERY student has ALL 5 subjects (SEL, English, Math, Behavior, Attendance)
+ * - EVERY student has ALL 6 subjects (SEL, English, Math, Behavior, Attendance, Indonesian)
  * - Each subject has its own tier (Tier 1, 2, or 3)
  * - Subjects in Tier 2/3 have MentorAssignments with check-ins
  * - Subjects in Tier 1 are monitoring only
@@ -18,7 +18,7 @@ require('dotenv').config();
 const SEED_TAG = 'seed:grade7-helix-complete';
 
 // All 5 intervention types
-const ALL_SUBJECTS = ['SEL', 'English', 'Math', 'Behavior', 'Attendance'];
+const ALL_SUBJECTS = ['SEL', 'English', 'Math', 'Behavior', 'Attendance', 'Indonesian'];
 
 // Subject definitions with tier levels for escalated interventions
 const SUBJECT_DEFINITIONS = {
@@ -83,7 +83,7 @@ const SUBJECT_DEFINITIONS = {
         goal: 'Improve math computation accuracy'
     },
     Attendance: {
-        mentorEmail: 'hadi@millennia21.id',
+        mentorEmail: 'abu@millennia21.id',
         tier: 'tier2',
         focusLabel: 'Attendance',
         metricLabel: '%',
@@ -96,20 +96,35 @@ const SUBJECT_DEFINITIONS = {
         monitoringMethod: 'Option 2 - Student Self-Report',
         monitoringFrequency: 'Weekly',
         goal: 'Improve attendance through positive reinforcement'
+    },
+    Indonesian: {
+        mentorEmail: 'abu@millennia21.id',
+        tier: 'tier2',
+        focusLabel: 'Bahasa Indonesia',
+        metricLabel: 'score',
+        baseline: 50,
+        target: 75,
+        interventionType: 'INDONESIAN',
+        strategyName: 'Bahasa Indonesia Reading Practice',
+        strategyId: null,
+        duration: '6 weeks',
+        monitoringMethod: 'Option 3 - Assessment Data',
+        monitoringFrequency: 'Weekly',
+        goal: 'Improve Bahasa Indonesia literacy and comprehension skills'
     }
 };
 
 // Define which subjects are escalated (Tier 2/3) vs monitoring (Tier 1) for test students
 // This creates variety - some students have more escalated subjects than others
 const STUDENT_INTERVENTION_PROFILES = [
-    // Profile 1: SEL (Tier 2), English (Tier 3), Math (Tier 2) - others Tier 1
-    { escalated: ['SEL', 'English', 'Math'], tier1: ['Behavior', 'Attendance'] },
+    // Profile 1: SEL (Tier 2), English (Tier 3), Math (Tier 2), Indonesian (Tier 2) - others Tier 1
+    { escalated: ['SEL', 'English', 'Math', 'Indonesian'], tier1: ['Behavior', 'Attendance'] },
     // Profile 2: Behavior (Tier 2), Math (Tier 2), Attendance (Tier 2) - others Tier 1
-    { escalated: ['Behavior', 'Math', 'Attendance'], tier1: ['SEL', 'English'] },
-    // Profile 3: SEL (Tier 2), Behavior (Tier 2) - others Tier 1
-    { escalated: ['SEL', 'Behavior'], tier1: ['English', 'Math', 'Attendance'] },
-    // Profile 4: English (Tier 3), Attendance (Tier 2) - others Tier 1
-    { escalated: ['English', 'Attendance'], tier1: ['SEL', 'Math', 'Behavior'] },
+    { escalated: ['Behavior', 'Math', 'Attendance'], tier1: ['SEL', 'English', 'Indonesian'] },
+    // Profile 3: SEL (Tier 2), Behavior (Tier 2), Indonesian (Tier 2) - others Tier 1
+    { escalated: ['SEL', 'Behavior', 'Indonesian'], tier1: ['English', 'Math', 'Attendance'] },
+    // Profile 4: English (Tier 3), Attendance (Tier 2), Indonesian (Tier 2) - others Tier 1
+    { escalated: ['English', 'Attendance', 'Indonesian'], tier1: ['SEL', 'Math', 'Behavior'] },
 ];
 
 /**
@@ -156,7 +171,7 @@ function generateCheckIns(subjectKey) {
 async function seedGrade7HelixComplete() {
     try {
         console.log('🌱 Starting MTSS Grade 7 Helix Complete Seed...\n');
-        console.log('This script creates ALL 5 subjects per student with varied tiers.\n');
+        console.log('This script creates ALL 6 subjects per student with varied tiers.\n');
 
         await mongoose.connect(process.env.MONGODB_URI, {
             serverSelectionTimeoutMS: 15000,
@@ -191,7 +206,7 @@ async function seedGrade7HelixComplete() {
 
         // Step 3: Fetch teachers
         console.log('Step 3: Fetching teachers...');
-        const teacherEmails = ['abu@millennia21.id', 'nadiamws@millennia21.id', 'sisil@millennia21.id', 'hadi@millennia21.id'];
+        const teacherEmails = ['abu@millennia21.id', 'nadiamws@millennia21.id', 'sisil@millennia21.id'];
         const teachers = await User.find({ email: { $in: teacherEmails } }).lean();
         const teacherMap = {};
         teachers.forEach(t => { teacherMap[t.email] = t; });
@@ -263,7 +278,7 @@ async function seedGrade7HelixComplete() {
                             startDate,
                             endDate,
                             duration: subject.duration,
-                            strategyId: new mongoose.Types.ObjectId(subject.strategyId),
+                            strategyId: subject.strategyId ? new mongoose.Types.ObjectId(subject.strategyId) : undefined,
                             strategyName: subject.strategyName,
                             monitoringMethod: subject.monitoringMethod,
                             monitoringFrequency: subject.monitoringFrequency,
@@ -311,7 +326,8 @@ async function seedGrade7HelixComplete() {
         console.log('  - Math (Tier 1, 2, or 3)');
         console.log('  - Behavior (Tier 1, 2, or 3)');
         console.log('  - Attendance (Tier 1, 2, or 3)');
-        console.log('\nRefresh the frontend to see all 5 subjects per student!\n');
+        console.log('  - Bahasa Indonesia (Tier 1, 2, or 3)');
+        console.log('\nRefresh the frontend to see all 6 subjects per student!\n');
 
         process.exit(0);
     } catch (error) {

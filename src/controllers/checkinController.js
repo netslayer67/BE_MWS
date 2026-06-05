@@ -1,8 +1,53 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
+const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+const { buildCheckinUserSnapshot } = require('../utils/checkinIdentity');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const STUDENT_DAILY_LIMIT_PER_TYPE = 2;
+const DEFAULT_DAILY_LIMIT_PER_TYPE = 1;
+
+const getCheckinModelForRole = (role) => (
+    role === 'student' ? StudentEmotionalCheckin : EmotionalCheckin
+);
+
+const getCheckinModelForUser = (user = {}) => getCheckinModelForRole(user?.role);
+
+const getDailyCheckinLimitByRole = (role) => (
+    role === 'student' ? STUDENT_DAILY_LIMIT_PER_TYPE : DEFAULT_DAILY_LIMIT_PER_TYPE
+);
+
+const getDailyCheckinLimitsForUser = (user = {}) => {
+    const limit = getDailyCheckinLimitByRole(user?.role);
+    return {
+        manual: limit,
+        ai: limit
+    };
+};
+
+const manualCheckinFilter = {
+    $or: [
+        { aiEmotionScan: { $exists: false } },
+        { aiEmotionScan: null }
+    ]
+};
+
+const aiCheckinFilter = {
+    aiEmotionScan: { $exists: true, $ne: null }
+};
+
+const countDocumentsSafe = async (Model, query) => {
+    if (Model && typeof Model.countDocuments === 'function') {
+        return Model.countDocuments(query);
+    }
+    if (Model && typeof Model.findOne === 'function') {
+        const found = await Model.findOne(query);
+        return found ? 1 : 0;
+    }
+    return 0;
+};
 
 const normalizeObjectId = (id) => {
     if (!id) {
@@ -75,6 +120,146 @@ const toPlainObject = (value) => {
 const normalizeTextValue = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
 
 const normalizeSpaces = (value = '') => value.replace(/\s+/g, ' ').trim();
+
+const normalizeReflectionPayload = (payload = {}) => {
+    if (!payload || typeof payload !== 'object') return '';
+    const explicitReflection = typeof payload.userReflection === 'string' ? normalizeSpaces(payload.userReflection) : '';
+    if (explicitReflection) return explicitReflection;
+    return typeof payload.details === 'string' ? normalizeSpaces(payload.details) : '';
+};
+
+const normalizeStateValue = (value, allowedValues = []) => {
+    const normalized = normalizeTextValue(value);
+    return allowedValues.includes(normalized) ? normalized : null;
+};
+
+const normalizePreparedAiAnalysis = (payload = {}) => {
+    const prepared = payload?.preparedAiAnalysis;
+    if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
+        return null;
+    }
+
+    const emotionalState = normalizeStateValue(prepared.emotionalState, ['positive', 'challenging', 'balanced', 'depleted']);
+    const presenceState = normalizeStateValue(prepared.presenceState, ['high', 'moderate', 'low']);
+    const capacityState = normalizeStateValue(prepared.capacityState, ['high', 'moderate', 'low']);
+
+    if (!emotionalState || !presenceState || !capacityState) {
+        return null;
+    }
+
+    const recommendations = Array.isArray(prepared.recommendations)
+        ? prepared.recommendations
+            .filter((rec) => rec && typeof rec === 'object')
+            .slice(0, 10)
+            .map((rec) => ({
+                title: normalizeSpaces(String(rec.title || 'Supportive next step')).slice(0, 120),
+                description: normalizeSpaces(String(rec.description || '')).slice(0, 1000),
+                priority: normalizeStateValue(rec.priority, ['high', 'medium', 'low']) || 'medium',
+                category: normalizeSpaces(String(rec.category || 'support')).slice(0, 80)
+            }))
+            .filter((rec) => rec.title)
+        : [];
+
+    const confidence = Number(prepared.confidence);
+    const processingTime = Number(prepared.processingTime);
+
+    return {
+        emotionalState,
+        presenceState,
+        capacityState,
+        recommendations,
+        psychologicalInsights: normalizeSpaces(String(prepared.psychologicalInsights || '')).slice(0, 4000),
+        motivationalMessage: normalizeSpaces(String(prepared.motivationalMessage || '')).slice(0, 4000),
+        needsSupport: Boolean(prepared.needsSupport),
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, confidence)) : 75,
+        processingTime: Number.isFinite(processingTime) ? Math.max(0, processingTime) : 0
+    };
+};
+
+const queueSupportNotifications = ({
+    notificationService,
+    checkin,
+    user,
+    supportContact,
+    includeSupportRequestNotification = false,
+    logLabel = 'check-in'
+}) => {
+    if (!notificationService || !checkin?.supportContactUserId || !user || !supportContact) {
+        return;
+    }
+
+    const notificationPayload = {
+        userName: user.name,
+        userRole: user.role,
+        userDepartment: user.department,
+        supportContactName: supportContact.name,
+        supportContactEmail: supportContact.email,
+        weatherType: checkin.weatherType,
+        presenceLevel: checkin.presenceLevel,
+        capacityLevel: checkin.capacityLevel,
+        selectedMoods: checkin.selectedMoods,
+        details: checkin.details,
+        aiAnalysis: checkin.aiAnalysis,
+        checkinId: checkin._id.toString()
+    };
+
+    const dispatchNotifications = async () => {
+        try {
+            console.log(`🔔 Background support notifications started for ${logLabel}:`, checkin.userId);
+
+            if (includeSupportRequestNotification) {
+                try {
+                    await notificationService.createSupportRequestNotification(checkin.userId, {
+                        supportContactName: supportContact.name,
+                        supportContactEmail: supportContact.email,
+                        weatherType: checkin.weatherType,
+                        presenceLevel: checkin.presenceLevel,
+                        capacityLevel: checkin.capacityLevel,
+                        checkinId: checkin._id.toString()
+                    });
+                } catch (notificationError) {
+                    console.error('❌ Failed to create support request notification:', notificationError);
+                }
+            }
+
+            const [slackResult, emailResult] = await Promise.allSettled([
+                notificationService.sendSlackNotification(notificationPayload),
+                notificationService.sendEmailNotification(notificationPayload)
+            ]);
+
+            const slackOk = slackResult.status === 'fulfilled' && slackResult.value?.success !== false;
+            const emailOk = emailResult.status === 'fulfilled' && emailResult.value?.success !== false;
+
+            if (!slackOk) {
+                const reason = slackResult.reason?.message || slackResult.value?.error || 'unknown';
+                console.error(`❌ Slack notification failed for ${logLabel}: ${reason}`);
+            }
+            if (!emailOk) {
+                const reason = emailResult.reason?.message || emailResult.value?.error || 'unknown';
+                console.error(`❌ Email notification failed for ${logLabel}: ${reason}`);
+            }
+
+            if (!slackOk && !emailOk) {
+                console.error(`🚨 CRITICAL: Both Slack and email delivery failed for support request — checkinId: ${notificationPayload.checkinId}, contact: ${notificationPayload.supportContactEmail}`);
+            } else {
+                console.log(`✅ Support notifications delivered for ${logLabel} (slack=${slackOk}, email=${emailOk})`);
+            }
+        } catch (error) {
+            console.error(`❌ Background support notifications crashed for ${logLabel}:`, error);
+        }
+    };
+
+    const shouldRunInline = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID);
+    if (shouldRunInline) {
+        return dispatchNotifications();
+    }
+
+    setImmediate(() => {
+        void dispatchNotifications();
+    });
+
+    return null;
+};
 
 const normalizeGradeValue = (value) => {
     const normalized = normalizeSpaces(normalizeTextValue(value));
@@ -153,11 +338,78 @@ const studentMatchesTeacherScopes = (student, scopes = []) => {
     });
 };
 
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const resolveUnitLabel = (rawUnit = '') => {
+    const normalized = normalizeTextValue(rawUnit);
+    if (!normalized) return '';
+    if (normalized.includes('elementary')) return 'Elementary';
+    if (normalized.includes('junior high')) return 'Junior High';
+    if (normalized.includes('kindergarten') || normalized.includes('kindy') || normalized.includes('pelangi')) return 'Kindergarten';
+    return normalizeSpaces(rawUnit);
+};
+
+const getUnitGradeBandLabel = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return 'Grade 1-6';
+    if (normalized === 'junior high') return 'Grade 7-9';
+    if (normalized === 'kindergarten') return 'Kindergarten';
+    return 'All Grades';
+};
+
+const buildUnitGradeRegex = (unit = '') => {
+    const normalized = normalizeTextValue(unit);
+    if (normalized === 'elementary') return /^grade\s*[1-6]\b/i;
+    if (normalized === 'junior high') return /^grade\s*[7-9]\b/i;
+    if (normalized === 'kindergarten') return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    return null;
+};
+
+const buildGradeRegexFromQuery = (grade = '') => {
+    const normalized = normalizeTextValue(grade);
+    if (!normalized) return null;
+
+    const gradeMatch = normalized.match(/grade\s*(\d+)/i) || normalized.match(/^(\d+)$/);
+    if (gradeMatch) {
+        return new RegExp(`^grade\\s*${gradeMatch[1]}\\b`, 'i');
+    }
+
+    if (/(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i.test(normalized)) {
+        return /(kindergarten|kindy|pre[-\s]?k|k\s*1|k\s*2)/i;
+    }
+
+    return new RegExp(escapeRegex(normalizeSpaces(grade)), 'i');
+};
+
 const findAnyUserById = async (userId, select) => {
     if (!userId) return null;
     const student = await UserStudent.findById(userId).select(select);
     if (student) return student;
     return User.findById(userId).select(select);
+};
+
+const isNoSupportSelection = (value) => {
+    if (value == null) return true;
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === '' || normalized === 'no_need' || normalized === 'no-need';
+};
+
+const extractSupportContactUserId = (rawValue) => {
+    if (rawValue && typeof rawValue === 'object' && rawValue._id) {
+        rawValue = rawValue._id;
+    }
+    if (isNoSupportSelection(rawValue)) {
+        return null;
+    }
+    if (typeof rawValue !== 'string') {
+        return null;
+    }
+    const candidate = rawValue.trim();
+    if (!mongoose.Types.ObjectId.isValid(candidate)) {
+        return null;
+    }
+    return candidate;
 };
 
 const formatCheckinSnapshot = (checkin) => {
@@ -187,6 +439,203 @@ const formatCheckinSnapshot = (checkin) => {
             department: supportContact.department,
             unit: supportContact.unit
         } : null
+    };
+};
+
+const getNumericValue = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+const roundOneDecimal = (value) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return Math.round(value * 10) / 10;
+};
+
+const toISODateKey = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    parsed.setHours(0, 0, 0, 0);
+    return parsed.toISOString().split('T')[0];
+};
+
+const isDateWithinWindow = (value, start, end) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.getTime() >= start.getTime() && parsed.getTime() <= end.getTime();
+};
+
+const deriveMoodStateFromCheckin = (checkin = {}) => {
+    const explicit = normalizeTextValue(checkin.aiAnalysis?.emotionalState || '');
+    if (['positive', 'balanced', 'challenging', 'depleted'].includes(explicit)) {
+        return explicit;
+    }
+
+    const presence = getNumericValue(checkin.presenceLevel);
+    const capacity = getNumericValue(checkin.capacityLevel);
+    if (presence == null && capacity == null) {
+        return 'balanced';
+    }
+
+    const basis = [];
+    if (presence != null) basis.push(presence);
+    if (capacity != null) basis.push(capacity);
+    const average = basis.reduce((sum, item) => sum + item, 0) / basis.length;
+
+    if (average >= 7.5) return 'positive';
+    if (average <= 3.5) return 'challenging';
+    if (average <= 5) return 'depleted';
+    return 'balanced';
+};
+
+const buildStudentProgressPayload = (historyCheckins = []) => {
+    const sortedHistory = [...historyCheckins].sort((a, b) => {
+        const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+        const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+        return aTime - bTime;
+    });
+
+    if (!sortedHistory.length) {
+        return {
+            submissionsLast14Days: 0,
+            averagePresence: null,
+            averageCapacity: null,
+            supportAlertsLast14Days: 0,
+            moodBreakdown: {
+                positive: 0,
+                balanced: 0,
+                depleted: 0,
+                challenging: 0
+            },
+            topMoods: [],
+            trend: [],
+            recentNotes: []
+        };
+    }
+
+    const dayMap = new Map();
+    const moodCountMap = new Map();
+    const moodBreakdown = {
+        positive: 0,
+        balanced: 0,
+        depleted: 0,
+        challenging: 0
+    };
+
+    let totalPresence = 0;
+    let totalCapacity = 0;
+    let presenceCount = 0;
+    let capacityCount = 0;
+    let supportAlerts = 0;
+
+    sortedHistory.forEach((checkin) => {
+        const dayKey = toISODateKey(checkin.date || checkin.submittedAt);
+        if (!dayKey) return;
+
+        if (!dayMap.has(dayKey)) {
+            dayMap.set(dayKey, {
+                date: dayKey,
+                submissions: 0,
+                presenceTotal: 0,
+                presenceCount: 0,
+                capacityTotal: 0,
+                capacityCount: 0,
+                moodCounts: {},
+                needsSupport: false
+            });
+        }
+
+        const dayEntry = dayMap.get(dayKey);
+        dayEntry.submissions += 1;
+
+        const presence = getNumericValue(checkin.presenceLevel);
+        if (presence != null) {
+            dayEntry.presenceTotal += presence;
+            dayEntry.presenceCount += 1;
+            totalPresence += presence;
+            presenceCount += 1;
+        }
+
+        const capacity = getNumericValue(checkin.capacityLevel);
+        if (capacity != null) {
+            dayEntry.capacityTotal += capacity;
+            dayEntry.capacityCount += 1;
+            totalCapacity += capacity;
+            capacityCount += 1;
+        }
+
+        const moodState = deriveMoodStateFromCheckin(checkin);
+        dayEntry.moodCounts[moodState] = (dayEntry.moodCounts[moodState] || 0) + 1;
+        moodBreakdown[moodState] = (moodBreakdown[moodState] || 0) + 1;
+
+        if (checkin.aiAnalysis?.needsSupport) {
+            dayEntry.needsSupport = true;
+            supportAlerts += 1;
+        }
+
+        (Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [])
+            .map((mood) => normalizeSpaces(String(mood || '')).toLowerCase())
+            .filter(Boolean)
+            .forEach((mood) => {
+                moodCountMap.set(mood, (moodCountMap.get(mood) || 0) + 1);
+            });
+    });
+
+    const trend = [...dayMap.values()]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((dayEntry) => {
+            const dominantMoodState = Object.entries(dayEntry.moodCounts)
+                .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
+
+            return {
+                date: dayEntry.date,
+                submissions: dayEntry.submissions,
+                presence: dayEntry.presenceCount > 0 ? roundOneDecimal(dayEntry.presenceTotal / dayEntry.presenceCount) : null,
+                capacity: dayEntry.capacityCount > 0 ? roundOneDecimal(dayEntry.capacityTotal / dayEntry.capacityCount) : null,
+                moodState: dominantMoodState,
+                needsSupport: dayEntry.needsSupport
+            };
+        });
+
+    const recentNotes = [...sortedHistory]
+        .sort((a, b) => {
+            const aTime = new Date(a.submittedAt || a.date || 0).getTime();
+            const bTime = new Date(b.submittedAt || b.date || 0).getTime();
+            return bTime - aTime;
+        })
+        .map((checkin) => {
+            const reflection = normalizeSpaces(checkin.userReflection || '');
+            const detailNote = normalizeSpaces(checkin.details || '');
+            const note = reflection || detailNote;
+            if (!note) return null;
+
+            return {
+                id: checkin._id,
+                date: checkin.date || checkin.submittedAt,
+                note,
+                source: reflection ? 'reflection' : 'details',
+                weatherType: checkin.weatherType || null,
+                selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+                needsSupport: Boolean(checkin.aiAnalysis?.needsSupport)
+            };
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+    const topMoods = [...moodCountMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([mood, count]) => ({ mood, count }));
+
+    return {
+        submissionsLast14Days: sortedHistory.length,
+        averagePresence: presenceCount > 0 ? roundOneDecimal(totalPresence / presenceCount) : null,
+        averageCapacity: capacityCount > 0 ? roundOneDecimal(totalCapacity / capacityCount) : null,
+        supportAlertsLast14Days: supportAlerts,
+        moodBreakdown,
+        topMoods,
+        trend,
+        recentNotes
     };
 };
 
@@ -227,30 +676,30 @@ const buildPersonalInsights = (summary, todaySnapshot, streaks, periodSummary) =
     const insights = [];
 
     if (!todaySnapshot) {
-        insights.push('Belum ada check-in hari ini. Luangkan waktu 2 menit untuk mencatat kondisi emosimu.');
+        insights.push('No check-in yet today. Take 2 minutes to record how you\'re feeling.');
     }
 
     if (!summary.totalCheckins) {
-        insights.push('Mulai catat emosi secara rutin agar AI dapat menyiapkan insight personal untukmu.');
+        insights.push('Start checking in regularly so AI can prepare personalized insights for you.');
         return insights.slice(0, 3);
     }
 
     if (typeof summary.averagePresence === 'number' && summary.averagePresence > 0 && summary.averagePresence < 5) {
-        insights.push('Presence rata-rata masih di bawah 5. Pertimbangkan micro break atau jeda singkat sepanjang hari.');
+        insights.push('Your average presence is still below 5. Consider taking micro breaks or short pauses throughout the day.');
     } else if (typeof summary.averagePresence === 'number' && summary.averagePresence >= 7.5) {
-        insights.push('Presence kamu stabil dan tinggi. Pertahankan ritme kerja yang seimbang seperti sekarang.');
+        insights.push('Your presence is stable and high. Keep maintaining your balanced work rhythm.');
     }
 
     if (summary.aiSupportDays > 0) {
-        insights.push(`AI mendeteksi kebutuhan dukungan sebanyak ${summary.aiSupportDays} hari. Manfaatkan support contact jika diperlukan.`);
+        insights.push(`AI detected support needs on ${summary.aiSupportDays} days. Consider using support contacts if needed.`);
     }
 
     if (streaks.current >= 3) {
-        insights.push(`Keren! Kamu konsisten check-in selama ${streaks.current} hari berturut-turut.`);
+        insights.push(`Awesome! You've been consistently checking in for ${streaks.current} days in a row.`);
     }
 
     if (periodSummary?.challengingDays >= periodSummary?.positiveDays && periodSummary?.challengingDays > 0) {
-        insights.push('Dalam 30 hari terakhir, emosi menantang muncul lebih sering. Coba tinjau ulang rekomendasi AI di riwayat check-in.');
+        insights.push('In the last 30 days, challenging emotions appeared more often. Try reviewing AI recommendations in your check-in history.');
     }
 
     return insights.slice(0, 3);
@@ -349,14 +798,14 @@ const enhanceAIAnalysisWithUserContext = async (aiAnalysis, checkinData) => {
 };
 
 // Update user's emotional patterns for AI learning
-const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection) => {
+const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection, userRole = null) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
+        const CheckinModel = getCheckinModelForRole(userRole);
 
         if (!aiEmotionScan) return;
 
         // Get user's recent emotional history (last 30 check-ins)
-        const recentCheckins = await EmotionalCheckin.find({
+        const recentCheckins = await CheckinModel.find({
             userId,
             aiEmotionScan: { $exists: true }
         })
@@ -455,7 +904,7 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
         }
 
         // Update the current check-in with emotional patterns
-        const currentCheckin = await EmotionalCheckin.findOne({
+        const currentCheckin = await CheckinModel.findOne({
             userId,
             submittedAt: { $gte: new Date(Date.now() - 60000) } // Last minute
         }).sort({ submittedAt: -1 });
@@ -485,16 +934,16 @@ const updateUserEmotionalPatterns = async (userId, aiEmotionScan, userReflection
 // Submit emotional check-in
 const submitCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
         const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -509,32 +958,25 @@ const submitCheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingManualCheckin = await EmotionalCheckin.findOne({
+        const manualCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ] // Manual check-in has no AI scan (missing or null)
+            ...manualCheckinFilter
         });
 
-        if (existingManualCheckin) {
-            return sendError(res, 'You have already completed a manual check-in today. You can only do AI analysis or wait until tomorrow.', 409);
+        if (manualCheckinsToday >= limits.manual) {
+            return sendError(
+                res,
+                `You have reached today's manual check-in limit (${limits.manual}/${limits.manual}). Please continue with AI analysis or try again tomorrow.`,
+                409
+            );
         }
 
-        // Handle support contact - extract ObjectId if object is provided
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                // For AI scans, this should be the ObjectId string
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact and gracefully normalize "No Need" values.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🔍 Processing support contact:', {
             input: req.body.supportContactUserId,
@@ -544,6 +986,7 @@ const submitCheckin = async (req, res) => {
 
         const checkinData = {
             userId: req.user.id,
+            ...buildCheckinUserSnapshot(req.user),
             weatherType: req.body.weatherType,
             selectedMoods: req.body.selectedMoods,
             details: req.body.details,
@@ -609,23 +1052,20 @@ const submitCheckin = async (req, res) => {
 
         // Update user's emotional patterns for AI learning
         console.log('🧠 Updating user emotional patterns...');
-        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection);
+        await updateUserEmotionalPatterns(checkinData.userId, checkinData.aiEmotionScan, checkinData.userReflection, req.user.role);
         console.log('✅ User emotional patterns updated');
 
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
 
         await checkin.save();
-
-        // Populate support contact details if exists
-        let populatedCheckin = checkin;
-        if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
-                .populate('supportContactUserId', 'name role department');
-        }
+        const responseUser = await findAnyUserById(checkin.userId, 'name role department');
+        const supportContact = checkin.supportContactUserId
+            ? await User.findById(checkin.supportContactUserId).select('name email role department')
+            : null;
 
         // Emit real-time update for dashboard and invalidate cache
         const io = require('../config/socket').getIO();
@@ -634,14 +1074,11 @@ const submitCheckin = async (req, res) => {
         cacheService.invalidateDashboardCache();
 
         if (io) {
-            // Get user name for notification
-            const user = await findAnyUserById(checkin.userId, 'name');
-
             // Emit to all dashboard clients
             io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
-                userName: user?.name || 'Unknown User',
+                userName: responseUser?.name || 'Unknown User',
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
@@ -662,117 +1099,22 @@ const submitCheckin = async (req, res) => {
             });
         }
 
-        // Send notifications if user has selected a support contact (regardless of AI analysis)
-        if (checkin.supportContactUserId) {
-            try {
-                console.log('🔔 Sending support notifications for user:', checkin.userId);
-                console.log('📧 Support contact ID:', checkin.supportContactUserId);
-                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
-
-                // Get user details
-                const user = await findAnyUserById(checkin.userId, 'name role department');
-                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
-
-                console.log('👤 User details:', { name: user?.name, role: user?.role, department: user?.department });
-                console.log('🎯 Support contact details:', { name: supportContact?.name, email: supportContact?.email, role: supportContact?.role });
-
-                if (user && supportContact) {
-                    console.log('✅ Both user and support contact found, proceeding with notifications');
-
-                    // Create notification for support request
-                    try {
-                        await notificationService.createSupportRequestNotification(checkin.userId, {
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Support request notification created');
-                    } catch (notificationError) {
-                        console.error('❌ Failed to create support request notification:', notificationError);
-                        // Don't fail the check-in if notification creation fails
-                    }
-
-                    // Send Slack notification
-                    try {
-                        console.log('📱 Attempting to send Slack notification...');
-                        await notificationService.sendSlackNotification({
-                            userName: user.name,
-                            userRole: user.role,
-                            userDepartment: user.department,
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            selectedMoods: checkin.selectedMoods,
-                            details: checkin.details,
-                            aiAnalysis: checkin.aiAnalysis,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Slack notification sent successfully');
-                    } catch (slackError) {
-                        console.error('❌ Slack notification failed:', slackError.message);
-                    }
-
-                    // Send email notification
-                    try {
-                        console.log('📧 Attempting to send email notification...');
-                        await notificationService.sendEmailNotification({
-                            userName: user.name,
-                            userRole: user.role,
-                            userDepartment: user.department,
-                            supportContactName: supportContact.name,
-                            supportContactEmail: supportContact.email,
-                            weatherType: checkin.weatherType,
-                            presenceLevel: checkin.presenceLevel,
-                            capacityLevel: checkin.capacityLevel,
-                            selectedMoods: checkin.selectedMoods,
-                            details: checkin.details,
-                            aiAnalysis: checkin.aiAnalysis,
-                            checkinId: checkin._id.toString()
-                        });
-                        console.log('✅ Email notification sent successfully');
-                    } catch (emailError) {
-                        console.error('❌ Email notification failed:', emailError.message);
-                    }
-
-                    console.log('✅ Support notifications process completed');
-                } else {
-                    console.log('❌ Missing user or support contact data:', {
-                        hasUser: !!user,
-                        hasSupportContact: !!supportContact
-                    });
-                }
-            } catch (notificationError) {
-                console.error('❌ Failed to send support notifications:', notificationError);
-                // Don't fail the check-in if notifications fail
-            }
-        } else {
-            console.log('ℹ️ Skipping notifications - no support contact selected');
-        }
-
         // Prepare support contact details for response
         let supportContactDetails = null;
-        if (populatedCheckin.supportContactUserId) {
+        if (supportContact) {
             supportContactDetails = {
-                id: populatedCheckin.supportContactUserId._id,
-                name: populatedCheckin.supportContactUserId.name,
-                role: populatedCheckin.supportContactUserId.role,
-                department: populatedCheckin.supportContactUserId.department
+                id: supportContact._id,
+                name: supportContact.name,
+                role: supportContact.role,
+                department: supportContact.department
             };
         }
-
-        // Get user name for the response
-        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'Emotional check-in submitted successfully', {
             checkin: {
                 id: checkin._id.toString(),
                 _id: checkin._id.toString(),
-                name: user?.name || 'Staff Member',
+                name: responseUser?.name || 'Staff Member',
                 date: checkin.date,
                 weatherType: checkin.weatherType,
                 selectedMoods: checkin.selectedMoods,
@@ -785,6 +1127,19 @@ const submitCheckin = async (req, res) => {
             }
         }, 201);
 
+        if (checkin.supportContactUserId && responseUser && supportContact) {
+            await queueSupportNotifications({
+                notificationService,
+                checkin,
+                user: responseUser,
+                supportContact,
+                includeSupportRequestNotification: true,
+                logLabel: 'manual check-in'
+            });
+        } else if (!checkin.supportContactUserId) {
+            console.log('ℹ️ Skipping notifications - no support contact selected');
+        }
+
     } catch (error) {
         console.error('Submit check-in error:', error);
         const { sendError } = require('../utils/response');
@@ -795,15 +1150,15 @@ const submitCheckin = async (req, res) => {
 // Get today's check-in for the current user
 const getTodayCheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             userId: req.user.id,
             date: {
                 $gte: today,
@@ -816,7 +1171,7 @@ const getTodayCheckin = async (req, res) => {
         }
 
         // Populate user name for today's checkin
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -840,42 +1195,51 @@ const getTodayCheckin = async (req, res) => {
 // Get today's check-in status (for UI to show available options)
 const getTodayCheckinStatus = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Check for manual check-in (no aiEmotionScan)
-        const manualCheckin = await EmotionalCheckin.findOne({
+        const baseTodayQuery = {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
-            },
-            $or: [
-                { aiEmotionScan: { $exists: false } },
-                { aiEmotionScan: null }
-            ]
-        });
+            }
+        };
 
-        // Check for AI check-in (has aiEmotionScan)
-        const aiCheckin = await EmotionalCheckin.findOne({
-            userId: req.user.id,
-            date: {
-                $gte: today,
-                $lt: tomorrow
-            },
-            aiEmotionScan: { $exists: true, $ne: null }
-        });
+        const [manualCount, aiCount, manualCheckin, aiCheckin] = await Promise.all([
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }),
+            countDocumentsSafe(CheckinModel, {
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...manualCheckinFilter
+            }).sort({ submittedAt: -1 }),
+            CheckinModel.findOne({
+                ...baseTodayQuery,
+                ...aiCheckinFilter
+            }).sort({ submittedAt: -1 })
+        ]);
 
         const status = {
-            hasManualCheckin: !!manualCheckin,
-            hasAICheckin: !!aiCheckin,
-            canDoManual: !manualCheckin,
-            canDoAI: !aiCheckin,
+            manualCount,
+            aiCount,
+            manualLimit: limits.manual,
+            aiLimit: limits.ai,
+            hasManualCheckin: manualCount >= limits.manual,
+            hasAICheckin: aiCount >= limits.ai,
+            canDoManual: manualCount < limits.manual,
+            canDoAI: aiCount < limits.ai,
             manualCheckinTime: manualCheckin?.submittedAt,
             aiCheckinTime: aiCheckin?.submittedAt
         };
@@ -890,10 +1254,10 @@ const getTodayCheckinStatus = async (req, res) => {
 // Get check-in results with AI analysis
 const getCheckinResults = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
 
-        const checkin = await EmotionalCheckin.findOne({
+        const checkin = await CheckinModel.findOne({
             _id: req.params.id,
             userId: req.user.id
         }).populate('supportContactUserId', 'name role department');
@@ -903,7 +1267,7 @@ const getCheckinResults = async (req, res) => {
         }
 
         // Populate user name for check-in results
-        const populatedCheckin = await EmotionalCheckin.findById(checkin._id)
+        const populatedCheckin = await CheckinModel.findById(checkin._id)
             .populate('userId', 'name')
             .populate('supportContactUserId', 'name role department');
 
@@ -927,7 +1291,6 @@ const getCheckinResults = async (req, res) => {
 // Get check-in history with pagination and optional user filtering for dashboard
 const getCheckinHistory = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError, getPaginationInfo } = require('../utils/response');
 
         const page = parseInt(req.query.page) || 1;
@@ -937,27 +1300,31 @@ const getCheckinHistory = async (req, res) => {
         // Build query - allow filtering by userId with role-based checks
         const query = {};
         const requestedUserId = req.query.userId;
+        let queryRole = req.user.role;
+
         if (requestedUserId) {
             // If requesting another user's data, enforce permissions
             const isSelf = String(requestedUserId) === String(req.user.id);
             const elevated = ['directorate', 'admin', 'superadmin'].includes(req.user.role);
-            if (!isSelf && !elevated) {
-                if (req.user.role === 'head_unit') {
-                    // Head Unit: only within same unit/department
-                    const target = await findAnyUserById(requestedUserId, 'unit department');
-                    const unit = req.user.unit || req.user.department;
-                    if (!target || (target.unit !== unit && target.department !== unit)) {
-                        return sendError(res, 'Access denied for this user\'s history', 403);
-                    }
-                } else {
-                    return sendError(res, 'Access denied for this user\'s history', 403);
-                }
+            const dashboardRole = ['directorate', 'admin', 'superadmin', 'head_unit', 'teacher', 'se_teacher'].includes(req.user.role);
+            if (!isSelf && !elevated && !dashboardRole) {
+                return sendError(res, 'Access denied for this user\'s history', 403);
             }
-            query.userId = requestedUserId;
+            query.$or = [
+                { userId: requestedUserId },
+                { legacyResolvedUserId: requestedUserId }
+            ];
+            const requestedUser = await findAnyUserById(requestedUserId, 'role');
+            queryRole = requestedUser?.role || req.user.role;
         } else {
             // Default to current user's history if no userId specified
-            query.userId = req.user.id;
+            query.$or = [
+                { userId: req.user.id },
+                { legacyResolvedUserId: req.user.id }
+            ];
         }
+
+        const CheckinModel = getCheckinModelForRole(queryRole);
 
         // Add date filtering if provided
         if (req.query.startDate || req.query.endDate) {
@@ -971,23 +1338,34 @@ const getCheckinHistory = async (req, res) => {
         }
 
         // Get total count
-        const total = await EmotionalCheckin.countDocuments(query);
+        const total = await countDocumentsSafe(CheckinModel, query);
 
         // Get check-ins with pagination
-        const checkins = await EmotionalCheckin.find(query)
+        const checkins = await CheckinModel.find(query)
             .sort({ date: -1, submittedAt: -1 })
             .skip(skip)
             .limit(limit)
             .populate('supportContactUserId', 'name role department');
 
         const pagination = getPaginationInfo(page, limit, total);
-        const resolvedCheckins = [];
-        for (const checkin of checkins) {
-            const user = await findAnyUserById(checkin.userId, 'name email role department unit');
+
+        // Collect unique userId values from the result set, then fetch all at once
+        // to avoid N+1 queries (previously fired one DB call per checkin).
+        const uniqueUserIds = [...new Set(
+            checkins.map((c) => String(c.userId)).filter(Boolean)
+        )];
+        const userLookupResults = await Promise.all(
+            uniqueUserIds.map((uid) => findAnyUserById(uid, 'name email role department unit'))
+        );
+        const userMap = Object.fromEntries(
+            uniqueUserIds.map((uid, i) => [uid, userLookupResults[i]])
+        );
+
+        const resolvedCheckins = checkins.map((checkin) => {
             const normalized = checkin.toObject();
-            normalized.userId = user || checkin.userId;
-            resolvedCheckins.push(normalized);
-        }
+            normalized.userId = userMap[String(checkin.userId)] || checkin.userId;
+            return normalized;
+        });
 
         sendSuccess(res, 'Check-in history retrieved', {
             checkins: resolvedCheckins,
@@ -1001,13 +1379,23 @@ const getCheckinHistory = async (req, res) => {
 
 const getTeacherDailyCheckins = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = StudentEmotionalCheckin;
+        const viewerRole = req.user?.role;
+        const isTeacherRole = viewerRole === 'teacher' || viewerRole === 'se_teacher';
+        const isPrincipalView = ['head_unit', 'directorate', 'admin', 'superadmin'].includes(viewerRole);
+        const requestedGrade = normalizeSpaces(String(req.query.grade || ''));
+        const requestedClassName = normalizeSpaces(String(req.query.className || ''));
+        const requestedUnit = resolveUnitLabel(req.query.unit || '');
 
-        const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
-        if (!teacherScopes.length) {
-            return sendError(res, 'No classroom assignments found for this teacher', 403);
-        }
+        let scopedStudents = [];
+        const scopeMeta = {
+            mode: isTeacherRole ? 'class' : 'unit',
+            viewerRole,
+            unit: null,
+            gradeBand: null,
+            className: requestedClassName || null
+        };
 
         const dateParam = req.query.date ? new Date(req.query.date) : new Date();
         if (Number.isNaN(dateParam.getTime())) {
@@ -1019,17 +1407,86 @@ const getTeacherDailyCheckins = async (req, res) => {
         const endDate = new Date(dateParam);
         endDate.setHours(23, 59, 59, 999);
 
-        const students = await UserStudent.find({
-            role: 'student',
-            isActive: true
-        }).select('name email nickname currentGrade className');
+        if (isTeacherRole) {
+            const teacherScopes = buildTeacherClassScopes(req.user?.classes || []);
+            if (!teacherScopes.length) {
+                return sendError(res, 'No classroom assignments found for this teacher', 403);
+            }
 
-        const scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            const students = await UserStudent.find({
+                role: 'student',
+                isActive: true
+            }).select('name email nickname currentGrade className unit department');
+
+            scopedStudents = students.filter((student) => studentMatchesTeacherScopes(student, teacherScopes));
+            scopeMeta.gradeBand = 'Assigned Classes';
+            scopeMeta.classAssignments = Array.from(new Set(
+                (req.user?.classes || [])
+                    .map((assignment = {}) => {
+                        const grade = normalizeSpaces(assignment.grade || '');
+                        const className = normalizeSpaces(assignment.className || '');
+                        return `${grade}${grade && className ? ' - ' : ''}${className}`.trim();
+                    })
+                    .filter(Boolean)
+            ));
+        } else if (isPrincipalView) {
+            const viewerUnit = resolveUnitLabel(req.user?.unit || req.user?.department || '');
+            const effectiveUnit = viewerRole === 'head_unit'
+                ? viewerUnit
+                : (requestedUnit || viewerUnit);
+
+            const studentFilter = {
+                role: 'student',
+                isActive: true
+            };
+
+            if (effectiveUnit) {
+                studentFilter.$or = [
+                    { unit: effectiveUnit },
+                    { department: effectiveUnit }
+                ];
+            }
+
+            const explicitGradeRegex = buildGradeRegexFromQuery(requestedGrade);
+            const unitGradeRegex = buildUnitGradeRegex(effectiveUnit);
+            if (explicitGradeRegex) {
+                studentFilter.currentGrade = explicitGradeRegex;
+            } else if (unitGradeRegex) {
+                studentFilter.currentGrade = unitGradeRegex;
+            }
+
+            if (requestedClassName) {
+                studentFilter.className = new RegExp(escapeRegex(requestedClassName), 'i');
+            }
+
+            scopedStudents = await UserStudent.find(studentFilter)
+                .select('name email nickname currentGrade className unit department');
+
+            scopeMeta.unit = effectiveUnit || null;
+            scopeMeta.gradeBand = requestedGrade || (effectiveUnit ? getUnitGradeBandLabel(effectiveUnit) : 'All Grades');
+        } else {
+            return sendError(res, 'Role is not allowed to access student daily dashboard', 403);
+        }
+
+        scopedStudents.sort((a, b) => {
+            const gradeA = normalizeSpaces(a.currentGrade || '');
+            const gradeB = normalizeSpaces(b.currentGrade || '');
+            if (gradeA !== gradeB) return gradeA.localeCompare(gradeB);
+            const classA = normalizeSpaces(a.className || '');
+            const classB = normalizeSpaces(b.className || '');
+            if (classA !== classB) return classA.localeCompare(classB);
+            return normalizeSpaces(a.name || '').localeCompare(normalizeSpaces(b.name || ''));
+        });
+
         const studentIds = scopedStudents.map((student) => student._id);
 
         if (!studentIds.length) {
-            return sendSuccess(res, 'No students matched your class assignments', {
+            const noMatchMessage = isTeacherRole
+                ? 'No students matched your class assignments'
+                : 'No students matched your unit scope';
+            return sendSuccess(res, noMatchMessage, {
                 date: startDate.toISOString(),
+                scope: scopeMeta,
                 stats: {
                     totalStudents: 0,
                     submittedToday: 0,
@@ -1040,17 +1497,30 @@ const getTeacherDailyCheckins = async (req, res) => {
             });
         }
 
-        const checkins = await EmotionalCheckin.find({
+        const trendStartDate = new Date(startDate);
+        trendStartDate.setDate(trendStartDate.getDate() - 13);
+
+        const checkins = await CheckinModel.find({
             userId: { $in: studentIds },
-            date: { $gte: startDate, $lte: endDate }
+            date: { $gte: trendStartDate, $lte: endDate }
         }).sort({ date: -1, submittedAt: -1 });
 
+        const historyByStudent = new Map();
         const checkinMap = new Map();
         const needsSupportSet = new Set();
+
         checkins.forEach((checkin) => {
             const key = checkin.userId.toString();
-            if (!checkinMap.has(key)) {
-                checkinMap.set(key, checkin);
+
+            if (!historyByStudent.has(key)) {
+                historyByStudent.set(key, []);
+            }
+            historyByStudent.get(key).push(checkin);
+
+            if (isDateWithinWindow(checkin.date, startDate, endDate)) {
+                if (!checkinMap.has(key)) {
+                    checkinMap.set(key, checkin);
+                }
                 if (checkin.aiAnalysis?.needsSupport) {
                     needsSupportSet.add(key);
                 }
@@ -1058,6 +1528,7 @@ const getTeacherDailyCheckins = async (req, res) => {
         });
 
         const studentsPayload = scopedStudents.map((student) => {
+            const studentHistory = historyByStudent.get(student._id.toString()) || [];
             const checkin = checkinMap.get(student._id.toString());
             return {
                 id: student._id,
@@ -1066,12 +1537,14 @@ const getTeacherDailyCheckins = async (req, res) => {
                 nickname: student.nickname,
                 currentGrade: student.currentGrade,
                 className: student.className,
-                checkin: checkin ? formatCheckinSnapshot(checkin) : null
+                checkin: checkin ? formatCheckinSnapshot(checkin) : null,
+                progress: buildStudentProgressPayload(studentHistory)
             };
         });
 
         sendSuccess(res, 'Teacher daily check-ins retrieved', {
             date: startDate.toISOString(),
+            scope: scopeMeta,
             stats: {
                 totalStudents: scopedStudents.length,
                 submittedToday: checkinMap.size,
@@ -1098,16 +1571,16 @@ const getAvailableContacts = async (req, res) => {
         let contactableRoles = [];
         switch (userRole) {
             case 'student':
-                contactableRoles = ['counselor', 'teacher', 'directorate'];
+                contactableRoles = ['support_staff', 'teacher', 'se_teacher', 'directorate', 'head_unit'];
                 break;
             case 'teacher':
             case 'staff':
             case 'support_staff':
             case 'se_teacher':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'head_unit':
-                contactableRoles = ['directorate', 'head_unit', 'counselor'];
+                contactableRoles = ['directorate', 'head_unit', 'support_staff', 'se_teacher'];
                 break;
             case 'directorate':
                 contactableRoles = ['directorate', 'head_unit']; // Can contact other directors and head units
@@ -1137,7 +1610,7 @@ const getAvailableContacts = async (req, res) => {
                 jobPosition: contact.jobPosition || 'N/A'
             })),
             {
-                id: 'no_need',
+                id: 'no-need',
                 name: 'No Need',
                 role: 'N/A',
                 department: 'N/A',
@@ -1171,12 +1644,15 @@ const analyzeEmotion = async (req, res) => {
 
         console.log('??? Received image for emotion analysis, size:', req.file.size);
 
-        if (!req.file.path) {
-            return res.status(400).json({ success: false, message: 'No image file path provided' });
+        const imageBuffer = Buffer.isBuffer(req.file.buffer)
+            ? req.file.buffer
+            : (req.file.path ? fs.readFileSync(req.file.path) : null);
+
+        if (!imageBuffer) {
+            return res.status(400).json({ success: false, message: 'No image data provided' });
         }
 
-        const fsData = fs.readFileSync(req.file.path);
-        const base64Image = fsData.toString('base64');
+        const base64Image = imageBuffer.toString('base64');
 
         const analysisPrompt = `Analyze this facial image and return ONLY a valid JSON object with emotion analysis:
 
@@ -1209,8 +1685,10 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             console.error('? Vision AI request failed:', apiError.message);
             usedFallback = true;
             fallbackMessage = 'AI vision service hit a quota wall. Providing supportive insights instead—Manual Check-in remains available.';
-            emotionResult = buildVisionFallbackResult();
-            try { fs.unlinkSync(req.file.path); } catch (_) {}
+            emotionResult = normalizeEmotionResult(buildVisionFallbackResult());
+            if (req.file.path) {
+                try { fs.unlinkSync(req.file.path); } catch (_) {}
+            }
             return sendSuccess(res, 'Emotion analysis fallback used', {
                 emotionResult,
                 fallback: true,
@@ -1265,11 +1743,15 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
             }
         }
 
-        try {
-            fs.unlinkSync(req.file.path);
-        } catch (cleanupErr) {
-            console.warn('Could not clean up temp file:', cleanupErr.message);
+        if (req.file.path) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (cleanupErr) {
+                console.warn('Could not clean up temp file:', cleanupErr.message);
+            }
         }
+
+        emotionResult = normalizeEmotionResult(emotionResult);
 
         const payload = { emotionResult };
         if (usedFallback) {
@@ -1286,6 +1768,56 @@ Keep the analysis simple and focused on basic facial emotion recognition.`;
         console.error('? Emotion analysis error:', error);
         sendError(res, 'Failed to analyze emotion', 500);
     }
+};
+
+const ALLOWED_PRIMARY_EMOTIONS = new Set([
+    'happy', 'sad', 'angry', 'surprised', 'fearful',
+    'disgusted', 'neutral', 'anxious', 'calm'
+]);
+
+const clampNumber = (value, min, max, fallback) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.min(max, Math.max(min, num));
+};
+
+const normalizeEmotionResult = (raw) => {
+    const safe = (raw && typeof raw === 'object') ? raw : {};
+
+    const rawPrimary = String(safe.primaryEmotion || '').toLowerCase().trim();
+    const primaryEmotion = ALLOWED_PRIMARY_EMOTIONS.has(rawPrimary) ? rawPrimary : 'neutral';
+
+    const secondary = Array.isArray(safe.secondaryEmotions)
+        ? safe.secondaryEmotions
+            .map((e) => String(e || '').toLowerCase().trim())
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+
+    const explanationsSource = Array.isArray(safe.explanations)
+        ? safe.explanations
+        : (typeof safe.explanations === 'string' ? [safe.explanations] : []);
+    const explanations = explanationsSource
+        .map((e) => String(e || '').trim())
+        .filter(Boolean)
+        .slice(0, 5);
+
+    return {
+        primaryEmotion,
+        secondaryEmotions: secondary,
+        valence: clampNumber(safe.valence, -1, 1, 0),
+        arousal: clampNumber(safe.arousal, -1, 1, 0),
+        intensity: clampNumber(safe.intensity, 0, 100, 50),
+        confidence: clampNumber(safe.confidence, 0, 100, 60),
+        explanations: explanations.length
+            ? explanations
+            : ['AI vision analysis completed with limited detail.'],
+        narrative: typeof safe.narrative === 'string' ? safe.narrative : (explanations[0] || ''),
+        grounding: typeof safe.grounding === 'string' ? safe.grounding : undefined,
+        microAction: typeof safe.microAction === 'string' ? safe.microAction : undefined,
+        temporalAnalysis: safe.temporalAnalysis || undefined,
+        fallback: Boolean(safe.fallback)
+    };
 };
 
 const buildVisionFallbackResult = (seed = Date.now()) => {
@@ -1363,15 +1895,16 @@ const buildVisionFallbackResult = (seed = Date.now()) => {
 // Submit AI emotion scan check-in (separate from manual check-in)
 const submitAICheckin = async (req, res) => {
     try {
-        const EmotionalCheckin = require('../models/EmotionalCheckin');
-        const User = require('../models/User');
         const cacheService = require('../services/cacheService');
         const { aiAnalysisService, generatePersonalizedGreeting } = require('../services/aiAnalysisService');
+        const notificationService = require('../services/notificationService');
         const { sendSuccess, sendError } = require('../utils/response');
+        const CheckinModel = getCheckinModelForUser(req.user);
+        const limits = getDailyCheckinLimitsForUser(req.user);
 
         // Rate limiting: Check for recent submissions (within last 30 seconds)
         const thirtySecondsAgo = new Date(Date.now() - 30000);
-        const recentSubmission = await EmotionalCheckin.findOne({
+        const recentSubmission = await CheckinModel.findOne({
             userId: req.user.id,
             submittedAt: { $gte: thirtySecondsAgo }
         });
@@ -1386,28 +1919,25 @@ const submitAICheckin = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const existingAICheckin = await EmotionalCheckin.findOne({
+        const aiCheckinsToday = await countDocumentsSafe(CheckinModel, {
             userId: req.user.id,
             date: {
                 $gte: today,
                 $lt: tomorrow
             },
-            aiEmotionScan: { $exists: true, $ne: null } // AI check-in has AI scan data
+            ...aiCheckinFilter
         });
 
-        if (existingAICheckin) {
-            return sendError(res, 'You have already completed an AI analysis check-in today. You can only do manual check-in or wait until tomorrow.', 409);
+        if (aiCheckinsToday >= limits.ai) {
+            return sendError(
+                res,
+                `You have reached today's AI analysis check-in limit (${limits.ai}/${limits.ai}). Please continue with manual check-in or try again tomorrow.`,
+                409
+            );
         }
 
-        // Handle support contact for AI scans
-        let supportContactUserId = null;
-        if (req.body.supportContactUserId && req.body.supportContactUserId !== 'no_need') {
-            if (typeof req.body.supportContactUserId === 'object' && req.body.supportContactUserId._id) {
-                supportContactUserId = req.body.supportContactUserId._id;
-            } else if (typeof req.body.supportContactUserId === 'string') {
-                supportContactUserId = req.body.supportContactUserId;
-            }
-        }
+        // Handle support contact for AI scans and normalize "No Need" variants.
+        const supportContactUserId = extractSupportContactUserId(req.body.supportContactUserId);
 
         console.log('🤖 AI Check-in support contact processing:', {
             input: req.body.supportContactUserId,
@@ -1430,12 +1960,16 @@ const submitAICheckin = async (req, res) => {
         }
 
         console.log('📋 Final parsed body for AI check-in:', parsedBody);
+        const submittedReflection = normalizeReflectionPayload(parsedBody);
+        const preparedAiAnalysis = normalizePreparedAiAnalysis(parsedBody);
 
         const checkinData = {
             userId: req.user.id,
+            ...buildCheckinUserSnapshot(req.user),
             weatherType: parsedBody.weatherType || 'partly-cloudy', // AI-detected weather - allow any value
             selectedMoods: parsedBody.selectedMoods || [], // AI-detected moods - allow any values
-            details: parsedBody.details || '',
+            details: submittedReflection,
+            userReflection: submittedReflection,
             presenceLevel: parsedBody.presenceLevel || 7,
             capacityLevel: parsedBody.capacityLevel || 7,
             supportContactUserId,
@@ -1467,56 +2001,55 @@ const submitAICheckin = async (req, res) => {
         console.log('✅ Final checkinData for AI scan:', {
             weatherType: checkinData.weatherType,
             selectedMoods: checkinData.selectedMoods,
+            userReflection: checkinData.userReflection,
             presenceLevel: checkinData.presenceLevel,
             capacityLevel: checkinData.capacityLevel,
             supportContactUserId: checkinData.supportContactUserId
         });
 
-        // Use existing AI analysis service for consistency (100% AI-generated, no fallbacks)
-        console.log('🤖 Starting AI analysis for AI check-in...');
-        let aiAnalysis;
-        try {
-            // Add user role to checkinData for context-aware AI analysis
-            const enhancedCheckinData = {
-                ...checkinData,
-                userRole: req.user.role
-            };
-            aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
-            console.log('✅ AI analysis completed for AI check-in');
-        } catch (aiError) {
-            console.error('❌ AI analysis failed for AI check-in:', aiError.message);
-            throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+        let aiAnalysis = preparedAiAnalysis;
+        if (aiAnalysis) {
+            console.log('⚡ Using prepared AI analysis from face scan results for AI check-in');
+        } else {
+            // Use existing AI analysis service when no prepared result is available
+            console.log('🤖 Starting AI analysis for AI check-in...');
+            try {
+                const enhancedCheckinData = {
+                    ...checkinData,
+                    userRole: req.user.role
+                };
+                aiAnalysis = await aiAnalysisService.analyzeEmotionalCheckin(enhancedCheckinData);
+                console.log('✅ AI analysis completed for AI check-in');
+            } catch (aiError) {
+                console.error('❌ AI analysis failed for AI check-in:', aiError.message);
+                throw new Error('AI analysis service is temporarily unavailable. Please try again later.');
+            }
+
+            const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
+            aiAnalysis.personalizedGreeting = personalizedGreeting;
         }
 
-        // Generate personalized greeting
-        const personalizedGreeting = await generatePersonalizedGreeting(checkinData, aiAnalysis);
-        aiAnalysis.personalizedGreeting = personalizedGreeting;
-
         // Create check-in record with AI analysis
-        const checkin = new EmotionalCheckin({
+        const checkin = new CheckinModel({
             ...checkinData,
             aiAnalysis
         });
 
         await checkin.save();
-
-        // Populate support contact details if exists
-        let populatedCheckin = checkin;
-        if (checkin.supportContactUserId) {
-            populatedCheckin = await EmotionalCheckin.findById(checkin._id)
-                .populate('supportContactUserId', 'name role department');
-        }
+        const responseUser = await findAnyUserById(checkin.userId, 'name role department');
+        const supportContact = checkin.supportContactUserId
+            ? await User.findById(checkin.supportContactUserId).select('name email role department')
+            : null;
 
         // Emit real-time update for dashboard
         const io = require('../config/socket').getIO();
         cacheService.invalidateDashboardCache();
 
         if (io) {
-            const user = await findAnyUserById(checkin.userId, 'name');
             io.emit('dashboard:new-checkin', {
                 id: checkin._id,
                 userId: checkin.userId,
-                userName: user?.name || 'Unknown User',
+                userName: responseUser?.name || 'Unknown User',
                 weatherType: checkin.weatherType,
                 presenceLevel: checkin.presenceLevel,
                 capacityLevel: checkin.capacityLevel,
@@ -1525,77 +2058,22 @@ const submitAICheckin = async (req, res) => {
             });
         }
 
-        // Send notifications if user has selected a support contact (regardless of AI analysis)
-        if (checkin.supportContactUserId) {
-            try {
-                console.log('🔔 Sending support notifications for AI check-in user:', checkin.userId);
-                console.log('🤖 AI needs support:', checkin.aiAnalysis.needsSupport);
-
-                // Get user details
-                const user = await findAnyUserById(checkin.userId, 'name role department');
-                const supportContact = await User.findById(checkin.supportContactUserId).select('name email role department');
-
-                if (user && supportContact) {
-                    // Send Slack notification
-                    await notificationService.sendSlackNotification({
-                        userName: user.name,
-                        userRole: user.role,
-                        userDepartment: user.department,
-                        supportContactName: supportContact.name,
-                        supportContactEmail: supportContact.email,
-                        weatherType: checkin.weatherType,
-                        presenceLevel: checkin.presenceLevel,
-                        capacityLevel: checkin.capacityLevel,
-                        selectedMoods: checkin.selectedMoods,
-                        details: checkin.details,
-                        aiAnalysis: checkin.aiAnalysis,
-                        checkinId: checkin._id.toString()
-                    });
-
-                    // Send email notification
-                    await notificationService.sendEmailNotification({
-                        userName: user.name,
-                        userRole: user.role,
-                        userDepartment: user.department,
-                        supportContactName: supportContact.name,
-                        supportContactEmail: supportContact.email,
-                        weatherType: checkin.weatherType,
-                        presenceLevel: checkin.presenceLevel,
-                        capacityLevel: checkin.capacityLevel,
-                        selectedMoods: checkin.selectedMoods,
-                        details: checkin.details,
-                        aiAnalysis: checkin.aiAnalysis,
-                        checkinId: checkin._id.toString()
-                    });
-
-                    console.log('✅ Support notifications sent successfully for AI check-in');
-                }
-            } catch (notificationError) {
-                console.error('❌ Failed to send support notifications for AI check-in:', notificationError);
-                // Don't fail the check-in if notifications fail
-            }
-        } else {
-            console.log('ℹ️ Skipping notifications - no support contact selected for AI check-in');
-        }
-
         // Prepare support contact details for response
         let supportContactDetails = null;
-        if (populatedCheckin.supportContactUserId) {
+        if (supportContact) {
             supportContactDetails = {
-                id: populatedCheckin.supportContactUserId._id,
-                name: populatedCheckin.supportContactUserId.name,
-                role: populatedCheckin.supportContactUserId.role,
-                department: populatedCheckin.supportContactUserId.department
+                id: supportContact._id,
+                name: supportContact.name,
+                role: supportContact.role,
+                department: supportContact.department
             };
         }
-
-        const user = await findAnyUserById(checkin.userId, 'name');
 
         sendSuccess(res, 'AI emotion check-in submitted successfully', {
             checkin: {
                 id: checkin._id.toString(),
                 _id: checkin._id.toString(),
-                name: user?.name || 'Staff Member',
+                name: responseUser?.name || 'Staff Member',
                 date: checkin.date,
                 weatherType: checkin.weatherType,
                 selectedMoods: checkin.selectedMoods,
@@ -1608,6 +2086,18 @@ const submitAICheckin = async (req, res) => {
             }
         }, 201);
 
+        if (checkin.supportContactUserId && responseUser && supportContact) {
+            await queueSupportNotifications({
+                notificationService,
+                checkin,
+                user: responseUser,
+                supportContact,
+                logLabel: 'AI check-in'
+            });
+        } else if (!checkin.supportContactUserId) {
+            console.log('ℹ️ Skipping notifications - no support contact selected for AI check-in');
+        }
+
     } catch (error) {
         console.error('AI check-in submission error:', error);
         const { sendError } = require('../utils/response');
@@ -1616,12 +2106,12 @@ const submitAICheckin = async (req, res) => {
 };
 
 const getPersonalDashboard = async (req, res) => {
-    const EmotionalCheckin = require('../models/EmotionalCheckin');
     const { sendSuccess, sendError } = require('../utils/response');
 
     try {
         const userId = req.user.id;
         const objectId = normalizeObjectId(userId);
+        const CheckinModel = getCheckinModelForUser(req.user);
 
         if (!objectId) {
             return sendError(res, 'Unable to resolve user profile for dashboard', 400);
@@ -1643,18 +2133,18 @@ const getPersonalDashboard = async (req, res) => {
             streakBuckets,
             last30DaysCheckins
         ] = await Promise.all([
-            EmotionalCheckin.findOne({
+            CheckinModel.findOne({
                 userId,
                 date: { $gte: todayStart, $lt: todayEnd }
             })
                 .populate('supportContactUserId', 'name role department unit email')
                 .lean(),
-            EmotionalCheckin.find({ userId })
+            CheckinModel.find({ userId })
                 .populate('supportContactUserId', 'name role department unit')
                 .sort({ date: -1 })
                 .limit(5)
                 .lean(),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1677,7 +2167,7 @@ const getPersonalDashboard = async (req, res) => {
                     }
                 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 {
                     $match: {
                         userId: objectId,
@@ -1694,7 +2184,7 @@ const getPersonalDashboard = async (req, res) => {
                 { $sort: { count: -1 } },
                 { $limit: 6 }
             ]),
-            EmotionalCheckin.aggregate([
+            CheckinModel.aggregate([
                 { $match: { userId: objectId } },
                 {
                     $group: {
@@ -1705,7 +2195,7 @@ const getPersonalDashboard = async (req, res) => {
                 },
                 { $sort: { '_id': -1 } }
             ]),
-            EmotionalCheckin.find({
+            CheckinModel.find({
                 userId,
                 date: { $gte: thirtyDaysAgo }
             })
@@ -1748,8 +2238,8 @@ const getPersonalDashboard = async (req, res) => {
             today: {
                 status: todaySnapshot ? 'completed' : 'pending',
                 message: todaySnapshot
-                    ? 'Check-in hari ini sudah tercatat'
-                    : 'Belum ada check-in untuk hari ini',
+                    ? 'Today\'s check-in is recorded'
+                    : 'No check-in yet for today',
                 checkin: todaySnapshot
             },
             overall: {

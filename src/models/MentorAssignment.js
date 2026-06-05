@@ -18,7 +18,8 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     focusAreas: [{
         type: String,
-        trim: true
+        trim: true,
+        required: true
     }],
     status: {
         type: String,
@@ -34,12 +35,19 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     duration: {
         type: String,
-        enum: ['4 weeks', '6 weeks', '8 weeks'],
+        enum: ['2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom'],
         trim: true
     },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    lastPlanUpdatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    lastPlanUpdatedAt: {
+        type: Date
     },
     strategyId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -56,7 +64,15 @@ const mentorAssignmentSchema = new mongoose.Schema({
     },
     monitoringFrequency: {
         type: String,
-        enum: ['Daily', 'Weekly', 'Bi-weekly'],
+        enum: ['Daily', 'Weekly', 'Bi-weekly', 'Custom'],
+        trim: true
+    },
+    customFrequencyDays: [{
+        type: String,
+        enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    }],
+    customFrequencyNote: {
+        type: String,
         trim: true
     },
     metricLabel: {
@@ -83,6 +99,11 @@ const mentorAssignmentSchema = new mongoose.Schema({
             trim: true
         }
     },
+    mode: {
+        type: String,
+        enum: ['quantitative', 'qualitative'],
+        default: 'quantitative'
+    },
     notes: {
         type: String,
         trim: true
@@ -94,6 +115,14 @@ const mentorAssignmentSchema = new mongoose.Schema({
             type: Boolean,
             default: false
         }
+    }],
+    planChangeLog: [{
+        field: { type: String, required: true },
+        label: { type: String, required: true },
+        fromValue: { type: String },
+        toValue: { type: String },
+        changedAt: { type: Date, default: Date.now },
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
     }],
     checkIns: [{
         date: {
@@ -108,7 +137,38 @@ const mentorAssignmentSchema = new mongoose.Schema({
             type: Boolean,
             default: true
         },
-        celebration: String
+        skipReason: {
+            type: String,
+            enum: ['teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other']
+        },
+        skipReasonNote: String,
+        lateReason: String,
+        celebration: String,
+        // Qualitative mode fields (Kindergarten MTSS)
+        signal: {
+            type: String,
+            enum: ['emerging', 'developing', 'consistent']
+        },
+        tags: [{
+            type: String,
+            enum: ['emotional_regulation', 'language', 'social', 'motor', 'independence']
+        }],
+        context: { type: String, trim: true },
+        observation: { type: String, trim: true },
+        response: { type: String, trim: true },
+        nextStep: { type: String, trim: true },
+        weeklyFocus: {
+            type: String,
+            enum: ['continue', 'try', 'support_needed']
+        },
+        evidence: [{
+            url: { type: String, required: true },
+            publicId: String,
+            fileName: String,
+            fileType: String,
+            fileSize: Number,
+            resourceType: { type: String, enum: ['image', 'raw'], default: 'image' }
+        }]
     }]
 }, {
     timestamps: true
@@ -116,5 +176,8 @@ const mentorAssignmentSchema = new mongoose.Schema({
 
 mentorAssignmentSchema.index({ mentorId: 1, status: 1 });
 mentorAssignmentSchema.index({ studentIds: 1, status: 1 });
+mentorAssignmentSchema.path('focusAreas').validate(function validateFocusAreas(value) {
+    return Array.isArray(value) && value.some((area) => String(area || '').trim());
+}, 'At least one focus area is required.');
 
 module.exports = mongoose.model('MentorAssignment', mentorAssignmentSchema);

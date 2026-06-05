@@ -6,6 +6,48 @@ const emotionalCheckinSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    legacyResolvedUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    legacyResolutionSource: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
+    legacyResolutionConfidence: {
+        type: String,
+        enum: ['low', 'medium', 'high']
+    },
+    legacyResolvedAt: {
+        type: Date
+    },
+    userNameSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 160
+    },
+    userEmailSnapshot: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        maxlength: 160
+    },
+    userRoleSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 60
+    },
+    userDepartmentSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
+    userUnitSnapshot: {
+        type: String,
+        trim: true,
+        maxlength: 120
+    },
     date: {
         type: Date,
         default: Date.now,
@@ -62,7 +104,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
                 try {
                     const User = mongoose.model('User');
                     const user = await User.findById(v);
-                    return user && ['directorate', 'counselor', 'teacher', 'staff', 'support_staff', 'se_teacher', 'head_unit'].includes(user.role);
+                    return user && ['directorate', 'superadmin', 'admin', 'teacher', 'staff', 'support_staff', 'se_teacher', 'head_unit'].includes(user.role);
                 } catch (error) {
                     return false;
                 }
@@ -180,7 +222,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
     supportContactResponse: {
         status: {
             type: String,
-            enum: ['pending', 'acknowledged', 'handled'],
+            enum: ['pending', 'acknowledged', 'follow_up', 'success', 'handled'],
             default: 'pending'
         },
         contactId: {
@@ -193,6 +235,11 @@ const emotionalCheckinSchema = new mongoose.Schema({
         details: {
             type: String,
             maxlength: 1000,
+            trim: true
+        },
+        resolutionMessage: {
+            type: String,
+            maxlength: 500,
             trim: true
         }
     },
@@ -210,6 +257,7 @@ const emotionalCheckinSchema = new mongoose.Schema({
 
 // Indexes for performance
 emotionalCheckinSchema.index({ userId: 1, date: -1 });
+emotionalCheckinSchema.index({ legacyResolvedUserId: 1, date: -1 });
 emotionalCheckinSchema.index({ date: -1 });
 emotionalCheckinSchema.index({ 'aiAnalysis.needsSupport': 1 });
 

@@ -5,6 +5,7 @@ const xlsx = require('xlsx');
 
 const EmotionalCheckin = require('../models/EmotionalCheckin');
 const User = require('../models/User');
+const { buildCheckinUserSnapshot } = require('../utils/checkinIdentity');
 
 const envPath = path.resolve(__dirname, '../../.env');
 if (fs.existsSync(envPath)) {
@@ -439,6 +440,7 @@ function buildCheckinPayload(row, columnKeys, userIndex, sheetRowNumber) {
 
     const payload = {
         userId: user._id,
+        ...buildCheckinUserSnapshot(user),
         date: timestamp,
         submittedAt: timestamp,
         weatherType,

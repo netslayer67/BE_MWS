@@ -6,6 +6,29 @@ const {
 } = require('../constants/mtss');
 
 const objectIdSchema = Joi.string().regex(/^[0-9a-fA-F]{24}$/);
+const supportContactObjectIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const supportContactUserIdSchema = Joi.alternatives().try(
+    Joi.string().trim().custom((value, helpers) => {
+        const normalized = value.toLowerCase();
+
+        if (!normalized || normalized === 'no_need' || normalized === 'no-need' || normalized === 'no need') {
+            return 'no_need';
+        }
+
+        if (supportContactObjectIdPattern.test(value)) {
+            return value;
+        }
+
+        return helpers.error('any.invalid');
+    }, 'support contact parser'),
+    Joi.object({
+        _id: Joi.string().regex(supportContactObjectIdPattern).required(),
+        name: Joi.string().required(),
+        role: Joi.string().required(),
+        department: Joi.string().optional()
+    })
+).optional().allow(null);
 
 const interventionPayloadSchema = Joi.object({
     type: Joi.string().valid(...INTERVENTION_TYPE_KEYS).required(),
@@ -17,6 +40,10 @@ const interventionPayloadSchema = Joi.object({
     updatedBy: objectIdSchema.allow(null),
     updatedAt: Joi.date().optional()
 });
+
+const KINDERGARTEN_MOOD_VALUES = ['very_happy', 'happy', 'okay', 'sad', 'upset'];
+const KINDERGARTEN_REGULATION_VALUES = ['deep_breathing', 'cozy_corner', 'talk_to_friend', 'quiet_time', 'ask_teacher'];
+const KINDERGARTEN_SUBMISSION_SOURCE_VALUES = ['student', 'parent_proxy'];
 
 // User validation schemas
 const userLoginSchema = Joi.object({
@@ -34,10 +61,81 @@ const userRegistrationSchema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
     name: Joi.string().min(2).max(100).required(),
-    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate').default('staff'),
+    role: Joi.string().valid('student', 'staff', 'teacher', 'admin', 'superadmin', 'directorate', 'support_staff', 'head_unit', 'se_teacher', 'counselor').default('staff'),
     department: Joi.string().max(100).optional(),
     employeeId: Joi.string().max(50).optional()
 });
+
+// Backward-compatible aliases used by users routes
+const userCreateSchema = Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+    name: Joi.string().min(2).max(120).required(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).default('staff'),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).unknown(true);
+
+const userUpdateSchema = Joi.object({
+    name: Joi.string().min(2).max(120).optional(),
+    role: Joi.string().valid(
+        'student',
+        'staff',
+        'teacher',
+        'admin',
+        'superadmin',
+        'directorate',
+        'support_staff',
+        'head_unit',
+        'se_teacher',
+        'counselor'
+    ).optional(),
+    department: Joi.string().max(100).allow('', null),
+    employeeId: Joi.string().max(50).allow('', null),
+    jobLevel: Joi.string().allow('', null),
+    unit: Joi.string().allow('', null),
+    jobPosition: Joi.string().allow('', null),
+    employmentStatus: Joi.string().allow('', null),
+    joinDate: Joi.date().optional().allow(null),
+    endDate: Joi.date().optional().allow(null),
+    reportsTo: objectIdSchema.allow(null),
+    isActive: Joi.boolean().optional(),
+    gender: Joi.string().valid('male', 'female', 'other').allow('', null),
+    classes: Joi.array().items(
+        Joi.object({
+            grade: Joi.string().allow('', null),
+            className: Joi.string().allow('', null),
+            subject: Joi.string().allow('', null),
+            role: Joi.string().allow('', null)
+        })
+    ).optional()
+}).min(1).unknown(true);
 
 // Enhanced emotional check-in validation schemas with smart validation
 const emotionalCheckinSchema = Joi.object({
@@ -65,16 +163,8 @@ const emotionalCheckinSchema = Joi.object({
         .max(500)
         .optional()
         .allow('')
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('overwhelmed', 'scattered', 'anxious', 'sad', 'lonely')).min(1),
-            then: Joi.string().min(10).messages({
-                'string.min': 'When feeling overwhelmed, anxious, or low, sharing more details (at least 10 characters) can help us provide better support'
-            }),
-            otherwise: Joi.optional()
-        })
         .messages({
-            'string.max': 'Please keep your details under 500 characters to maintain focus',
-            'string.min': 'When experiencing challenging emotions, a bit more detail helps us understand and support you better'
+            'string.max': 'Please keep your details under 500 characters to maintain focus'
         }),
 
     presenceLevel: Joi.number()
@@ -82,13 +172,6 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'scattered')).min(1),
-            then: Joi.number().max(7).messages({
-                'number.max': 'When feeling tired or overwhelmed, presence levels above 7 may need additional context'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Presence level must be between 1 and 10',
             'number.max': 'Presence level must be between 1 and 10',
@@ -100,28 +183,13 @@ const emotionalCheckinSchema = Joi.object({
         .min(1)
         .max(10)
         .required()
-        .when('selectedMoods', {
-            is: Joi.array().items(Joi.string().valid('tired', 'overwhelmed', 'anxious')).min(1),
-            then: Joi.number().max(6).messages({
-                'number.max': 'When feeling tired or anxious, capacity levels above 6 may indicate you need additional support'
-            }),
-            otherwise: Joi.number().min(1).max(10)
-        })
         .messages({
             'number.min': 'Capacity level must be between 1 and 10',
             'number.max': 'Capacity level must be between 1 and 10',
             'any.required': 'Capacity level helps us understand your current energy and focus levels'
         }),
 
-    supportContactUserId: Joi.alternatives().try(
-        Joi.string().regex(/^[0-9a-fA-F]{24}$/), // ObjectId string
-        Joi.object({
-            _id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
-            name: Joi.string().required(),
-            role: Joi.string().required(),
-            department: Joi.string().optional()
-        })
-    ).optional().allow(null),
+    supportContactUserId: supportContactUserIdSchema,
 
     // Smart defaults for optional fields
     userReflection: Joi.string()
@@ -143,15 +211,35 @@ const emotionalCheckinSchema = Joi.object({
         temporalAnalysis: Joi.object().optional(),
         emotionalAuthenticity: Joi.object().optional(),
         psychologicalDepth: Joi.object().optional()
+    }).optional(),
+
+    preparedAiAnalysis: Joi.object({
+        emotionalState: Joi.string().valid('positive', 'challenging', 'balanced', 'depleted').required(),
+        presenceState: Joi.string().valid('high', 'moderate', 'low').required(),
+        capacityState: Joi.string().valid('high', 'moderate', 'low').required(),
+        recommendations: Joi.array().items(
+            Joi.object({
+                title: Joi.string().max(120).required(),
+                description: Joi.string().max(1000).allow('').required(),
+                priority: Joi.string().valid('high', 'medium', 'low').optional(),
+                category: Joi.string().max(80).allow('').optional()
+            })
+        ).max(10).optional(),
+        psychologicalInsights: Joi.string().max(4000).allow('').optional(),
+        motivationalMessage: Joi.string().max(4000).allow('').optional(),
+        needsSupport: Joi.boolean().required(),
+        confidence: Joi.number().min(0).max(100).optional(),
+        processingTime: Joi.number().min(0).optional()
     }).optional()
 }).prefs({ abortEarly: false }); // Show all validation errors, not just the first one
 
 // Query parameter validation
 const paginationSchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(100).default(10),
+    limit: Joi.number().integer().min(1).max(200).default(10),
     sortBy: Joi.string().valid('date', 'createdAt', 'presenceLevel').default('date'),
-    sortOrder: Joi.string().valid('asc', 'desc').default('desc')
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    userId: Joi.string().optional()
 });
 
 const dateRangeSchema = Joi.object({
@@ -195,9 +283,9 @@ const mentorAssignmentCreateSchema = Joi.object({
     mentorId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
     studentIds: Joi.array().items(Joi.string().regex(/^[0-9a-fA-F]{24}$/)).min(1).required(),
     tier: Joi.string().valid('tier1', 'tier2', 'tier3').required(),
-    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
+    focusAreas: Joi.array().items(Joi.string().trim().min(1)).min(1).required(),
     startDate: Joi.date().optional(),
-    duration: Joi.string().valid('4 weeks', '6 weeks', '8 weeks').optional(),
+    duration: Joi.string().valid('2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom').optional(),
     strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow(null),
     strategyName: Joi.string().trim().optional().allow('', null),
     monitoringMethod: Joi.string().valid(
@@ -205,7 +293,9 @@ const mentorAssignmentCreateSchema = Joi.object({
         'Option 2 - Student Self-Report',
         'Option 3 - Assessment Data'
     ).optional(),
-    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly').optional(),
+    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly', 'Custom').optional(),
+    customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
+    customFrequencyNote: Joi.string().trim().optional().allow('', null),
     metricLabel: Joi.string().trim().optional().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),
@@ -219,14 +309,44 @@ const mentorAssignmentCreateSchema = Joi.object({
         description: Joi.string().required(),
         successCriteria: Joi.string().optional().allow('', null)
     })).optional(),
-    notes: Joi.string().optional().allow('')
+    initialCheckIn: Joi.object({
+        date: Joi.date().optional(),
+        summary: Joi.string().trim().allow('', null).optional(),
+        nextSteps: Joi.string().allow('', null).optional(),
+        performed: Joi.boolean().optional(),
+        signal: Joi.string().valid('emerging', 'developing', 'consistent').allow('', null).optional(),
+        tags: Joi.array().items(
+            Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+        ).max(5).optional(),
+        context: Joi.string().max(300).allow('', null).optional(),
+        observation: Joi.string().max(500).allow('', null).optional(),
+        response: Joi.string().max(300).allow('', null).optional(),
+        nextStep: Joi.string().max(300).allow('', null).optional(),
+        weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow('', null).optional()
+    }).optional(),
+    notes: Joi.string().optional().allow(''),
+    mode: Joi.string().valid('quantitative').optional()
 });
 
 const mentorAssignmentUpdateSchema = Joi.object({
-    focusAreas: Joi.array().items(Joi.string().trim()).optional().allow(null),
+    focusAreas: Joi.array().items(Joi.string().trim().min(1)).min(1).optional(),
+    tier: Joi.string().valid('tier1', 'tier2', 'tier3').optional(),
     status: Joi.string().valid('active', 'paused', 'completed', 'closed').optional(),
+    startDate: Joi.date().optional(),
     endDate: Joi.date().optional(),
+    duration: Joi.string().valid('2 weeks', '4 weeks', '6 weeks', '8 weeks', '10 weeks', '12 weeks', '16 weeks', '20 weeks', '24 weeks', 'Custom').optional().allow('', null),
+    strategyId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional().allow('', null),
+    strategyName: Joi.string().trim().optional().allow('', null),
+    monitoringMethod: Joi.string().valid(
+        'Option 1 - Direct Observation',
+        'Option 2 - Student Self-Report',
+        'Option 3 - Assessment Data'
+    ).optional().allow('', null),
+    monitoringFrequency: Joi.string().valid('Daily', 'Weekly', 'Bi-weekly', 'Custom').optional().allow('', null),
+    customFrequencyDays: Joi.array().items(Joi.string().valid('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')).optional(),
+    customFrequencyNote: Joi.string().trim().optional().allow('', null),
     notes: Joi.string().optional().allow(''),
+    mode: Joi.string().valid('quantitative').optional(),
     metricLabel: Joi.string().allow('', null),
     baselineScore: Joi.object({
         value: Joi.number().optional(),
@@ -238,7 +358,7 @@ const mentorAssignmentUpdateSchema = Joi.object({
     }).optional(),
     goals: Joi.array().items(Joi.object({
         description: Joi.string().required(),
-        successCriteria: Joi.string().optional(),
+        successCriteria: Joi.string().optional().allow('', null),
         completed: Joi.boolean().optional()
     })).optional(),
     checkIns: Joi.array().items(Joi.object({
@@ -247,8 +367,29 @@ const mentorAssignmentUpdateSchema = Joi.object({
         nextSteps: Joi.string().allow('', null).optional(),
         value: Joi.number().optional(),
         unit: Joi.string().allow('', null),
-        performed: Joi.boolean().optional(),
-        celebration: Joi.string().allow('', null)
+	        performed: Joi.boolean().optional(),
+	        skipReason: Joi.string().valid('teacher_rescheduled', 'student_absent', 'school_holiday', 'schedule_conflict', 'other').optional(),
+	        skipReasonNote: Joi.string().allow('', null).optional(),
+            lateReason: Joi.string().trim().max(300).allow('', null).optional(),
+	        celebration: Joi.string().allow('', null),
+        // Qualitative mode fields (Kindergarten MTSS)
+        signal: Joi.string().valid('emerging', 'developing', 'consistent').allow(null).optional(),
+        tags: Joi.array().items(
+            Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+        ).max(5).optional(),
+        context: Joi.string().max(300).allow('', null).optional(),
+        observation: Joi.string().max(500).allow('', null).optional(),
+        response: Joi.string().max(300).allow('', null).optional(),
+        nextStep: Joi.string().max(300).allow('', null).optional(),
+        weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow(null).optional(),
+        evidence: Joi.array().items(Joi.object({
+            url: Joi.string().uri().required(),
+            publicId: Joi.string().allow('', null).optional(),
+            fileName: Joi.string().allow('', null).optional(),
+            fileType: Joi.string().allow('', null).optional(),
+            fileSize: Joi.number().optional(),
+            resourceType: Joi.string().valid('image', 'raw').optional()
+        })).max(5).optional()
     })).optional()
 });
 
@@ -282,9 +423,52 @@ const mtssStudentUpdateSchema = Joi.object({
     interventions: Joi.array().items(interventionPayloadSchema).optional()
 });
 
+const kindergartenMoodCheckinSchema = Joi.object({
+    mood: Joi.string().valid(...KINDERGARTEN_MOOD_VALUES).required(),
+    regulationChoice: Joi.string().valid(...KINDERGARTEN_REGULATION_VALUES).allow('', null).optional(),
+    note: Joi.string().trim().max(220).allow('', null).optional(),
+    source: Joi.string().valid(...KINDERGARTEN_SUBMISSION_SOURCE_VALUES).optional()
+});
+
+const kindergartenHomeObservationSchema = Joi.object({
+    note: Joi.string().trim().max(260).required(),
+    source: Joi.string().valid(...KINDERGARTEN_SUBMISSION_SOURCE_VALUES).optional()
+});
+
+const kindergartenAiDraftSchema = Joi.object({
+    studentId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+    regenerateSeed: Joi.alternatives().try(
+        Joi.number().integer().min(0),
+        Joi.string().trim().max(120)
+    ).optional(),
+    regenerationKey: Joi.string().trim().max(120).optional(),
+    variationSeed: Joi.alternatives().try(
+        Joi.number().integer().min(0),
+        Joi.string().trim().max(120)
+    ).optional(),
+    previousDraftFingerprint: Joi.string().trim().max(3000).allow('', null).optional(),
+    previousDraftHash: Joi.string().trim().max(3000).allow('', null).optional(),
+    objective: Joi.string().trim().max(600).allow('', null).optional(),
+    domainTags: Joi.array().items(
+        Joi.string().valid('emotional_regulation', 'language', 'social', 'motor', 'independence')
+    ).max(5).optional(),
+    strategyName: Joi.string().trim().max(220).allow('', null).optional(),
+    goal: Joi.string().trim().max(300).allow('', null).optional(),
+    notes: Joi.string().trim().max(600).allow('', null).optional(),
+    context: Joi.string().trim().max(300).allow('', null).optional(),
+    observation: Joi.string().trim().max(500).allow('', null).optional(),
+    response: Joi.string().trim().max(300).allow('', null).optional(),
+    nextStep: Joi.string().trim().max(300).allow('', null).optional(),
+    tier: Joi.string().valid('tier1', 'tier2', 'tier3').optional(),
+    weeklyFocus: Joi.string().valid('continue', 'try', 'support_needed').allow('', null).optional(),
+    signal: Joi.string().valid('emerging', 'developing', 'consistent').allow('', null).optional()
+});
+
 module.exports = {
     userLoginSchema,
     userRegistrationSchema,
+    userCreateSchema,
+    userUpdateSchema,
     emotionalCheckinSchema,
     paginationSchema,
     dateRangeSchema,
@@ -293,5 +477,8 @@ module.exports = {
     mentorAssignmentCreateSchema,
     mentorAssignmentUpdateSchema,
     mtssStudentCreateSchema,
-    mtssStudentUpdateSchema
+    mtssStudentUpdateSchema,
+    kindergartenMoodCheckinSchema,
+    kindergartenHomeObservationSchema,
+    kindergartenAiDraftSchema
 };

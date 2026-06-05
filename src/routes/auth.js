@@ -5,20 +5,45 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const UserStudent = require('../models/UserStudent');
 const { sendSuccess, sendError } = require('../utils/response');
-const { buildDashboardAccessProfile, hasDashboardAccess } = require('../utils/accessControl');
+const { hasDashboardAccess, hasMtssAccess } = require('../utils/accessControl');
+const { buildRequestUser } = require('../middleware/auth');
 
-// Initialize session for OAuth
-router.use(require('express-session')({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false
-}));
+// Session middleware is only needed for Google OAuth flow.
+// Email/password login and JWT-based routes do NOT require sessions.
+const buildOAuthMiddleware = () => {
+    const secret = process.env.SESSION_SECRET || process.env.JWT_SECRET;
+    if (!secret) return [];
+    return [
+        require('express-session')({ secret, resave: false, saveUninitialized: false }),
+        passport.initialize(),
+        passport.session()
+    ];
+};
+const oauthMiddleware = buildOAuthMiddleware();
 
-router.use(passport.initialize());
-router.use(passport.session());
+const ensureGoogleOAuthConfigured = (req, res, next) => {
+    if (passport.googleOAuthConfigured) {
+        return next();
+    }
+
+    const missingVariables = passport.googleOAuthStatus?.missingVariables || [];
+    const callbackURL = passport.googleOAuthStatus?.callbackURL || null;
+
+    return sendError(
+        res,
+        `Google OAuth is not configured${missingVariables.length ? `: missing ${missingVariables.join(', ')}` : ''}`,
+        503,
+        {
+            missingVariables,
+            callbackURL
+        }
+    );
+};
 
 // Google OAuth routes
 router.get('/google',
+    ...oauthMiddleware,
+    ensureGoogleOAuthConfigured,
     passport.authenticate('google', {
         scope: ['profile', 'email'],
         hd: 'millennia21.id' // Restrict to millennia21.id domain
@@ -26,7 +51,9 @@ router.get('/google',
 );
 
 router.get('/google/callback',
-    passport.authenticate('google', { failureRedirect: '/login' }),
+    ...oauthMiddleware,
+    ensureGoogleOAuthConfigured,
+    passport.authenticate('google', { failureRedirect: '/?error=oauth_failed' }),
     async (req, res) => {
         try {
             console.log('✅ Google OAuth successful for user:', req.user.email);
@@ -37,13 +64,13 @@ router.get('/google/callback',
 
             if (!dbUser) {
                 console.error('❌ User not found in database after OAuth:', req.user.email);
-                return res.redirect('/login?error=user_not_found');
+                return res.redirect('/?error=user_not_found');
             }
 
             // Check if user is active
             if (!dbUser.isActive) {
                 console.error('❌ Inactive user attempted OAuth login:', req.user.email);
-                return res.redirect('/login?error=account_inactive');
+                return res.redirect('/?error=account_inactive');
             }
 
             // Update last login
@@ -71,44 +98,25 @@ router.get('/google/callback',
                 { expiresIn: '7d' }
             );
 
-            const dashboardAccess = buildDashboardAccessProfile(dbUser);
-
             // Send database-validated user data to frontend
             const userDataForFrontend = {
-                id: dbUser._id,
-                name: dbUser.name,
-                email: dbUser.email,
-                role: dbUser.role, // This is the authoritative role from database
-                username: dbUser.username,
-                department: dbUser.department,
-                jobLevel: dbUser.jobLevel,
-                unit: dbUser.unit,
-                jobPosition: dbUser.jobPosition,
-                employeeId: dbUser.employeeId,
-                currentGrade: dbUser.currentGrade,
-                className: dbUser.className,
-                nickname: dbUser.nickname,
-                joinAcademicYear: dbUser.joinAcademicYear,
+                ...buildRequestUser(dbUser),
                 lastLogin: dbUser.lastLogin,
                 isActive: dbUser.isActive,
                 emailVerified: dbUser.emailVerified,
                 // Add validation metadata
                 validatedAt: new Date().toISOString(),
-                authMethod: 'google_oauth',
-                dashboardAccess,
-                dashboardRole: dashboardAccess.effectiveRole
+                authMethod: 'google_oauth'
             };
 
             // Redirect to frontend with validated user data
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            const redirectTarget = dbUser.role === 'student' ? '/emotional-checkin' : '/support-hub';
-            const redirectUrl = `${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
+            const redirectTarget = dbUser.role === 'student'
+                ? '/emotional-checkin'
+                : (userDataForFrontend.mtssAccess?.hasAccess ? '/support-hub' : '/select-role');
+            const redirectUrl = `${frontendUrl}/auth/callback#token=${encodeURIComponent(token)}&user=${encodeURIComponent(JSON.stringify(userDataForFrontend))}&redirect=${encodeURIComponent(redirectTarget)}`;
 
-            const oauthUserForLogging = {
-                ...dbUser.toObject(),
-                dashboardAccess
-            };
-            const canViewDashboard = hasDashboardAccess(oauthUserForLogging);
+            const canViewDashboard = hasDashboardAccess(userDataForFrontend);
 
             // Debug log for FRONTEND_URL configuration
             console.log('🌐 OAuth redirect config:', {
@@ -121,16 +129,18 @@ router.get('/google/callback',
             console.log('🔄 Redirecting to frontend with database-validated user data');
             console.log('📋 User role for dashboard access:', {
                 role: dbUser.role,
-                dashboardRole: dashboardAccess.effectiveRole,
-                delegatedFrom: dashboardAccess.delegatedFromEmail || null,
-                hasDashboardAccess: canViewDashboard
+                dashboardRole: userDataForFrontend.dashboardRole,
+                delegatedFrom: userDataForFrontend.dashboardAccess?.delegatedFromEmail || null,
+                hasDashboardAccess: canViewDashboard,
+                hasMtssAccess: hasMtssAccess(userDataForFrontend),
+                mtssRole: userDataForFrontend.mtssRole || null
             });
 
             res.redirect(redirectUrl);
 
         } catch (error) {
             console.error('❌ OAuth callback error:', error);
-            res.redirect('/login?error=oauth_failed');
+            res.redirect('/?error=oauth_failed');
         }
     }
 );
@@ -174,27 +184,9 @@ router.post('/login', require('../middleware/validation').validate(require('../u
             { expiresIn: '7d' }
         );
 
-        const dashboardAccess = buildDashboardAccessProfile(user);
-
         // Return user data and token
         const userData = {
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                username: user.username,
-                department: user.department,
-                unit: user.unit,
-                jobLevel: user.jobLevel,
-                jobPosition: user.jobPosition,
-                currentGrade: user.currentGrade,
-                className: user.className,
-                nickname: user.nickname,
-                joinAcademicYear: user.joinAcademicYear,
-                dashboardAccess,
-                dashboardRole: dashboardAccess.effectiveRole
-            },
+            user: buildRequestUser({ ...user.toObject(), lastLogin: new Date() }),
             token
         };
 
@@ -206,15 +198,15 @@ router.post('/login', require('../middleware/validation').validate(require('../u
     }
 });
 
-// Logout
+// Logout — JWT auth is stateless; client drops the token.
+// Passport session logout only applies when OAuth session is active.
 router.post('/logout', (req, res) => {
-    req.logout((err) => {
-        if (err) {
-            console.error('Logout error:', err);
-            return sendError(res, 'Logout failed', 500);
-        }
-        sendSuccess(res, 'Logged out successfully');
-    });
+    if (typeof req.logout === 'function') {
+        req.logout((err) => {
+            if (err) console.error('Passport logout error:', err);
+        });
+    }
+    sendSuccess(res, 'Logged out successfully');
 });
 
 // Get current user info
@@ -235,10 +227,7 @@ router.get('/me', require('../middleware/auth').authenticate, async (req, res) =
             return sendError(res, 'Account is deactivated', 403);
         }
 
-        const dashboardAccess = buildDashboardAccessProfile(user);
-        const responseUser = user.toObject ? user.toObject() : { ...user };
-        responseUser.dashboardAccess = dashboardAccess;
-        responseUser.dashboardRole = dashboardAccess.effectiveRole;
+        const responseUser = buildRequestUser(user);
 
         // Log role access for security monitoring
         const canViewDashboard = hasDashboardAccess(responseUser);
@@ -246,9 +235,11 @@ router.get('/me', require('../middleware/auth').authenticate, async (req, res) =
             userId: user._id,
             email: user.email,
             role: responseUser.role,
-            dashboardRole: dashboardAccess.effectiveRole,
-            delegatedFrom: dashboardAccess.delegatedFromEmail || null,
+            dashboardRole: responseUser.dashboardRole,
+            delegatedFrom: responseUser.dashboardAccess?.delegatedFromEmail || null,
             hasDashboardAccess: canViewDashboard,
+            hasMtssAccess: hasMtssAccess(responseUser),
+            mtssRole: responseUser.mtssRole || null,
             department: responseUser.department,
             unit: responseUser.unit
         });

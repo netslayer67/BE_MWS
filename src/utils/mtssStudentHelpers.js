@@ -30,6 +30,11 @@ const defaultProfile = {
     tier: 'Tier 1',
     progress: 'Not Assigned',
     nextUpdate: 'Not scheduled',
+    lastUpdate: null,
+    assignmentCount: 0,
+    activeAssignmentCount: 0,
+    lastAssignmentAt: null,
+    dataSource: 'mtssstudents',
     profile: {
         teacher: '-',
         mentor: '-',
@@ -140,6 +145,42 @@ const deriveFocusArea = (assignment = {}) => {
     return 'Literacy & SEL';
 };
 
+const toIsoDate = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+};
+
+const pickLatestUpdateMeta = (current, candidate) => {
+    const candidateAt = toIsoDate(candidate?.at);
+    if (!candidateAt) return current || null;
+
+    if (!current?.at) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || null
+        };
+    }
+
+    const currentAt = toIsoDate(current.at);
+    if (!currentAt) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || null
+        };
+    }
+
+    if (new Date(candidateAt) >= new Date(currentAt)) {
+        return {
+            at: candidateAt,
+            subject: candidate?.subject || current.subject || null
+        };
+    }
+
+    return current;
+};
+
 const inferProgressUnit = (assignment = {}) => {
     const pool = [
         assignment.metricLabel,
@@ -217,6 +258,16 @@ const buildProfile = (assignment = {}) => {
     const completedGoals = goals.filter(goal => goal.completed).length;
     const progressUnit = assignment.metricLabel || inferProgressUnit(assignment);
     const teacherRoster = assignment.mentorId?.name ? [assignment.mentorId.name] : [];
+    const mentorProfile = assignment.mentorId
+        ? {
+            id: assignment.mentorId?._id?.toString?.() || assignment.mentorId?._id || null,
+            name: assignment.mentorId?.name || null,
+            username: assignment.mentorId?.username || null,
+            nickname: assignment.mentorId?.username || null,
+            gender: assignment.mentorId?.gender || null,
+            email: assignment.mentorId?.email || null
+        }
+        : null;
 
     // Extract baseline/current/target from check-ins or baselineScore/targetScore
     let baseline = null;
@@ -249,7 +300,11 @@ const buildProfile = (assignment = {}) => {
     return {
         teacher: assignment.mentorId?.name || 'MTSS Mentor',
         mentor: assignment.mentorId?.name || 'MTSS Mentor',
+        mentorUsername: assignment.mentorId?.username || null,
+        mentorNickname: assignment.mentorId?.username || null,
+        mentorGender: assignment.mentorId?.gender || null,
         teacherRoster,
+        mentors: mentorProfile ? [mentorProfile] : [],
         type: deriveFocusArea(assignment),
         strategy: Array.isArray(assignment.focusAreas) && assignment.focusAreas.length
             ? assignment.focusAreas.join(', ')
@@ -267,12 +322,44 @@ const buildProfile = (assignment = {}) => {
 
 const summarizeAssignmentsForStudents = (assignments = []) => {
     const summaryMap = new Map();
+    const statsMap = new Map();
+
+    const pickLatestDate = (current, candidate) => {
+        if (!candidate) return current || null;
+        const candidateDate = new Date(candidate);
+        if (Number.isNaN(candidateDate.getTime())) return current || null;
+        if (!current) return candidateDate.toISOString();
+        const currentDate = new Date(current);
+        if (Number.isNaN(currentDate.getTime())) return candidateDate.toISOString();
+        return candidateDate > currentDate ? candidateDate.toISOString() : current;
+    };
 
     assignments.forEach((assignment) => {
         const students = assignment.studentIds || [];
         students.forEach((studentId) => {
             const key = studentId?.toString?.() || studentId;
             if (!key) return;
+
+            const currentStats = statsMap.get(key) || {
+                assignmentCount: 0,
+                activeAssignmentCount: 0,
+                lastAssignmentAt: null,
+                lastUpdate: null
+            };
+            currentStats.assignmentCount += 1;
+            if (assignment.status === 'active') {
+                currentStats.activeAssignmentCount += 1;
+            }
+            currentStats.lastAssignmentAt = pickLatestDate(
+                currentStats.lastAssignmentAt,
+                assignment.updatedAt || assignment.endDate || assignment.startDate
+            );
+            currentStats.lastUpdate = pickLatestUpdateMeta(currentStats.lastUpdate, {
+                at: assignment.updatedAt || assignment.startDate || assignment.createdAt || null,
+                subject: deriveFocusArea(assignment) || assignment.strategyName || assignment.monitoringMethod || null
+            });
+            statsMap.set(key, currentStats);
+
             const tierLabel = mapTierLabel(assignment.tier);
             const tierScore = TIER_PRIORITY[assignment.tier] || TIER_PRIORITY[tierLabel] || 0;
             const statusScore = STATUS_PRIORITY[assignment.status] || 0;
@@ -289,9 +376,27 @@ const summarizeAssignmentsForStudents = (assignments = []) => {
                 progress: STATUS_LABELS[assignment.status] || 'On Track',
                 nextUpdate: inferNextUpdate(assignment),
                 profile: buildProfile(assignment),
-                teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : []
+                teacherRoster: assignment.mentorId?.name ? [assignment.mentorId.name] : [],
+                mentors: assignment.mentorId ? [{
+                    id: assignment.mentorId?._id?.toString?.() || assignment.mentorId?._id || null,
+                    name: assignment.mentorId?.name || null,
+                    username: assignment.mentorId?.username || null,
+                    nickname: assignment.mentorId?.username || null,
+                    gender: assignment.mentorId?.gender || null,
+                    email: assignment.mentorId?.email || null
+                }] : [],
+                dataSource: 'mtssstudents+mentorassignments'
             });
         });
+    });
+
+    summaryMap.forEach((summary, key) => {
+        const stats = statsMap.get(key);
+        if (!stats) return;
+        summary.assignmentCount = stats.assignmentCount;
+        summary.activeAssignmentCount = stats.activeAssignmentCount;
+        summary.lastAssignmentAt = stats.lastAssignmentAt;
+        summary.lastUpdate = stats.lastUpdate || null;
     });
 
     return summaryMap;
@@ -317,7 +422,12 @@ const formatRosterStudent = (studentDoc, summary) => {
 
         ...profileSource,
 
-        mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor'
+        mentor: profileSource?.mentor || profileSource?.teacher || 'MTSS Mentor',
+        mentors: Array.isArray(profileSource?.mentors)
+            ? profileSource.mentors
+            : Array.isArray(support?.mentors)
+                ? support.mentors
+                : []
 
     };
 
@@ -336,12 +446,21 @@ const formatRosterStudent = (studentDoc, summary) => {
                 : [];
 
     const mentorLabel = teacherRoster[0] || safeProfile.mentor;
+    const mentorFromProfile = Array.isArray(safeProfile.mentors) && safeProfile.mentors.length
+        ? safeProfile.mentors[0]
+        : null;
+    const mentorUsername = safeProfile.mentorUsername || mentorFromProfile?.username || null;
+    const mentorNickname = safeProfile.mentorNickname || mentorFromProfile?.nickname || mentorUsername || null;
+    const mentorGender = safeProfile.mentorGender || mentorFromProfile?.gender || null;
 
     safeProfile.teacherRoster = teacherRoster;
 
     safeProfile.teacher = teacherRoster.length ? teacherRoster.join(' / ') : safeProfile.teacher;
 
     safeProfile.mentor = mentorLabel;
+    safeProfile.mentorUsername = mentorUsername;
+    safeProfile.mentorNickname = mentorNickname;
+    safeProfile.mentorGender = mentorGender;
 
     const interventions = buildStudentInterventions(source);
 
@@ -390,6 +509,9 @@ const formatRosterStudent = (studentDoc, summary) => {
         grade: gradeLabel,
 
         mentor: mentorLabel,
+        mentorUsername,
+        mentorNickname,
+        mentorGender,
 
         teachers: teacherRoster,
 
@@ -400,6 +522,16 @@ const formatRosterStudent = (studentDoc, summary) => {
         progress: support.progress,
 
         nextUpdate: support.nextUpdate,
+
+        lastUpdate: support.lastUpdate || null,
+
+        assignmentCount: support.assignmentCount ?? 0,
+
+        activeAssignmentCount: support.activeAssignmentCount ?? 0,
+
+        lastAssignmentAt: support.lastAssignmentAt || null,
+
+        dataSource: support.dataSource || defaultProfile.dataSource,
 
         profile: safeProfile,
 

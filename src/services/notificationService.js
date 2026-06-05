@@ -1,6 +1,31 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
+const { getIO } = require('../config/socket');
+const { buildFrontendUrl } = require('../utils/frontendUrl');
+
+// Retry helper: exponential backoff, skips retry for permanent Slack errors
+const SLACK_PERMANENT_ERRORS = new Set([
+    'invalid_auth', 'account_inactive', 'token_revoked', 'no_permission',
+    'missing_scope', 'channel_not_found', 'user_not_found', 'not_in_channel'
+]);
+
+async function retryWithBackoff(fn, maxAttempts = 3, baseDelayMs = 300) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            const slackErr = error?.response?.data?.error;
+            if (slackErr && SLACK_PERMANENT_ERRORS.has(slackErr)) throw error;
+            if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (2 ** (attempt - 1))));
+            }
+        }
+    }
+    throw lastError;
+}
 
 // Slack configuration
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -31,46 +56,30 @@ class SlackService {
     }
 
     async sendDirectMessage(userId, message, blocks = null) {
-        try {
+        const payload = { channel: userId, text: message };
+        if (blocks) payload.blocks = blocks;
+
+        return retryWithBackoff(async () => {
             console.log(`📤 Sending Slack DM to user ID: ${userId}`);
-            console.log(`📝 Message: ${message.substring(0, 100)}...`);
-
-            const payload = {
-                channel: userId,
-                text: message
-            };
-
-            if (blocks) {
-                payload.blocks = blocks;
-                console.log(`📦 Including ${blocks.length} block(s) in message`);
-            }
-
             const response = await this.client.post('/chat.postMessage', payload);
-            console.log(`✅ Slack API Response:`, response.data);
-
             if (response.data.ok) {
-                console.log(`✅ Slack DM sent successfully to user ${userId}`);
+                console.log(`✅ Slack DM sent to user ${userId}`);
                 return response.data;
-            } else {
-                console.error(`❌ Slack API returned not ok:`, response.data);
-                throw new Error(`Slack API error: ${response.data.error}`);
             }
-        } catch (error) {
-            console.error('❌ Slack DM send error:', error.response?.data || error.message);
-
-            // Log detailed error information
+            const err = new Error(`Slack API error: ${response.data.error}`);
+            err.response = { data: response.data };
+            throw err;
+        }, 3, 300).catch((error) => {
             if (error.response?.data) {
-                console.error('Slack API Error Details:', {
-                    status: error.response.status,
-                    statusText: error.response.statusText,
+                console.error('❌ Slack DM failed after retries:', {
                     error: error.response.data.error,
-                    needed: error.response.data.needed,
-                    provided: error.response.data.provided
+                    needed: error.response.data.needed
                 });
+            } else {
+                console.error('❌ Slack DM failed after retries:', error.message);
             }
-
             throw error;
-        }
+        });
     }
 
     async findUserByEmail(email) {
@@ -107,21 +116,19 @@ class SlackService {
 // Email notification functions
 class EmailService {
     async sendEmail(to, subject, html, text = null) {
-        try {
-            const mailOptions = {
-                from: process.env.SMTP_FROM || 'noreply@millennia21.id',
-                to,
-                subject,
-                html,
-                text: text || this.stripHtml(html)
-            };
+        const mailOptions = {
+            from: process.env.SMTP_FROM || 'noreply@millennia21.id',
+            to,
+            subject,
+            html,
+            text: text || this.stripHtml(html)
+        };
 
-            const result = await emailTransporter.sendMail(mailOptions);
-            return result;
-        } catch (error) {
-            console.error('Email send error:', error.message);
-            throw error;
-        }
+        return retryWithBackoff(() => emailTransporter.sendMail(mailOptions), 3, 500)
+            .catch((error) => {
+                console.error(`❌ Email to "${to}" failed after retries:`, error.message);
+                throw error;
+            });
     }
 
     stripHtml(html) {
@@ -134,6 +141,35 @@ class NotificationService {
     constructor() {
         this.slack = new SlackService();
         this.email = new EmailService();
+    }
+
+    emitToUserNotificationRooms(userId, eventName, payload = {}) {
+        const normalizedUserId = String(userId || '').trim();
+        if (!normalizedUserId || !eventName) return;
+
+        try {
+            const io = getIO();
+            io.to(`personal-${normalizedUserId}`).emit(eventName, payload);
+            io.to(`notifications-${normalizedUserId}`).emit(eventName, payload);
+        } catch (error) {
+            // Socket server can be unavailable in scripts/tests; keep notification persistence unaffected.
+            if (!String(error?.message || '').includes('Socket.io not initialized')) {
+                console.error('❌ Notification realtime emit error:', error.message || error);
+            }
+        }
+    }
+
+    // Public wrapper so controllers can call notificationService.sendEmail() directly
+    async sendEmail(to, subject, html, text = null) {
+        return this.email.sendEmail(to, subject, html, text);
+    }
+
+    toRealtimeNotificationPayload(notification = {}) {
+        if (!notification) return null;
+        if (typeof notification.toObject === 'function') {
+            return notification.toObject({ virtuals: true });
+        }
+        return notification;
     }
 
     // Persistence methods for database operations
@@ -153,6 +189,11 @@ class NotificationService {
 
             await notification.save();
             console.log(`✅ Notification created for user ${userId}: ${title}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:new', {
+                notification: this.toRealtimeNotificationPayload(notification)
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error creating notification:', error);
@@ -223,6 +264,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} marked as read`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:updated', {
+                notification: this.toRealtimeNotificationPayload(notification),
+                type: 'mark-read'
+            });
+
             return notification;
         } catch (error) {
             console.error('❌ Error marking notification as read:', error);
@@ -233,12 +280,22 @@ class NotificationService {
     // Mark all notifications as read for a user
     async markAllAsRead(userId) {
         try {
+            const unreadNotificationIds = await Notification.find({ userId, isRead: false })
+                .select('_id')
+                .lean();
+
             const result = await Notification.updateMany(
                 { userId, isRead: false },
                 { isRead: true, readAt: new Date() }
             );
 
             console.log(`✅ Marked ${result.modifiedCount} notifications as read for user ${userId}`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:bulk-read', {
+                notificationIds: unreadNotificationIds.map((entry) => String(entry._id)),
+                modifiedCount: result.modifiedCount
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error marking all notifications as read:', error);
@@ -259,6 +316,12 @@ class NotificationService {
             }
 
             console.log(`✅ Notification ${notificationId} deleted`);
+
+            this.emitToUserNotificationRooms(userId, 'notification:deleted', {
+                notificationId: String(notificationId || ''),
+                notification: this.toRealtimeNotificationPayload(result)
+            });
+
             return result;
         } catch (error) {
             console.error('❌ Error deleting notification:', error);
@@ -367,96 +430,51 @@ class NotificationService {
             // Create detailed Slack message with user details
             const message = `🚨 Support Request from ${userName}\n\nEmotional State: ${weatherType}\nPresence: ${presenceLevel}/10, Capacity: ${capacityLevel}/10\nMoods: ${selectedMoods?.join(', ') || 'None'}\n\nAI Analysis: ${aiAnalysis?.emotionalState || 'N/A'}\n${aiAnalysis?.recommendations?.[0] || ''}`;
 
-            // Create clean Slack blocks following Block Kit best practices
             const blocks = [
                 {
                     type: "header",
-                    text: {
-                        type: "plain_text",
-                        text: "🚨 Support Request Alert",
-                        emoji: true
-                    }
+                    text: { type: "plain_text", text: "🚨 Support Request Alert", emoji: true }
                 },
                 {
                     type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*${userName}* (${userRole}, ${userDepartment}) needs support.`
-                    }
+                    text: { type: "mrkdwn", text: `*${userName}* (${userRole}, ${userDepartment}) needs support.` }
                 },
                 {
                     type: "section",
                     fields: [
-                        {
-                            type: "mrkdwn",
-                            text: `*Weather:*\n${weatherType}`
-                        },
-                        {
-                            type: "mrkdwn",
-                            text: `*Presence:*\n${presenceLevel}/10`
-                        },
-                        {
-                            type: "mrkdwn",
-                            text: `*Capacity:*\n${capacityLevel}/10`
-                        },
-                        {
-                            type: "mrkdwn",
-                            text: `*Moods:*\n${selectedMoods?.join(', ') || 'None'}`
-                        }
+                        { type: "mrkdwn", text: `*Weather:*\n${weatherType}` },
+                        { type: "mrkdwn", text: `*Presence:*\n${presenceLevel}/10` },
+                        { type: "mrkdwn", text: `*Capacity:*\n${capacityLevel}/10` },
+                        { type: "mrkdwn", text: `*Moods:*\n${selectedMoods?.join(', ') || 'None'}` }
                     ]
                 },
-                // Add user details section if provided
                 ...(details ? [{
                     type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*User Details:*\n"${details.length > 200 ? details.substring(0, 200) + '...' : details}"`
-                    }
+                    text: { type: "mrkdwn", text: `*User Details:*\n"${details.length > 200 ? details.substring(0, 200) + '...' : details}"` }
                 }] : []),
                 {
                     type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*AI Analysis:*\n*State:* ${aiAnalysis?.emotionalState || 'N/A'}\n*Recommendation:* ${aiAnalysis?.recommendations?.[0]?.title || 'N/A'}`
-                    }
+                    text: { type: "mrkdwn", text: `*AI Analysis:*\n*State:* ${aiAnalysis?.emotionalState || 'N/A'}\n*Recommendation:* ${aiAnalysis?.recommendations?.[0]?.title || 'N/A'}` }
                 },
                 {
                     type: "actions",
-                    elements: [
-                        {
-                            type: "button",
-                            text: {
-                                type: "plain_text",
-                                text: "Mark as Handled",
-                                emoji: true
-                            },
-                            style: "primary",
-                            action_id: "mark_handled",
-                            value: JSON.stringify({
-                                requestId: checkinId,
-                                action: 'handled'
-                            })
-                        }
-                    ]
+                    elements: [{
+                        type: "button",
+                        text: { type: "plain_text", text: "Mark as Handled", emoji: true },
+                        style: "primary",
+                        action_id: "mark_handled",
+                        value: JSON.stringify({ requestId: checkinId, action: 'handled' })
+                    }]
                 }
             ];
 
-            // Send the direct message
-            console.log(`🚀 Attempting to send Slack DM to ${supportContactName} (${supportContactEmail}) with user ID: ${slackUser.id}`);
-            console.log('🔗 Sending Slack message with blocks:', JSON.stringify(blocks, null, 2));
+            console.log(`🚀 Sending Slack DM to ${supportContactName} (${supportContactEmail})`);
             const dmResult = await this.slack.sendDirectMessage(slackUser.id, message, blocks);
-
-            if (dmResult.ok) {
-                console.log(`✅ Slack notification sent successfully to ${supportContactName} (${supportContactEmail})`);
-                console.log(`📨 Message timestamp: ${dmResult.ts}`);
-                return { success: true, messageId: dmResult.ts };
-            } else {
-                console.error(`❌ Slack API returned error:`, dmResult.error);
-                return { success: false, error: dmResult.error };
-            }
+            console.log(`✅ Slack notification sent to ${supportContactName} — ts: ${dmResult.ts}`);
+            return { success: true, messageId: dmResult.ts, deliveredTo: supportContactEmail };
 
         } catch (error) {
-            console.error('❌ Slack notification error:', error);
+            console.error('❌ Slack notification error (all retries exhausted):', error.message);
             return { success: false, error: error.message };
         }
     }
@@ -478,13 +496,18 @@ class NotificationService {
             checkinId
         } = supportRequest;
 
-        // Check if email credentials are configured
+        // Email is the guaranteed delivery channel — fail loudly if credentials are missing
         if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-            console.log('⚠️ Email credentials not configured, skipping email notification');
-            return { success: false, error: 'Email credentials not configured' };
+            const msg = 'CRITICAL: Email credentials not configured — support request email cannot be sent';
+            console.error(msg);
+            throw new Error(msg);
         }
 
         try {
+            const dashboardUrl = buildFrontendUrl('/emotional-checkin/dashboard');
+            const handledUrl = buildFrontendUrl(`/emotional-checkin/dashboard?mode=confirm&requestId=${checkinId}&response=handled`);
+            const acknowledgedUrl = buildFrontendUrl(`/emotional-checkin/dashboard?mode=confirm&requestId=${checkinId}&response=acknowledged`);
+
             // Enhanced weather emoji mapping
             const getWeatherEmoji = (weather) => {
                 const weatherMap = {
@@ -682,21 +705,21 @@ class NotificationService {
                             <!-- Action Buttons -->
                             <div style="text-align: center; margin: 40px 0;">
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard"
+                                    <a href="${dashboardUrl}"
                                        style="background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(0,123,255,0.3);">
                                         📊 View Full Dashboard
                                     </a>
                                 </div>
 
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard?action=confirm&requestId=${checkinId}&action=handled"
+                                    <a href="${handledUrl}"
                                        style="background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(40,167,69,0.3);">
                                         ✅ Mark as Handled
                                     </a>
                                 </div>
 
                                 <div style="display: inline-block; margin: 0 10px 20px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard?action=confirm&requestId=${checkinId}&action=acknowledged"
+                                    <a href="${acknowledgedUrl}"
                                        style="background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(255,193,7,0.3);">
                                         👀 Acknowledge
                                     </a>
@@ -736,59 +759,46 @@ class NotificationService {
                 emailHtml
             );
 
-            console.log(`✅ Enhanced email notification sent to ${supportContactName} (${supportContactEmail})`);
-            return { success: true };
+            console.log(`✅ Email notification sent to ${supportContactName} (${supportContactEmail})`);
+            return { success: true, deliveredTo: supportContactEmail };
 
         } catch (error) {
-            console.error('❌ Email notification error:', error);
-            return { success: false, error: error.message };
+            // Re-throw so checkinController's Promise.allSettled registers this as rejected
+            console.error('❌ Email notification error (all retries exhausted):', error.message);
+            throw error;
         }
     }
 
     // Legacy method for backward compatibility
     async sendSupportRequestNotification(supportRequest) {
-        const {
-            contactEmail,
-            contactName,
-            requestedBy,
-            userId,
-            weatherType,
-            presenceLevel,
-            capacityLevel,
-            submittedAt
-        } = supportRequest;
+        const { contactEmail, contactName, requestedBy } = supportRequest;
 
-        // Create notification message
         const message = this.createSupportRequestMessage(supportRequest);
         const blocks = this.createSupportRequestBlocks(supportRequest);
 
-        try {
-            // Send Slack notification if contact email is available
-            if (contactEmail) {
+        // Slack — best effort (no retry needed here; sendDirectMessage already retries)
+        let slackSent = false;
+        if (contactEmail) {
+            try {
                 const slackUser = await this.slack.findUserByEmail(contactEmail);
                 if (slackUser) {
                     await this.slack.sendDirectMessage(slackUser.id, message, blocks);
+                    slackSent = true;
                     console.log(`Slack notification sent to ${contactName} (${contactEmail})`);
                 } else {
-                    console.log(`Slack user not found for ${contactEmail}, skipping Slack notification`);
+                    console.log(`Slack user not found for ${contactEmail}, skipping Slack`);
                 }
+            } catch (slackError) {
+                console.error(`❌ Slack failed for ${contactEmail}:`, slackError.message);
             }
-
-            // Send email notification
-            const emailHtml = this.createSupportRequestEmailHtml(supportRequest);
-            await this.email.sendEmail(
-                contactEmail,
-                `Support Request from ${requestedBy}`,
-                emailHtml
-            );
-            console.log(`Email notification sent to ${contactName} (${contactEmail})`);
-
-            return { success: true, slackSent: !!slackUser, emailSent: true };
-
-        } catch (error) {
-            console.error('Notification send error:', error);
-            return { success: false, error: error.message };
         }
+
+        // Email — guaranteed delivery channel, throws on failure
+        const emailHtml = this.createSupportRequestEmailHtml(supportRequest);
+        await this.email.sendEmail(contactEmail, `Support Request from ${requestedBy}`, emailHtml);
+        console.log(`Email notification sent to ${contactName} (${contactEmail})`);
+
+        return { success: true, slackSent, emailSent: true, deliveredTo: contactEmail };
     }
 
     // Create support request message for Slack
@@ -844,7 +854,7 @@ class NotificationService {
                             text: "View Details"
                         },
                         style: "primary",
-                        url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard`
+                        url: buildFrontendUrl('/emotional-checkin/dashboard')
                     },
                     {
                         type: "button",
@@ -897,7 +907,7 @@ class NotificationService {
                     </div>
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-checkin/dashboard"
+                        <a href="${buildFrontendUrl('/emotional-checkin/dashboard')}"
                            style="background: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             View Dashboard
                         </a>
@@ -920,15 +930,66 @@ class NotificationService {
     }
 
     // Handle support request confirmation with enhanced details
-    async confirmSupportRequest(requestId, contactId, action, details = null, followUpActions = null) {
+    async confirmSupportRequest(requestId, contactId, action, details = null, followUpActions = null, resolutionMessage = null) {
         try {
-            // Update the check-in record with confirmation status
             const EmotionalCheckin = require('../models/EmotionalCheckin');
+            const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
+            if (!['handled', 'acknowledged', 'follow_up', 'success'].includes(action)) {
+                return { success: false, code: 400, message: 'Invalid action' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(requestId)) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            if (!mongoose.Types.ObjectId.isValid(String(contactId || ''))) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const normalizedContactId = String(contactId);
+            const models = [EmotionalCheckin, StudentEmotionalCheckin];
+            let CheckinModel = null;
+            let checkin = null;
+
+            for (const model of models) {
+                const found = await model.findById(requestId)
+                    .select('supportContactUserId supportContactResponse');
+                if (found) {
+                    checkin = found;
+                    CheckinModel = model;
+                    break;
+                }
+            }
+
+            if (!checkin) {
+                return { success: false, code: 404, message: 'Support request not found' };
+            }
+
+            const assignedContactId = checkin.supportContactUserId?.toString() || null;
+            if (!assignedContactId || assignedContactId !== normalizedContactId) {
+                return { success: false, code: 403, message: 'Only assigned support contact can confirm this request' };
+            }
+
+            const currentStatus = checkin.supportContactResponse?.status || 'pending';
+            const VALID_TRANSITIONS = {
+                pending:     ['acknowledged', 'follow_up', 'success', 'handled'],
+                acknowledged: ['follow_up', 'success', 'handled'],
+                follow_up:   ['success', 'handled']
+            };
+            const transitionAllowed = (VALID_TRANSITIONS[currentStatus] || []).includes(action);
+
+            if (!transitionAllowed) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: `Cannot change support request from "${currentStatus}" to "${action}"`
+                };
+            }
 
             const updateData = {
                 'supportContactResponse.status': action,
                 'supportContactResponse.respondedAt': new Date(),
-                'supportContactResponse.contactId': contactId
+                'supportContactResponse.contactId': normalizedContactId
             };
 
             if (details) {
@@ -939,18 +1000,36 @@ class NotificationService {
                 updateData['supportContactResponse.followUpActions'] = followUpActions;
             }
 
-            await EmotionalCheckin.findByIdAndUpdate(requestId, {
-                $set: updateData
-            });
+            if (resolutionMessage) {
+                updateData['supportContactResponse.resolutionMessage'] = resolutionMessage;
+            }
+
+            const updatedCheckin = await CheckinModel.findOneAndUpdate(
+                {
+                    _id: requestId,
+                    supportContactUserId: normalizedContactId,
+                    'supportContactResponse.status': currentStatus
+                },
+                { $set: updateData },
+                { new: true }
+            );
+
+            if (!updatedCheckin) {
+                return {
+                    success: false,
+                    code: 409,
+                    message: 'Support request status changed by another process. Please refresh and try again.'
+                };
+            }
 
             console.log(`✅ Support request ${requestId} ${action} by contact ${contactId}`);
             console.log(`📝 Details: ${details || 'No details provided'}`);
             console.log(`🔄 Follow-up actions: ${followUpActions || 'None specified'}`);
 
-            return { success: true };
+            return { success: true, code: 200, message: `Support request ${action} successfully` };
         } catch (error) {
             console.error('Support request confirmation error:', error);
-            return { success: false, error: error.message };
+            return { success: false, code: 500, message: error.message };
         }
     }
 
@@ -977,7 +1056,7 @@ class NotificationService {
                     ` : ''}
 
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-wellness"
+                        <a href="${buildFrontendUrl('/emotional-wellness')}"
                            style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                             View My Dashboard
                         </a>

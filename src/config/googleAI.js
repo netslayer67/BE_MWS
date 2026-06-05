@@ -1,10 +1,12 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const devTopologyTelemetryService = require('../services/devTopologyTelemetryService');
 
 class GoogleAIService {
     constructor() {
         this.apiKey = process.env.GOOGLE_AI_API_KEY;
         this.modelName = process.env.GOOGLE_AI_MODEL || 'gemini-flash-latest';
         this.minDelay = 1000;
+        this.requestTimeoutMs = parseInt(process.env.GOOGLE_AI_REQUEST_TIMEOUT_MS, 10) || 25000;
         this.lastRequestTime = 0;
         this.disabledUntil = 0;
 
@@ -28,10 +30,26 @@ class GoogleAIService {
         this.disabledUntil = Date.now() + durationMs;
     }
 
+    async withTimeout(promise, label = 'AI request') {
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error(`${label} timed out after ${this.requestTimeoutMs}ms`));
+            }, this.requestTimeoutMs);
+        });
+
+        try {
+            return await Promise.race([promise, timeoutPromise]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
     async generateContent(prompt) {
         if (!this.isAvailable()) {
             throw new Error('AI service unavailable');
         }
+        const startedAt = Date.now();
 
         const now = Date.now();
         const timeSinceLastRequest = now - this.lastRequestTime;
@@ -45,10 +63,23 @@ class GoogleAIService {
         try {
             console.log(`🤖 Making AI request to ${this.modelName}...`);
             const model = this.ai.getGenerativeModel({ model: this.modelName });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
+            const result = await this.withTimeout(model.generateContent(prompt), 'AI generation');
+            const response = await this.withTimeout(Promise.resolve(result.response), 'AI response');
             this.lastRequestTime = Date.now();
             console.log('✅ AI request successful');
+            try {
+                const responseText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'google-ai',
+                    model: this.modelName,
+                    ok: true,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: Math.max(1, Math.round(60000 / Math.max(250, Date.now() - startedAt))),
+                    tokensEstimate: Math.round(String(responseText).length / 4)
+                });
+            } catch (telemetryError) {
+                console.warn('Google AI telemetry tracking failed:', telemetryError.message);
+            }
             return response;
         } catch (error) {
             const message = error?.message || '';
@@ -66,19 +97,56 @@ class GoogleAIService {
                 try {
                     console.log('🔄 Retrying AI request after backoff...');
                     const model = this.ai.getGenerativeModel({ model: this.modelName });
-                    const result = await model.generateContent(prompt);
-                    const response = await result.response;
+                    const result = await this.withTimeout(model.generateContent(prompt), 'AI retry generation');
+                    const response = await this.withTimeout(Promise.resolve(result.response), 'AI retry response');
                     this.lastRequestTime = Date.now();
                     console.log('✅ AI retry successful');
+                    try {
+                        const responseText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        devTopologyTelemetryService.recordProviderCall({
+                            provider: 'google-ai',
+                            model: this.modelName,
+                            ok: true,
+                            latencyMs: Date.now() - startedAt,
+                            throughputRpm: Math.max(1, Math.round(60000 / Math.max(250, Date.now() - startedAt))),
+                            tokensEstimate: Math.round(String(responseText).length / 4)
+                        });
+                    } catch (telemetryError) {
+                        console.warn('Google AI telemetry retry tracking failed:', telemetryError.message);
+                    }
                     return response;
                 } catch (retryError) {
                     console.error('❌ AI retry also failed:', retryError.message);
+                    try {
+                        devTopologyTelemetryService.recordProviderCall({
+                            provider: 'google-ai',
+                            model: this.modelName,
+                            ok: false,
+                            latencyMs: Date.now() - startedAt,
+                            throughputRpm: 1,
+                            tokensEstimate: 0
+                        });
+                    } catch (telemetryError) {
+                        console.warn('Google AI telemetry retry error tracking failed:', telemetryError.message);
+                    }
                     this.markTemporarilyUnavailable(backoffTime * 2);
                     throw new Error('AI service rate limited - please wait before retrying');
                 }
             }
 
             console.error('❌ AI Error:', message);
+            try {
+                devTopologyTelemetryService.recordProviderCall({
+                    provider: 'google-ai',
+                    model: this.modelName,
+                    ok: false,
+                    latencyMs: Date.now() - startedAt,
+                    throughputRpm: 1,
+                    tokensEstimate: 0
+                });
+            } catch (telemetryError) {
+                console.warn('Google AI telemetry error tracking failed:', telemetryError.message);
+            }
             this.markTemporarilyUnavailable(60_000);
             throw new Error(`AI analysis failed: ${message}`);
         }

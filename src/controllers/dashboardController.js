@@ -1,11 +1,54 @@
 const EmotionalCheckin = require('../models/EmotionalCheckin');
+const StudentEmotionalCheckin = require('../models/StudentEmotionalCheckin');
 const User = require('../models/User');
 const cacheService = require('../services/cacheService');
 const notificationService = require('../services/notificationService');
 const { sendSuccess, sendError } = require('../utils/response');
 const { getEffectiveDashboardRole } = require('../utils/accessControl');
+const { buildFrontendUrl } = require('../utils/frontendUrl');
+const {
+    CHECKIN_USER_SELECT,
+    buildResolvedUserScopeClause,
+    getCheckinResolvedIdentity,
+    getCheckinResolvedUserId
+} = require('../utils/checkinIdentity');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const padDatePart = (value) => String(value).padStart(2, '0');
+
+const formatCalendarDateKey = (value) => {
+    const parsed = value instanceof Date ? new Date(value) : new Date(value);
+    if (!isValidDate(parsed)) return null;
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}-${padDatePart(parsed.getDate())}`;
+};
+
+const formatCalendarMonthKey = (value) => {
+    const parsed = value instanceof Date ? new Date(value) : new Date(value);
+    if (!isValidDate(parsed)) return null;
+    return `${parsed.getFullYear()}-${padDatePart(parsed.getMonth() + 1)}`;
+};
+
+const parseCalendarDateInput = (value, fallback = new Date()) => {
+    if (!value) return fallback;
+    if (value instanceof Date) {
+        return isValidDate(value) ? new Date(value) : fallback;
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const match = trimmed.match(DATE_ONLY_PATTERN);
+        if (match) {
+            const [, year, month, day] = match;
+            const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+            return isValidDate(parsed) ? parsed : fallback;
+        }
+    }
+
+    const parsed = new Date(value);
+    return isValidDate(parsed) ? parsed : fallback;
+};
 
 const startOfDay = (date) => {
     const d = new Date(date);
@@ -19,9 +62,184 @@ const endOfDay = (date) => {
     return d;
 };
 
+const isValidDate = (value) => value instanceof Date && !Number.isNaN(value.getTime());
+
+const resolveAnchorDate = (value, fallback = new Date()) => {
+    return parseCalendarDateInput(value, fallback);
+};
+
+const resolveDashboardRange = (period, anchorDate = new Date(), options = {}) => {
+    const earliestDate = isValidDate(options.earliestDate) ? options.earliestDate : null;
+
+    switch (period) {
+        case 'today':
+            return {
+                startDate: startOfDay(anchorDate),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'week':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (6 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'month':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (29 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'semester':
+            return {
+                startDate: startOfDay(new Date(anchorDate.getTime() - (180 * DAY_IN_MS))),
+                endDate: endOfDay(anchorDate)
+            };
+        case 'all':
+            {
+                const boundedStartDate = (
+                    earliestDate
+                    && earliestDate.getTime() <= anchorDate.getTime()
+                )
+                    ? earliestDate
+                    : anchorDate;
+                return {
+                    startDate: startOfDay(boundedStartDate),
+                    endDate: endOfDay(anchorDate)
+                };
+            }
+        default:
+            return {
+                startDate: startOfDay(anchorDate),
+                endDate: endOfDay(anchorDate)
+            };
+    }
+};
+
 // Cache TTL configurations (in seconds)
 const CACHE_CONFIG = {
     DASHBOARD_STATS: parseInt(process.env.CACHE_TTL) || 300, // 5 minutes for testing
+};
+
+const CHECKIN_USER_POPULATE = [
+    { path: 'userId', select: CHECKIN_USER_SELECT },
+    { path: 'legacyResolvedUserId', select: CHECKIN_USER_SELECT }
+];
+
+const CHECKIN_SUPPORT_CONTACT_POPULATE = {
+    path: 'supportContactUserId',
+    select: 'name email role department unit'
+};
+
+const applyResolvedUserScope = (query, userIds = []) => {
+    const clause = buildResolvedUserScopeClause(userIds);
+    query.$or = clause.$or;
+    return query;
+};
+
+const populateCheckinIdentity = (queryBuilder) => queryBuilder.populate([
+    ...CHECKIN_USER_POPULATE,
+    CHECKIN_SUPPORT_CONTACT_POPULATE
+]);
+
+const intersectScopedUserIds = (currentIds, nextIds) => {
+    const normalizedNext = Array.isArray(nextIds)
+        ? nextIds.map((id) => id?.toString()).filter(Boolean)
+        : [];
+
+    if (!Array.isArray(currentIds)) {
+        return normalizedNext;
+    }
+
+    const nextSet = new Set(normalizedNext);
+    return currentIds.filter((id) => nextSet.has(id?.toString()));
+};
+
+const dedupeUsersById = (users = []) => {
+    const seen = new Set();
+    return users.filter((user) => {
+        const key = user?._id?.toString();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+const countUsersByRole = (users = []) => users.reduce((acc, user) => {
+    const role = user?.role || 'unknown';
+    acc[role] = (acc[role] || 0) + 1;
+    return acc;
+}, {});
+
+const resolveHeadUnitScopedUsers = async (viewer = {}) => {
+    const viewerRole = getEffectiveDashboardRole(viewer);
+    const viewerUnit = viewer?.unit || viewer?.department || '';
+    const viewerId = viewer?.id || viewer?._id || null;
+    const subordinateIds = Array.isArray(viewer?.subordinates)
+        ? viewer.subordinates.filter(Boolean)
+        : [];
+
+    if (viewerRole !== 'head_unit') {
+        return [];
+    }
+
+    const scopeClauses = [];
+
+    if (viewerUnit) {
+        scopeClauses.push(
+            { unit: viewerUnit },
+            { department: viewerUnit }
+        );
+    }
+
+    if (viewerId) {
+        scopeClauses.push({ reportsTo: viewerId });
+    }
+
+    if (subordinateIds.length) {
+        scopeClauses.push({ _id: { $in: subordinateIds } });
+    }
+
+    if (!scopeClauses.length) {
+        return [];
+    }
+
+    const scopedUsers = await User.find({
+        isActive: true,
+        $or: scopeClauses
+    }).select('_id name email role department unit reportsTo subordinates');
+
+    const viewerIdString = viewerId?.toString?.() || String(viewerId || '');
+    return dedupeUsersById(scopedUsers).filter((user) => user._id?.toString() !== viewerIdString);
+};
+
+const resolveEarliestCheckinDate = async (scopeQuery = {}) => {
+    const earliestCheckin = await EmotionalCheckin.findOne(scopeQuery, 'date').sort({ date: 1 });
+    return earliestCheckin?.date || null;
+};
+
+const resolveDashboardWindow = ({ period = 'today', date, fallbackAnchorDate = new Date(), earliestDate = null } = {}) => {
+    const anchorDate = resolveAnchorDate(date, fallbackAnchorDate);
+    const { startDate, endDate } = resolveDashboardRange(period, anchorDate, { earliestDate });
+    const rangeEndExclusive = new Date(endDate);
+    rangeEndExclusive.setMilliseconds(rangeEndExclusive.getMilliseconds() + 1);
+
+    return {
+        anchorDate,
+        startDate,
+        endDate,
+        rangeEndExclusive
+    };
+};
+
+const resolveScopedDashboardWindow = async ({ period = 'today', date, scopeQuery = {}, fallbackAnchorDate = new Date() } = {}) => {
+    const earliestDate = period === 'all'
+        ? await resolveEarliestCheckinDate(scopeQuery)
+        : null;
+
+    return resolveDashboardWindow({
+        period,
+        date,
+        fallbackAnchorDate,
+        earliestDate
+    });
 };
 
 // Get dashboard statistics with period-based filtering
@@ -30,69 +248,36 @@ const getDashboardStats = async (req, res) => {
         const { period = 'today', date } = req.query;
         const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
+        let scopedUnitUsers = [];
+        let scopedUserIds = [];
 
-        // Calculate date range based on period
-        let startDate, endDate;
+        if (userRole === 'head_unit') {
+            scopedUnitUsers = await resolveHeadUnitScopedUsers(req.user);
+            scopedUserIds = scopedUnitUsers.map((user) => user._id);
+        }
+
         const now = new Date();
-
-        switch (period) {
-            case 'today': {
-                startDate = startOfDay(now);
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'week': {
-                startDate = startOfDay(new Date(now.getTime() - (6 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'month': {
-                startDate = startOfDay(new Date(now.getTime() - (29 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'semester': {
-                startDate = startOfDay(new Date(now.getTime() - (180 * DAY_IN_MS)));
-                endDate = endOfDay(now);
-                break;
-            }
-            case 'all': {
-                // We'll determine earliest available check-in later
-                startDate = null;
-                endDate = endOfDay(now);
-                break;
-            }
-            default: {
-                startDate = startOfDay(now);
-                endDate = endOfDay(now);
-                break;
-            }
+        const scopedRangeQuery = {};
+        if (userRole === 'head_unit') {
+            applyResolvedUserScope(scopedRangeQuery, scopedUserIds);
         }
-
-        // Override with specific date if provided
-        if (date) {
-            const selectedDate = new Date(date);
-            startDate = startOfDay(selectedDate);
-            endDate = endOfDay(selectedDate);
-        }
-
-        // For "all" period without a specific date, start from earliest check-in
-        if (!date && period === 'all' && !startDate) {
-            const earliestCheckin = await EmotionalCheckin.findOne({}, 'date').sort({ date: 1 });
-            startDate = startOfDay(earliestCheckin?.date || now);
-        }
-
-        // Fallback safeguard
-        if (!startDate) {
-            startDate = startOfDay(now);
-        }
+        const { anchorDate, startDate, endDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
+            period,
+            date,
+            scopeQuery: scopedRangeQuery,
+            fallbackAnchorDate: now
+        });
 
         // Check cache first (skip if force refresh requested)
         const forceRefresh = req.query.force === 'true';
-        const rangeEndExclusive = new Date(endDate);
-        rangeEndExclusive.setMilliseconds(rangeEndExclusive.getMilliseconds() + 1);
 
-        const cacheKey = `dashboard:stats:${period}:${date || startDate.toISOString().split('T')[0]}:${userRole}:${userUnit || 'all'}`;
+        const normalizedDateKey = date
+            ? formatCalendarDateKey(anchorDate)
+            : formatCalendarDateKey(startDate);
+        const cacheScopeKey = userRole === 'head_unit'
+            ? (req.user.id?.toString?.() || userUnit || 'head_unit')
+            : (userUnit || 'all');
+        const cacheKey = `dashboard:stats:${period}:${normalizedDateKey}:${userRole}:${cacheScopeKey}`;
         let stats = forceRefresh ? null : cacheService.getDashboardStats(cacheKey);
 
         if (!stats) {
@@ -105,10 +290,16 @@ const getDashboardStats = async (req, res) => {
             console.log('🔍 Dashboard data access scope:', {
                 userRole: userRole,
                 userUnit: userUnit,
-                scope: userRole === 'directorate' ? 'ALL_EMPLOYEES' : 'UNIT_ONLY',
+                scope: userRole === 'directorate'
+                    ? 'ALL_EMPLOYEES'
+                    : userRole === 'head_unit'
+                        ? 'UNIT_AND_DIRECT_REPORTS'
+                        : 'UNIT_ONLY',
                 expectedData: userRole === 'directorate'
                     ? 'Comprehensive data for all employees across organization'
-                    : `Unit-specific data for ${userUnit} employees only`
+                    : userRole === 'head_unit'
+                        ? `Team-specific data for ${userUnit || 'assigned'} members and direct reports`
+                        : `Unit-specific data for ${userUnit} employees only`
             });
 
             // For head_unit, temporarily allow access to all data (like directorate)
@@ -136,40 +327,31 @@ const getDashboardStats = async (req, res) => {
             // }
 
             // Apply head_unit scoping to checkins if applicable
-            if (userRole === 'head_unit' && userUnit) {
-                try {
-                    const unitMembers = await User.find({
-                        isActive: true,
-                        $or: [
-                            { unit: userUnit },
-                            { department: userUnit }
-                        ]
-                    }).select('_id');
-                    checkinQuery.userId = { $in: unitMembers.map(u => u._id) };
-                } catch (e) {
-                    checkinQuery.userId = { $in: [] };
-                }
+            if (userRole === 'head_unit') {
+                applyResolvedUserScope(checkinQuery, scopedUserIds);
             }
 
             // Get checkins in the period with support contact populated
-            const periodCheckins = await EmotionalCheckin.find(checkinQuery)
-                .populate('userId', 'name email role department unit')
-                .populate('supportContactUserId', 'name role department unit');
+            const periodCheckins = await populateCheckinIdentity(
+                EmotionalCheckin.find(checkinQuery)
+            );
 
             const timelineBuckets = {};
             const periodStatsByUser = {};
 
             periodCheckins.forEach(checkin => {
+                const identity = getCheckinResolvedIdentity(checkin);
                 const dayBucket = new Date(checkin.date);
                 dayBucket.setHours(0, 0, 0, 0);
-                const dayKey = dayBucket.toISOString().split('T')[0];
+                const dayKey = formatCalendarDateKey(dayBucket);
 
                 if (!timelineBuckets[dayKey]) {
                     timelineBuckets[dayKey] = {
                         count: 0,
                         flagged: 0,
                         presence: 0,
-                        capacity: 0
+                        capacity: 0,
+                        users: []
                     };
                 }
 
@@ -177,11 +359,24 @@ const getDashboardStats = async (req, res) => {
                 bucket.count += 1;
                 bucket.presence += checkin.presenceLevel || 0;
                 bucket.capacity += checkin.capacityLevel || 0;
+                bucket.users.push({
+                    id: checkin._id,
+                    userId: identity.id || null,
+                    name: identity.name,
+                    role: identity.role,
+                    department: identity.department,
+                    weatherType: checkin.weatherType,
+                    selectedMoods: Array.isArray(checkin.selectedMoods) ? checkin.selectedMoods : [],
+                    presenceLevel: checkin.presenceLevel,
+                    capacityLevel: checkin.capacityLevel,
+                    submittedAt: checkin.submittedAt || null,
+                    date: checkin.date || checkin.submittedAt || null
+                });
                 if (checkin.aiAnalysis?.needsSupport) {
                     bucket.flagged += 1;
                 }
 
-                const memberId = checkin.userId?._id?.toString() || checkin.userId?.toString();
+                const memberId = getCheckinResolvedUserId(checkin)?.toString();
                 if (memberId) {
                     if (!periodStatsByUser[memberId]) {
                         periodStatsByUser[memberId] = {
@@ -220,27 +415,23 @@ const getDashboardStats = async (req, res) => {
             const timelineStart = startOfDay(startDate);
             const timelineEnd = startOfDay(endDate);
             for (let cursor = new Date(timelineStart); cursor <= timelineEnd; cursor.setDate(cursor.getDate() + 1)) {
-                const key = cursor.toISOString().split('T')[0];
-                const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0 };
+                const key = formatCalendarDateKey(cursor);
+                const bucket = timelineBuckets[key] || { count: 0, flagged: 0, presence: 0, capacity: 0, users: [] };
                 timeline.push({
                     date: key,
                     totalCheckins: bucket.count,
+                    submissions: bucket.count,
                     needsSupport: bucket.flagged,
                     avgPresence: bucket.count ? Math.round((bucket.presence / bucket.count) * 10) / 10 : 0,
-                    avgCapacity: bucket.count ? Math.round((bucket.capacity / bucket.count) * 10) / 10 : 0
+                    avgCapacity: bucket.count ? Math.round((bucket.capacity / bucket.count) * 10) / 10 : 0,
+                    users: bucket.users
                 });
             }
 
             // Get all users for role-based statistics (filtered for head_unit)
             let userQuery = {};
-            if (userRole === 'head_unit' && userUnit) {
-                userQuery = {
-                    isActive: true,
-                    $or: [
-                        { unit: userUnit },
-                        { department: userUnit }
-                    ]
-                };
+            if (userRole === 'head_unit') {
+                userQuery = { _id: { $in: scopedUserIds } };
             }
             // For head_unit, temporarily allow access to all users (like directorate)
             // TODO: Revert to unit-specific filtering when more data is available
@@ -257,22 +448,20 @@ const getDashboardStats = async (req, res) => {
             //     console.log('👥 Unit users for statistics:', unitUsers.map(u => ({ name: u.name, unit: u.unit, department: u.department })));
             // }
 
-            const allUsers = await User.find(userQuery, 'name email role department unit');
-            const totalUsersByRole = {
-                student: allUsers.filter(u => u.role === 'student').length,
-                staff: allUsers.filter(u => u.role === 'staff').length,
-                teacher: allUsers.filter(u => u.role === 'teacher').length,
-                admin: allUsers.filter(u => u.role === 'admin').length,
-                directorate: allUsers.filter(u => u.role === 'directorate').length,
-                superadmin: allUsers.filter(u => u.role === 'superadmin').length,
-                head_unit: allUsers.filter(u => u.role === 'head_unit').length
-            };
+            const allUsers = userRole === 'head_unit'
+                ? scopedUnitUsers
+                : await User.find(userQuery, 'name email role department unit');
+            const totalUsersByRole = countUsersByRole(allUsers);
 
             // Basic stats
             stats = {
                 period,
+                anchorDate: anchorDate.toISOString(),
+                anchorDateKey: formatCalendarDateKey(anchorDate),
                 startDate: startDate.toISOString(),
+                startDateKey: formatCalendarDateKey(startDate),
                 endDate: endDate.toISOString(),
+                endDateKey: formatCalendarDateKey(endDate),
                 periodTimeline: timeline,
                 periodLengthDays: timeline.length,
                 totalCheckins: periodCheckins.length,
@@ -299,7 +488,8 @@ const getDashboardStats = async (req, res) => {
             const roleStats = {};
             const roleLists = {};
             periodCheckins.forEach(checkin => {
-                const role = checkin.userId?.role || 'unknown';
+                const identity = getCheckinResolvedIdentity(checkin);
+                const role = identity.role || 'unknown';
                 if (!roleStats[role]) {
                     roleStats[role] = { count: 0, totalPresence: 0, totalCapacity: 0 };
                 }
@@ -310,7 +500,7 @@ const getDashboardStats = async (req, res) => {
                 if (!roleLists[role]) {
                     roleLists[role] = [];
                 }
-                roleLists[role].push(checkin.userId?.name || 'Unknown User');
+                roleLists[role].push(identity.name);
             });
 
             stats.roleBreakdown = Object.keys(roleStats).map(role => ({
@@ -346,11 +536,12 @@ const getDashboardStats = async (req, res) => {
                 const uniqueMoods = [...new Set(allMoods)];
 
                 uniqueMoods.forEach(mood => {
+                    const identity = getCheckinResolvedIdentity(checkin);
                     moodCount[mood] = (moodCount[mood] || 0) + 1;
                     if (!moodLists[mood]) {
                         moodLists[mood] = [];
                     }
-                    moodLists[mood].push(checkin.userId?.name || 'Unknown User');
+                    moodLists[mood].push(identity.name);
 
                     // Mark if this mood was AI-generated for this user
                     if (aiGeneratedMoods.includes(mood)) {
@@ -385,11 +576,12 @@ const getDashboardStats = async (req, res) => {
                 const uniqueWeatherTypes = [...new Set(weatherTypes)];
 
                 uniqueWeatherTypes.forEach(weather => {
+                    const identity = getCheckinResolvedIdentity(checkin);
                     weatherCount[weather] = (weatherCount[weather] || 0) + 1;
                     if (!weatherLists[weather]) {
                         weatherLists[weather] = [];
                     }
-                    weatherLists[weather].push(checkin.userId?.name || 'Unknown User');
+                    weatherLists[weather].push(identity.name);
 
                     // Mark if this weather was AI-analyzed for this user
                     if (aiGeneratedWeather.includes(weather)) {
@@ -418,7 +610,8 @@ const getDashboardStats = async (req, res) => {
 
             // Then count submissions by unit and build user lists
             periodCheckins.forEach(checkin => {
-                const unit = checkin.userId?.unit || checkin.userId?.department || 'Unknown';
+                const identity = getCheckinResolvedIdentity(checkin);
+                const unit = identity.unit || identity.department || 'Unknown';
                 if (!unitStats[unit]) {
                     unitStats[unit] = { count: 0, totalPresence: 0, totalCapacity: 0 };
                 }
@@ -430,7 +623,7 @@ const getDashboardStats = async (req, res) => {
                 if (!unitLists[unit]) {
                     unitLists[unit] = [];
                 }
-                unitLists[unit].push(checkin.userId?.name || 'Unknown User');
+                unitLists[unit].push(identity.name);
             });
 
             stats.unitBreakdown = Object.keys(totalUsersByUnit).map(unit => {
@@ -456,10 +649,11 @@ const getDashboardStats = async (req, res) => {
 
             // Flagged users (needs support) - enhanced AI analysis with historical data
             // For head_unit, only show flagged users from their unit who selected them as support contact
+            const RESOLVED_STATUSES = new Set(['handled', 'success']);
             const flaggedCheckins = periodCheckins.filter(c => {
-                // Must not have been handled yet
+                // Must not have been resolved yet
                 const notHandled = !c.supportContactResponse ||
-                    c.supportContactResponse.status !== 'handled';
+                    !RESOLVED_STATUSES.has(c.supportContactResponse.status);
 
                 if (!notHandled) return false;
 
@@ -514,6 +708,7 @@ const getDashboardStats = async (req, res) => {
 
             // Map to flagged users format with enhanced AI analysis
             stats.flaggedUsers = flaggedCheckins.map(checkin => {
+                const identity = getCheckinResolvedIdentity(checkin);
                 // Enhanced AI analysis for flagging reasons
                 const aiAnalysis = checkin.aiAnalysis || {};
                 const reasons = checkin.flaggingReasons || [];
@@ -530,12 +725,12 @@ const getDashboardStats = async (req, res) => {
 
                 return {
                     id: checkin._id,
-                    userId: checkin.userId?._id,
-                    name: checkin.userId?.name || 'Unknown',
-                    email: checkin.userId?.email || 'Unknown',
-                    role: checkin.userId?.role || 'Unknown',
-                    department: checkin.userId?.department || 'Unknown',
-                    unit: checkin.userId?.unit || checkin.userId?.department || 'Unknown',
+                    userId: identity.id,
+                    name: identity.name,
+                    email: identity.email || 'Unknown',
+                    role: identity.role || 'Unknown',
+                    department: identity.department || 'Unknown',
+                    unit: identity.unit || identity.department || 'Unknown',
                     presenceLevel: checkin.presenceLevel,
                     capacityLevel: checkin.capacityLevel,
                     selectedMoods: checkin.selectedMoods,
@@ -570,32 +765,37 @@ const getDashboardStats = async (req, res) => {
                 return true; // Directorate sees all requests
             });
 
-            stats.checkinRequests = checkinRequests.map(checkin => ({
-                id: checkin._id,
-                contact: checkin.supportContactUserId?.name || 'Unknown',
-                contactEmail: checkin.supportContactUserId?.email || null,
-                requestedBy: checkin.userId?.name || 'Unknown',
-                userId: checkin.userId?._id,
-                contactId: checkin.supportContactUserId?._id,
-                submittedAt: checkin.submittedAt,
-                weatherType: checkin.weatherType,
-                presenceLevel: checkin.presenceLevel,
-                capacityLevel: checkin.capacityLevel,
-                status: checkin.supportContactResponse?.status || 'pending',
-                responseDetails: checkin.supportContactResponse?.details || null,
-                respondedAt: checkin.supportContactResponse?.respondedAt || null
-            }));
+            stats.checkinRequests = checkinRequests.map(checkin => {
+                const identity = getCheckinResolvedIdentity(checkin);
+                return {
+                    id: checkin._id,
+                    contact: checkin.supportContactUserId?.name || 'Unknown',
+                    contactEmail: checkin.supportContactUserId?.email || null,
+                    requestedBy: identity.name,
+                    userId: identity.id,
+                    contactId: checkin.supportContactUserId?._id,
+                    submittedAt: checkin.submittedAt,
+                    weatherType: checkin.weatherType,
+                    presenceLevel: checkin.presenceLevel,
+                    capacityLevel: checkin.capacityLevel,
+                    status: checkin.supportContactResponse?.status || 'pending',
+                    responseDetails: checkin.supportContactResponse?.details || null,
+                    resolutionMessage: checkin.supportContactResponse?.resolutionMessage || null,
+                    respondedAt: checkin.supportContactResponse?.respondedAt || null
+                };
+            });
 
             // Send notifications for new support requests (only if not already responded to)
             const newRequests = checkinRequests.filter(c => !c.supportContactResponse?.status);
             for (const request of newRequests) {
                 try {
+                    const identity = getCheckinResolvedIdentity(request);
                     await notificationService.sendSupportRequestNotification({
                         id: request._id,
                         contactEmail: request.supportContactUserId?.email,
                         contactName: request.supportContactUserId?.name,
-                        requestedBy: request.userId?.name,
-                        userId: request.userId?._id,
+                        requestedBy: identity.name,
+                        userId: identity.id,
                         weatherType: request.weatherType,
                         presenceLevel: request.presenceLevel,
                         capacityLevel: request.capacityLevel,
@@ -609,7 +809,7 @@ const getDashboardStats = async (req, res) => {
 
             // Recent activity (last 20 check-ins in period)
             let recentActivityQuery = {
-                date: { $gte: startDate, $lt: endDate }
+                date: { $gte: startDate, $lt: rangeEndExclusive }
             };
 
             // For head_unit, temporarily show all activity (like directorate)
@@ -630,36 +830,47 @@ const getDashboardStats = async (req, res) => {
             //     };
             // }
 
-            const recentCheckins = await EmotionalCheckin.find(recentActivityQuery)
-                .sort({ submittedAt: -1 })
-                .limit(20)
-                .populate('userId', 'name role department unit')
-                .populate('supportContactUserId', 'name role department unit');
+            if (userRole === 'head_unit') {
+                applyResolvedUserScope(recentActivityQuery, scopedUserIds);
+            }
 
-            stats.recentActivity = recentCheckins.map(checkin => ({
-                id: checkin._id,
-                userName: checkin.userId?.name || 'Unknown',
-                role: checkin.userId?.role || 'Unknown',
-                department: checkin.userId?.department || 'Unknown',
-                weatherType: checkin.weatherType,
-                selectedMoods: checkin.selectedMoods,
-                presenceLevel: checkin.presenceLevel,
-                capacityLevel: checkin.capacityLevel,
-                submittedAt: checkin.submittedAt,
-                date: checkin.date || checkin.submittedAt || checkin.createdAt,
-                status: checkin.supportContactResponse?.status || 'pending',
-                supportContact: checkin.supportContactUserId ? {
-                    id: checkin.supportContactUserId._id,
-                    name: checkin.supportContactUserId.name,
-                    role: checkin.supportContactUserId.role,
-                    department: checkin.supportContactUserId.department
-                } : null,
-                responseDetails: checkin.supportContactResponse?.details || null,
-                respondedAt: checkin.supportContactResponse?.respondedAt || null
-            }));
+            const recentCheckins = await populateCheckinIdentity(
+                EmotionalCheckin.find(recentActivityQuery)
+                    .sort({ submittedAt: -1 })
+                    .limit(20)
+            );
+
+            stats.recentActivity = recentCheckins.map(checkin => {
+                const identity = getCheckinResolvedIdentity(checkin);
+                return {
+                    id: checkin._id,
+                    userName: identity.name,
+                    role: identity.role || 'Unknown',
+                    department: identity.department || 'Unknown',
+                    weatherType: checkin.weatherType,
+                    selectedMoods: checkin.selectedMoods,
+                    presenceLevel: checkin.presenceLevel,
+                    capacityLevel: checkin.capacityLevel,
+                    submittedAt: checkin.submittedAt,
+                    date: checkin.date || checkin.submittedAt || checkin.createdAt,
+                    status: checkin.supportContactResponse?.status || 'pending',
+                    supportContact: checkin.supportContactUserId ? {
+                        id: checkin.supportContactUserId._id,
+                        name: checkin.supportContactUserId.name,
+                        role: checkin.supportContactUserId.role,
+                        department: checkin.supportContactUserId.department
+                    } : null,
+                    responseDetails: checkin.supportContactResponse?.details || null,
+                    respondedAt: checkin.supportContactResponse?.respondedAt || null
+                };
+            });
 
             // Calculate not submitted users with enhanced data
-            const submittedUserIds = new Set(periodCheckins.map(c => c.userId?._id?.toString()).filter(Boolean));
+            const submittedUserIds = new Set(
+                periodCheckins
+                    .map((checkin) => getCheckinResolvedUserId(checkin)?.toString())
+                    .filter(Boolean)
+            );
             stats.notSubmittedUsers = allUsers
                 .filter(user => !submittedUserIds.has(user._id.toString()))
                 .map(user => ({
@@ -687,11 +898,18 @@ const getDashboardStats = async (req, res) => {
 
                 if (memberIds.length > 0) {
                     const latestCheckins = await EmotionalCheckin.aggregate([
-                        { $match: { userId: { $in: memberIds } } },
+                        {
+                            $addFields: {
+                                resolvedUserId: {
+                                    $ifNull: ['$legacyResolvedUserId', '$userId']
+                                }
+                            }
+                        },
+                        { $match: { resolvedUserId: { $in: memberIds } } },
                         { $sort: { date: -1 } },
                         {
                             $group: {
-                                _id: '$userId',
+                                _id: '$resolvedUserId',
                                 lastCheckin: { $first: '$$ROOT' },
                                 totalCheckins: { $sum: 1 },
                                 avgPresence: { $avg: '$presenceLevel' },
@@ -748,12 +966,12 @@ const getDashboardStats = async (req, res) => {
                         return bTime - aTime;
                     });
 
-                    const todayKey = startOfDay(new Date()).toISOString().split('T')[0];
+                    const referenceDateKey = formatCalendarDateKey(anchorDate);
                     const activeToday = staffDetails.filter(member => {
                         if (!member.lastCheckin?.date) return false;
                         const compare = new Date(member.lastCheckin.date);
                         compare.setHours(0, 0, 0, 0);
-                        return compare.toISOString().split('T')[0] === todayKey;
+                        return formatCalendarDateKey(compare) === referenceDateKey;
                     }).length;
                     const flaggedMembers = staffDetails.filter(member =>
                         member.lastCheckin?.needsSupport ||
@@ -764,6 +982,7 @@ const getDashboardStats = async (req, res) => {
                     stats.unitStaffSummary = {
                         totalMembers: staffDetails.length,
                         activeToday,
+                        referenceDateKey,
                         flaggedMembers,
                         submittedInPeriod: staffDetails.filter(member => (member.periodSummary?.submissions || 0) > 0).length
                     };
@@ -785,63 +1004,36 @@ const getDashboardStats = async (req, res) => {
 // Get mood distribution data with user names
 const getMoodDistribution = async (req, res) => {
     try {
-        const { period = 'today' } = req.query;
+        const { period = 'today', date } = req.query;
         const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
-
-        // Calculate date range based on period
-        let startDate, endDate;
         const now = new Date();
-
-        switch (period) {
-            case 'today':
-                startDate = new Date(now);
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 1);
-                break;
-            case 'week':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - now.getDay());
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 7);
-                break;
-            case 'month':
-                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-                break;
-            default:
-                startDate = new Date(now);
-                startDate.setHours(0, 0, 0, 0);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 1);
+        const query = {};
+        if (userRole === 'head_unit') {
+            const unitMembers = await resolveHeadUnitScopedUsers(req.user);
+            applyResolvedUserScope(query, unitMembers.map((user) => user._id));
         }
-
-        const query = { date: { $gte: startDate, $lt: endDate } };
-        if (userRole === 'head_unit' && userUnit) {
-            const unitMembers = await User.find({
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
-            }).select('_id');
-            query.userId = { $in: unitMembers.map(u => u._id) };
-        }
+        const { startDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
+            period,
+            date,
+            scopeQuery: query,
+            fallbackAnchorDate: now
+        });
+        query.date = { $gte: startDate, $lt: rangeEndExclusive };
 
         const checkins = await EmotionalCheckin.find(query)
-            .populate('userId', 'name');
+            .populate(CHECKIN_USER_POPULATE);
 
         const moodLists = {};
 
         // Group checkins by mood with user names
         checkins.forEach(checkin => {
+            const identity = getCheckinResolvedIdentity(checkin);
             checkin.selectedMoods.forEach(mood => {
                 if (!moodLists[mood]) {
                     moodLists[mood] = [];
                 }
-                moodLists[mood].push(checkin.userId?.name || 'Unknown User');
+                moodLists[mood].push(identity.name);
             });
         });
 
@@ -855,93 +1047,75 @@ const getMoodDistribution = async (req, res) => {
 // Get recent check-ins for dashboard
 const getRecentCheckins = async (req, res) => {
     try {
-        const { limit = 20, period = 'today', role, department } = req.query;
+        const { limit = 20, period = 'today', date, role, department } = req.query;
 
         // Build query based on filters
         let query = {};
+        let scopedIds = null;
         const userRole = getEffectiveDashboardRole(req.user);
         const userUnit = req.user.unit || req.user.department;
-        let populateOptions = 'name email role department';
-
-        // Add period filter
-        if (period) {
-            let startDate, endDate;
-            const now = new Date();
-
-            switch (period) {
-                case 'today':
-                    startDate = new Date(now);
-                    startDate.setHours(0, 0, 0, 0);
-                    endDate = new Date(startDate);
-                    endDate.setDate(endDate.getDate() + 1);
-                    break;
-                case 'week':
-                    startDate = new Date(now);
-                    startDate.setDate(now.getDate() - now.getDay());
-                    startDate.setHours(0, 0, 0, 0);
-                    endDate = new Date(startDate);
-                    endDate.setDate(endDate.getDate() + 7);
-                    break;
-                case 'month':
-                    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-                    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-                    break;
-                default:
-                    startDate = new Date(now);
-                    startDate.setHours(0, 0, 0, 0);
-                    endDate = new Date(startDate);
-                    endDate.setDate(endDate.getDate() + 1);
-            }
-
-            query.date = { $gte: startDate, $lt: endDate };
-        }
+        const now = new Date();
 
         // Add role filter
         if (role) {
-            query['userId'] = { $in: await User.find({ role }).select('_id') };
+            const roleUsers = await User.find({ role }).select('_id');
+            scopedIds = intersectScopedUserIds(scopedIds, roleUsers.map((user) => user._id));
         }
 
         // Add department filter
         if (department) {
-            query['userId'] = { $in: await User.find({ department }).select('_id') };
+            const departmentUsers = await User.find({ department }).select('_id');
+            scopedIds = intersectScopedUserIds(scopedIds, departmentUsers.map((user) => user._id));
         }
 
         // Head Unit scoping
-        if (userRole === 'head_unit' && userUnit) {
-            const unitMembers = await User.find({
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
-            }).select('_id');
-            query.userId = { $in: unitMembers.map(u => u._id) };
+        if (userRole === 'head_unit') {
+            const unitMembers = await resolveHeadUnitScopedUsers(req.user);
+            scopedIds = intersectScopedUserIds(scopedIds, unitMembers.map((user) => user._id));
         }
+
+        if (Array.isArray(scopedIds)) {
+            applyResolvedUserScope(query, scopedIds);
+        }
+
+        const scopeQuery = Array.isArray(scopedIds)
+            ? buildResolvedUserScopeClause(scopedIds)
+            : {};
+        const { startDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
+            period,
+            date,
+            scopeQuery,
+            fallbackAnchorDate: now
+        });
+        query.date = { $gte: startDate, $lt: rangeEndExclusive };
 
         const checkins = await EmotionalCheckin.find(query)
             .sort({ submittedAt: -1 })
             .limit(parseInt(limit))
-            .populate('userId', populateOptions)
-            .select('weatherType selectedMoods presenceLevel capacityLevel aiAnalysis submittedAt date');
+            .populate(CHECKIN_USER_POPULATE)
+            .select('weatherType selectedMoods presenceLevel capacityLevel aiAnalysis submittedAt date userId legacyResolvedUserId userNameSnapshot userEmailSnapshot userRoleSnapshot userDepartmentSnapshot userUnitSnapshot');
 
-        const formattedCheckins = checkins.map(checkin => ({
-            id: checkin._id,
-            user: {
-                id: checkin.userId?._id,
-                name: checkin.userId?.name || 'Unknown',
-                email: checkin.userId?.email || 'Unknown',
-                role: checkin.userId?.role || 'Unknown',
-                department: checkin.userId?.department || 'Unknown'
-            },
-            weatherType: checkin.weatherType,
-            selectedMoods: checkin.selectedMoods,
-            presenceLevel: checkin.presenceLevel,
-            capacityLevel: checkin.capacityLevel,
-            needsSupport: checkin.aiAnalysis?.needsSupport || false,
-            aiAnalysis: checkin.aiAnalysis,
-            submittedAt: checkin.submittedAt,
-            date: checkin.date
-        }));
+        const formattedCheckins = checkins.map(checkin => {
+            const identity = getCheckinResolvedIdentity(checkin);
+            return {
+                id: checkin._id,
+                user: {
+                    id: identity.id,
+                    name: identity.name,
+                    email: identity.email || 'Unknown',
+                    role: identity.role || 'Unknown',
+                    department: identity.department || 'Unknown'
+                },
+                weatherType: checkin.weatherType,
+                selectedMoods: checkin.selectedMoods,
+                presenceLevel: checkin.presenceLevel,
+                capacityLevel: checkin.capacityLevel,
+                needsSupport: checkin.aiAnalysis?.needsSupport || false,
+                aiAnalysis: checkin.aiAnalysis,
+                submittedAt: checkin.submittedAt,
+                date: checkin.date
+            };
+        });
 
         sendSuccess(res, 'Recent check-ins retrieved', { checkins: formattedCheckins });
     } catch (error) {
@@ -953,7 +1127,7 @@ const getRecentCheckins = async (req, res) => {
 // Get user trend data for individual analysis
 const getUserTrends = async (req, res) => {
     try {
-        const { userId, period = 'month' } = req.query;
+        const { userId, period = 'month', date } = req.query;
 
         if (!userId) {
             return sendError(res, 'User ID is required', 400);
@@ -969,35 +1143,17 @@ const getUserTrends = async (req, res) => {
             }
         }
 
-        // Calculate date range
-        let startDate, endDate;
-        const now = new Date();
-
-        switch (period) {
-            case 'week':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 7);
-                endDate = new Date(now);
-                break;
-            case 'month':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 30);
-                endDate = new Date(now);
-                break;
-            case 'semester':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 180);
-                endDate = new Date(now);
-                break;
-            default:
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 30);
-                endDate = new Date(now);
-        }
+        const resolvedUserScope = buildResolvedUserScopeClause([userId]);
+        const { startDate, endDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
+            period,
+            date,
+            scopeQuery: resolvedUserScope,
+            fallbackAnchorDate: new Date()
+        });
 
         const checkins = await EmotionalCheckin.find({
-            userId,
-            date: { $gte: startDate, $lt: endDate }
+            date: { $gte: startDate, $lt: rangeEndExclusive },
+            $or: resolvedUserScope.$or
         })
             .sort({ date: 1 })
             .select('presenceLevel capacityLevel selectedMoods weatherType aiAnalysis details date submittedAt');
@@ -1033,7 +1189,7 @@ const getUserTrends = async (req, res) => {
         // Group by weeks for weekly analysis
         const weeklyData = {};
         trends.forEach(trend => {
-            const weekKey = new Date(trend.date).toISOString().split('T')[0].substring(0, 7); // YYYY-MM format
+            const weekKey = formatCalendarMonthKey(trend.date); // YYYY-MM format
             if (!weeklyData[weekKey]) {
                 weeklyData[weekKey] = { presence: [], capacity: [], moods: [], weather: [] };
             }
@@ -1118,15 +1274,28 @@ const getUserTrends = async (req, res) => {
 // Export dashboard data
 const exportDashboardData = async (req, res) => {
     try {
-        const { period = 'today', format = 'json' } = req.query;
+        const { period = 'today', date, format = 'json' } = req.query;
+        const exportDateLabel = formatCalendarDateKey(resolveAnchorDate(date, new Date()));
 
         // Get dashboard stats
-        const statsResponse = await getDashboardStats({ query: { period } }, {
-            json: (data) => data,
-            status: () => ({ json: (data) => data })
+        let statsResponse = null;
+        await getDashboardStats({
+            query: { period, date, force: 'true' },
+            user: req.user
+        }, {
+            status() {
+                return this;
+            },
+            json(data) {
+                statsResponse = data;
+                return data;
+            }
         });
 
-        const data = statsResponse.data.stats;
+        const data = statsResponse?.data?.stats;
+        if (!data) {
+            return sendError(res, 'Failed to export dashboard data', 500);
+        }
 
         if (format === 'csv') {
             // Generate CSV for flagged users
@@ -1148,7 +1317,7 @@ const exportDashboardData = async (req, res) => {
             const csvContent = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
 
             res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename=dashboard-${period}-${new Date().toISOString().split('T')[0]}.csv`);
+            res.setHeader('Content-Disposition', `attachment; filename=dashboard-${period}-${exportDateLabel}.csv`);
             res.send(csvContent);
         } else {
             // Return JSON
@@ -1242,36 +1411,10 @@ const generateInsights = (stats, period) => {
 const getUserDashboardData = async (req, res) => {
     try {
         const { userId } = req.params;
-        const { period = 'month' } = req.query;
+        const { period = 'month', date } = req.query;
 
         if (!userId) {
             return sendError(res, 'User ID is required', 400);
-        }
-
-        // Calculate date range based on period
-        let startDate, endDate;
-        const now = new Date();
-
-        switch (period) {
-            case 'week':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 7);
-                endDate = new Date(now);
-                break;
-            case 'month':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 30);
-                endDate = new Date(now);
-                break;
-            case 'semester':
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 180);
-                endDate = new Date(now);
-                break;
-            default:
-                startDate = new Date(now);
-                startDate.setDate(now.getDate() - 30);
-                endDate = new Date(now);
         }
 
         // Enforce access: head_unit can only access users in their unit/department
@@ -1290,10 +1433,18 @@ const getUserDashboardData = async (req, res) => {
             }
         }
 
+        const resolvedUserScope = buildResolvedUserScopeClause([userId]);
+        const { startDate, endDate, rangeEndExclusive } = await resolveScopedDashboardWindow({
+            period,
+            date,
+            scopeQuery: resolvedUserScope,
+            fallbackAnchorDate: new Date()
+        });
+
         // Get user's check-in history
         const checkins = await EmotionalCheckin.find({
-            userId,
-            date: { $gte: startDate, $lt: endDate }
+            date: { $gte: startDate, $lt: rangeEndExclusive },
+            $or: resolvedUserScope.$or
         })
             .sort({ date: -1 })
             .populate('supportContactUserId', 'name role department')
@@ -1438,6 +1589,19 @@ const getUserCheckinHistory = async (req, res) => {
             return sendError(res, 'User ID is required', 400);
         }
 
+        const requesterRole = getEffectiveDashboardRole(req.user);
+        const target = await User.findById(userId).select('unit department');
+        if (!target) {
+            return sendError(res, 'User not found', 404);
+        }
+
+        if (requesterRole === 'head_unit') {
+            const unit = req.user.unit || req.user.department;
+            if (target.unit !== unit && target.department !== unit) {
+                return sendError(res, 'Access denied for this user', 403);
+            }
+        }
+
         const checkins = await EmotionalCheckin.find({ userId })
             .sort({ date: -1 })
             .limit(parseInt(limit))
@@ -1485,63 +1649,85 @@ const getUserCheckinHistory = async (req, res) => {
 const confirmSupportRequest = async (req, res) => {
     try {
         const { requestId } = req.params;
-        const { action, details, followUpActions } = req.body;
+        const { action, details, followUpActions, resolutionMessage } = req.body;
         const contactId = req.user.id;
 
-        if (!['handled', 'acknowledged'].includes(action)) {
-            return sendError(res, 'Invalid action. Must be "handled" or "acknowledged"', 400);
+        if (!['handled', 'acknowledged', 'follow_up', 'success'].includes(action)) {
+            return sendError(res, 'Invalid action. Must be "acknowledged", "follow_up", "success", or "handled"', 400);
         }
 
-        // Validate required details for handled action
-        if (action === 'handled' && (!details || details.trim().length < 10)) {
-            return sendError(res, 'Details are required for handled requests (minimum 10 characters)', 400);
+        // Validate required resolution message for success/handled actions
+        if ((action === 'success' || action === 'handled') && (!resolutionMessage || resolutionMessage.trim().length < 10)) {
+            return sendError(res, 'Resolution message is required (minimum 10 characters)', 400);
         }
 
-        const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions);
+        const result = await notificationService.confirmSupportRequest(requestId, contactId, action, details, followUpActions, resolutionMessage);
 
-        if (result.success) {
-            // Emit real-time update to dashboard clients
-            const io = require('../config/socket').getIO();
-            if (io) {
-                io.emit('dashboard:support-request-updated', {
-                    requestId,
-                    action,
-                    contactId,
-                    contactName: req.user.name,
-                    contactRole: req.user.role,
-                    details,
-                    followUpActions,
-                    updatedAt: new Date()
-                });
-            }
+        if (!result.success) {
+            const statusCode = result.code || 500;
+            return sendError(res, result.message || 'Failed to confirm support request', statusCode);
+        }
 
-            // Send notification to original user about the response
-            try {
-                const checkin = await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
-                if (checkin && checkin.userId?.email) {
-                    const subject = action === 'handled'
-                        ? `Your Support Request Has Been Handled - ${req.user.name}`
-                        : `Your Support Request Has Been Acknowledged - ${req.user.name}`;
+        // Emit real-time update to dashboard clients
+        const io = require('../config/socket').getIO();
+        if (io) {
+            io.emit('dashboard:support-request-updated', {
+                requestId,
+                action,
+                contactId,
+                contactName: req.user.name,
+                contactRole: req.user.role,
+                details,
+                resolutionMessage,
+                followUpActions,
+                updatedAt: new Date()
+            });
+        }
 
-                    const actionText = action === 'handled' ? 'handled' : 'acknowledged';
-                    const htmlContent = `
+        // Send notification to original user about the response
+        try {
+            const checkin = await StudentEmotionalCheckin.findById(requestId).populate('userId', 'name email')
+                || await EmotionalCheckin.findById(requestId).populate('userId', 'name email');
+            if (checkin && checkin.userId?.email) {
+                const isResolved = action === 'success' || action === 'handled';
+                const subject = isResolved
+                    ? `Your Support Request Has Been Resolved — ${req.user.name}`
+                    : action === 'follow_up'
+                        ? `Follow-Up in Progress — ${req.user.name}`
+                        : `Your Support Request Has Been Acknowledged — ${req.user.name}`;
+
+                const headerColor = isResolved ? '#059669' : '#0369a1';
+                const headerGradient = isResolved
+                    ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                    : 'linear-gradient(135deg, #0369a1 0%, #0284c7 100%)';
+                const headerIcon = isResolved ? '✅' : action === 'follow_up' ? '🤝' : '👀';
+                const headerLabel = isResolved ? 'Support Request Resolved'
+                    : action === 'follow_up' ? 'Follow-Up in Progress'
+                    : 'Support Request Acknowledged';
+
+                const htmlContent = `
                         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-                                <h1 style="margin: 0; font-size: 24px;">✅ Support Request ${actionText.charAt(0).toUpperCase() + actionText.slice(1)}</h1>
+                            <div style="background: ${headerGradient}; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                                <h1 style="margin: 0; font-size: 24px;">${headerIcon} ${headerLabel}</h1>
                             </div>
                             <div style="background: white; padding: 30px; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px;">
                                 <p style="font-size: 16px; color: #333; margin-bottom: 20px;">
-                                    Your support request from ${new Date(checkin.submittedAt).toLocaleDateString()} has been <strong>${actionText}</strong> by ${req.user.name} (${req.user.role}).
+                                    Hi <strong>${checkin.userId.name}</strong>, your support request from ${new Date(checkin.submittedAt).toLocaleDateString()} has been updated by <strong>${req.user.name}</strong>.
                                 </p>
-                                ${details ? `
-                                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                                    <h3 style="margin-top: 0; color: #495057;">Follow-up Details:</h3>
-                                    <p style="margin: 0; color: #6c757d;">${details}</p>
+                                ${isResolved && resolutionMessage ? `
+                                <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #059669;">
+                                    <h3 style="margin-top: 0; color: #065f46; font-size: 14px;">What was done:</h3>
+                                    <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">${resolutionMessage}</p>
+                                </div>
+                                ` : ''}
+                                ${action === 'follow_up' ? `
+                                <div style="background: #eff6ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #0369a1;">
+                                    <p style="margin: 0; color: #1e40af; font-size: 14px;">Your mentor is currently following up with you. They will get in touch soon.</p>
                                 </div>
                                 ` : ''}
                                 <div style="text-align: center; margin: 30px 0;">
-                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/emotional-wellness"
-                                       style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                                    <a href="${buildFrontendUrl('/emotional-wellness')}"
+                                       style="background: ${headerColor}; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                                         View My Dashboard
                                     </a>
                                 </div>
@@ -1552,25 +1738,23 @@ const confirmSupportRequest = async (req, res) => {
                         </div>
                     `;
 
-                    await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
-                    console.log(`✅ Notification email sent to ${checkin.userId.name} about ${action} request`);
-                }
-            } catch (emailError) {
-                console.error('❌ Failed to send confirmation email:', emailError);
-                // Don't fail the main request if email fails
+                await notificationService.sendEmail(checkin.userId.email, subject, htmlContent);
+                console.log(`✅ Notification email sent to ${checkin.userId.name} about "${action}" update`);
             }
-
-            sendSuccess(res, `Support request ${action} successfully`, {
-                requestId,
-                action,
-                details,
-                followUpActions,
-                contactName: req.user.name,
-                contactRole: req.user.role
-            });
-        } else {
-            sendError(res, 'Failed to confirm support request', 500);
+        } catch (emailError) {
+            console.error('❌ Failed to send confirmation email:', emailError);
+            // Don't fail the main request if email fails
         }
+
+        sendSuccess(res, `Support request ${action} successfully`, {
+            requestId,
+            action,
+            details,
+            resolutionMessage,
+            followUpActions,
+            contactName: req.user.name,
+            contactRole: req.user.role
+        });
     } catch (error) {
         console.error('Confirm support request error:', error);
         sendError(res, 'Failed to confirm support request', 500);
@@ -1596,15 +1780,12 @@ const getUnitMembers = async (req, res) => {
         let userQuery = { isActive: true };
 
         // For head_unit, only show members from their unit/department
-        if (userRole === 'head_unit' && userUnit) {
+        if (userRole === 'head_unit') {
+            const scopedUsers = await resolveHeadUnitScopedUsers(req.user);
             userQuery = {
-                isActive: true,
-                $or: [
-                    { unit: userUnit },
-                    { department: userUnit }
-                ]
+                _id: { $in: scopedUsers.map((user) => user._id) }
             };
-            console.log('🔒 Applied unit filtering for head_unit:', userUnit);
+            console.log('🔒 Applied unit/direct-report filtering for head_unit:', userUnit);
         }
         // For directorate and superadmin, show all users
         // No additional filtering needed

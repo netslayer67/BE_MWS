@@ -41,18 +41,26 @@ const SUBJECT_DEFINITIONS = {
         target: 80
     },
     ATTENDANCE: {
-        mentorEmail: 'hadi@millennia21.id',
+        mentorEmail: 'abu@millennia21.id',
         tier: 'tier2',
         focusLabel: 'Attendance',
         metricLabel: '%',
         baseline: 85,
         target: 95
+    },
+    INDONESIAN: {
+        mentorEmail: 'abu@millennia21.id',
+        tier: 'tier2',
+        focusLabel: 'Bahasa Indonesia',
+        metricLabel: 'score',
+        baseline: 50,
+        target: 75
     }
 };
 
 const SUBJECT_SETS = [
-    ['SEL', 'MATH', 'ENGLISH'],
-    ['BEHAVIOR', 'MATH', 'ATTENDANCE']
+    ['SEL', 'MATH', 'ENGLISH', 'INDONESIAN'],
+    ['BEHAVIOR', 'MATH', 'ATTENDANCE', 'INDONESIAN']
 ];
 
 const TIER_ORDER = {
@@ -222,7 +230,8 @@ const seedMtssGrade7HelixAssignments = async () => {
             BEHAVIOR: [],
             ENGLISH: [],
             MATH: [],
-            ATTENDANCE: []
+            ATTENDANCE: [],
+            INDONESIAN: []
         };
 
         let interventionUpdates = 0;
